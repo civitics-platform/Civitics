@@ -79,6 +79,19 @@ Never commit node_modules
 Never use npm or yarn commands
 Always use pnpm
 
+## Supabase API Keys
+Use NEW API keys only — not legacy:
+  Client side: sb_publishable_xxx
+    stored as NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+  Server side: sb_secret_xxx
+    stored as SUPABASE_SECRET_KEY
+    
+Never use legacy anon or
+service_role keys
+Never use NEXT_PUBLIC_ prefix
+for secret key
+
+
 ## Tech Stack
 
 ### Frontend

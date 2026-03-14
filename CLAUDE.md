@@ -6,7 +6,7 @@ This file is the authoritative reference for the Civitics platform. Read it befo
 
 ## Mission
 
-Restore democratic power to its rightful owners — the people. Bring together data on all public institutions and officials, make it easy for anyone to explore, and provide powerful tools for citizens, researchers, journalists, and investigators. Make government promises permanent public record. Give average people a genuine seat at the table.
+Restore democratic power to its rightful owners — the people. Facilitate, foster and encourage collaboration between all political, religous, language and geographic barriers. Bring together data on all public institutions and officials, make it easy for anyone to explore, and provide powerful tools for citizens, researchers, journalists, and investigators. Make government promises permanent public record. Give average people a genuine seat at the table.
 
 ---
 
@@ -22,7 +22,7 @@ Every feature we build should make that map brighter. If it doesn't, we don't bu
 
 Two distinct products sharing one infrastructure:
 
-1. **Governance App** — The mission vehicle. "Wikipedia meets Bloomberg Terminal for democracy." Structured civic data, legislative tracking, public comment submission, connection graph visualization, maps, and AI-powered accountability tools. Feels like serious civic infrastructure — closer to a court of record than Twitter. Must never feel like a "politics tab."
+1. **Civitics App** — The mission vehicle. "Wikipedia meets Bloomberg Terminal for democracy." Structured civic data, legislative tracking, public comment submission, connection graph visualization, maps, and AI-powered accountability tools. Feels like serious civic infrastructure — closer to a court of record than Twitter. Must never feel like a "politics tab."
 
 2. **Social App** — The distribution and funding vehicle. A censorship-resistant social platform with the COMMONS token economy. General civic discourse, bipartisan feed mechanics, creator economy, algorithm marketplace, and crowdfunding. Cat memes are welcome. Funds and seeds the governance app's user base.
 
@@ -36,8 +36,8 @@ Every implementation decision must be checked against these:
 
 - **Official comment submission is always free** — No fees, tokens, or credits required. This is a constitutional right.
 - **No paywalling civic participation** — Reading, commenting on, and submitting positions on government proposals is free forever.
-- **Blockchain is invisible** — No seed phrases, no wallet addresses in UI, no gas fee prompts, no network switching. Web3 is plumbing.  Options for Advanced users to use these, as requested, disabled by default.
-- **No gas fees for users** — All transaction costs sponsored via Biconomy (ERC-4337).
+- **Blockchain is invisible** — No seed phrases, no wallet addresses in UI, no gas fee prompts, no network switching. Web3 is plumbing.  Options for Advanced users to use these, as requested, disabled by default, enabled by request.
+- **No gas fees for users** — All transaction costs sponsored or included in total via Biconomy, dynamic pricing (ERC-4337).
 - **Geography is never stored precisely** — Coarsen to district/zip level before any INSERT. Exact coordinates are never persisted.
 - **Warrant canary published on-chain weekly** — Signed attestation of non-compromise written to Optimism on schedule.
 - **Platform earns are never extractive** — Revenue model aligned with civic mission, not against it.
@@ -51,7 +51,7 @@ Every implementation decision must be checked against these:
 
 ```
 /apps
-  /governance       # Next.js civic governance app
+  /civitics         # Next.js civic governance app
   /social           # Next.js social/COMMONS app
 /packages
   /ui               # Shared Tailwind component library
@@ -67,6 +67,17 @@ Every implementation decision must be checked against these:
 Both apps are separate Next.js App Router projects. One account works across both; civic identity and wallet are shared.
 
 ---
+
+## Package Manager
+pnpm — not npm, not yarn
+  pnpm install (not npm install)
+  pnpm add X (not npm install X)
+  pnpm dev (not npm run dev)
+  pnpm dlx X (not npx X)
+  
+Never commit node_modules
+Never use npm or yarn commands
+Always use pnpm
 
 ## Tech Stack
 
@@ -125,12 +136,15 @@ Both apps are separate Next.js App Router projects. One account works across bot
 
 ## The Two Economies
 
-### Governance App: Civic Credits
+### Civitics App: Civic Credits
 - **Non-transferable, non-speculative** — cannot be bought or sold
 - Tracked on-chain (soulbound) as a permanent civic participation record
-- Earned through civic activity: submitting official comments (50 credits), bridging comments (15), verified contributions (25–100)
-- Spent on AI features: extra queries (10), comment draft (20), connection mapping (25), legislation draft (50)
+- Earned through civic activity: submitting official comments , bridging comments , verified contributions 
+- Spent on AI features: extra queries , comment draft , connection mapping , legislation draft 
 - Active civic users earn more than they spend — never need to pay
+- Earnings determined by supply , demand , value , voting results
+- Rewards funded by donation or as a percentage of revenue from ads , specific donations
+- Voting through "staking" on specific causes - direct effect on reward distribution allocation
 
 ### Social App: COMMONS Token
 - **Transferable, exchangeable for USDC** — creators can pay rent with this
@@ -324,7 +338,7 @@ The single most important map in the platform. A world map, updated in real time
 - "What does this mean?" basic Q&A on cached data
 
 ### Credit-gated (per-user AI calls)
-- Personalized impact analysis ("what does this mean for ME as a small business owner")
+- Personalized impact analysis ("what does this mean for ME as a small business owner"), answers are shareable
 - Comment drafting assistant (3 questions → structured official comment)
 - Direct submission to regulations.gov via API
 - Connection mapping queries
@@ -342,6 +356,7 @@ The single most important map in the platform. A world map, updated in real time
 3. Hard rate limits per user per day
 4. Never open-ended free API access
 5. Seek Anthropic nonprofit/partnership rate; apply for startup credits early
+6. Costs are always transparent, and less than revenue
 
 ---
 
@@ -607,7 +622,7 @@ npm install -g @anthropic-ai/claude-code
 npm install -g turbo
 ```
 
-**File location:** Keep the project inside the WSL2 filesystem (`~/projects/governanced`), not on the Windows-mounted `/mnt/c/` drive. I/O performance on `/mnt/c/` is significantly slower and causes watch mode issues with Next.js and Turborepo.
+**File location:** Keep the project inside the WSL2 filesystem (`~/projects/civitics`), not on the Windows-mounted `/mnt/c/` drive. I/O performance on `/mnt/c/` is significantly slower and causes watch mode issues with Next.js and Turborepo.
 
 ---
 

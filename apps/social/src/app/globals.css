@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-inter: "Inter", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", "Fira Code", monospace;
+  }
+
+  html {
+    @apply antialiased;
+  }
+
+  body {
+    /* Social app is tonally distinct from the governance app — warmer, more energetic */
+    @apply bg-gray-50 text-gray-900;
+  }
+}

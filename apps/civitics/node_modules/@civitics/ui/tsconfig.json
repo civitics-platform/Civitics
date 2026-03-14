@@ -1,0 +1,7 @@
+{
+  "extends": "@civitics/config/typescript/nextjs",
+  "compilerOptions": {
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}

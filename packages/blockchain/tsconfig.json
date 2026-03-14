@@ -1,0 +1,5 @@
+{
+  "extends": "@civitics/config/typescript/base",
+  "compilerOptions": { "outDir": "dist" },
+  "include": ["src"]
+}

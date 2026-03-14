@@ -596,3 +596,321 @@ CREATE TRIGGER spending_records_updated_at BEFORE UPDATE ON spending_records FOR
 CREATE TRIGGER users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER civic_comments_updated_at BEFORE UPDATE ON civic_comments FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER official_comment_submissions_updated_at BEFORE UPDATE ON official_comment_submissions FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =============================================================================
+-- AGENCIES
+-- Government agencies and regulatory bodies, distinct from governing bodies.
+-- An agency executes law; a governing body makes or interprets it.
+-- Examples: EPA, FTC, SEC, state DMV, city planning department.
+-- =============================================================================
+
+CREATE TABLE agencies (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  jurisdiction_id       UUID NOT NULL REFERENCES jurisdictions(id),
+  parent_agency_id      UUID REFERENCES agencies(id),        -- hierarchical: EPA > region offices
+  governing_body_id     UUID REFERENCES governing_bodies(id), -- oversight body (e.g. Senate committee)
+  name                  TEXT NOT NULL,
+  short_name            TEXT,
+  acronym               TEXT,                                 -- "EPA", "FTC", "SEC", "FDA"
+  agency_type           TEXT NOT NULL DEFAULT 'federal'
+                          CHECK (agency_type IN ('federal', 'state', 'local', 'independent', 'international', 'other')),
+  website_url           TEXT,
+  contact_email         TEXT,
+  description           TEXT,
+  -- USASpending IDs for spending record joins
+  usaspending_agency_id TEXT,
+  usaspending_subtier_id TEXT,
+  is_active             BOOLEAN NOT NULL DEFAULT true,
+  source_ids            JSONB NOT NULL DEFAULT '{}',
+  metadata              JSONB NOT NULL DEFAULT '{}',
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX agencies_jurisdiction_id    ON agencies(jurisdiction_id);
+CREATE INDEX agencies_parent_agency_id   ON agencies(parent_agency_id);
+CREATE INDEX agencies_governing_body_id  ON agencies(governing_body_id);
+CREATE INDEX agencies_is_active          ON agencies(is_active);
+CREATE INDEX agencies_updated_at         ON agencies(updated_at);
+CREATE INDEX agencies_name_trgm          ON agencies USING GIN(name gin_trgm_ops);
+
+CREATE TRIGGER agencies_updated_at
+  BEFORE UPDATE ON agencies
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =============================================================================
+-- VOTES
+-- Individual vote records: which official voted how on which proposal.
+-- Separate from entity_connections (which models graph relationships);
+-- this table is the authoritative structured vote record used for analytics,
+-- the vote-pattern analyzer, and donor-vote correlation.
+-- =============================================================================
+
+CREATE TABLE votes (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  official_id      UUID NOT NULL REFERENCES officials(id),
+  proposal_id      UUID NOT NULL REFERENCES proposals(id),
+  vote             TEXT NOT NULL
+                     CHECK (vote IN ('yes', 'no', 'abstain', 'present', 'not_voting', 'paired_yes', 'paired_no')),
+  voted_at         TIMESTAMPTZ,
+  roll_call_number TEXT,                                     -- "RC-123", "Vote 45"
+  chamber          TEXT,                                     -- 'senate' | 'house' | 'full'
+  session          TEXT,
+  source_url       TEXT,
+  source_ids       JSONB NOT NULL DEFAULT '{}',
+  metadata         JSONB NOT NULL DEFAULT '{}',
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- One definitive vote per official per proposal (UPDATE if amended)
+  UNIQUE (official_id, proposal_id)
+);
+
+CREATE INDEX votes_official_id  ON votes(official_id);
+CREATE INDEX votes_proposal_id  ON votes(proposal_id);
+CREATE INDEX votes_vote         ON votes(vote);
+CREATE INDEX votes_voted_at     ON votes(voted_at);
+CREATE INDEX votes_updated_at   ON votes(updated_at);
+
+CREATE TRIGGER votes_updated_at
+  BEFORE UPDATE ON votes
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =============================================================================
+-- UPDATED_AT INDEXES
+-- Critical for the institutional API: every collection endpoint supports
+-- ?updated_after=<timestamp> so downstream systems only fetch changed records.
+-- =============================================================================
+
+CREATE INDEX jurisdictions_updated_at          ON jurisdictions(updated_at);
+CREATE INDEX governing_bodies_updated_at       ON governing_bodies(updated_at);
+CREATE INDEX officials_updated_at              ON officials(updated_at);
+CREATE INDEX proposals_updated_at              ON proposals(updated_at);
+CREATE INDEX entity_connections_updated_at     ON entity_connections(updated_at);
+CREATE INDEX financial_relationships_updated_at ON financial_relationships(updated_at);
+CREATE INDEX promises_updated_at               ON promises(updated_at);
+CREATE INDEX career_history_updated_at         ON career_history(updated_at);
+CREATE INDEX spending_records_updated_at       ON spending_records(updated_at);
+CREATE INDEX users_updated_at                  ON users(updated_at);
+CREATE INDEX civic_comments_updated_at         ON civic_comments(updated_at);
+CREATE INDEX official_comment_submissions_updated_at ON official_comment_submissions(updated_at);
+
+-- =============================================================================
+-- ROW LEVEL SECURITY
+-- Public civic data: anyone can read.
+-- User data: only the authenticated owner can read/write.
+-- Everything else: authenticated users can read; writes go through service role.
+-- =============================================================================
+
+-- Enable RLS on every table
+ALTER TABLE jurisdictions                  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE governing_bodies               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE officials                      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agencies                       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE proposals                      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE votes                          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE financial_relationships        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE entity_connections             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE promises                       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE career_history                 ENABLE ROW LEVEL SECURITY;
+ALTER TABLE spending_records               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users                          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE civic_comments                 ENABLE ROW LEVEL SECURITY;
+ALTER TABLE official_comment_submissions   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE civic_credit_transactions      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE warrant_canary                 ENABLE ROW LEVEL SECURITY;
+
+-- ---------------------------------------------------------------------------
+-- Public civic data — anon + authenticated SELECT
+-- Core mission: all civic data is publicly readable, always.
+-- ---------------------------------------------------------------------------
+
+CREATE POLICY "public_jurisdictions_select"
+  ON jurisdictions FOR SELECT
+  TO anon, authenticated
+  USING (true);
+
+CREATE POLICY "public_governing_bodies_select"
+  ON governing_bodies FOR SELECT
+  TO anon, authenticated
+  USING (is_active = true);
+
+CREATE POLICY "public_officials_select"
+  ON officials FOR SELECT
+  TO anon, authenticated
+  USING (is_active = true);
+
+CREATE POLICY "public_agencies_select"
+  ON agencies FOR SELECT
+  TO anon, authenticated
+  USING (is_active = true);
+
+CREATE POLICY "public_proposals_select"
+  ON proposals FOR SELECT
+  TO anon, authenticated
+  USING (true);
+
+CREATE POLICY "public_votes_select"
+  ON votes FOR SELECT
+  TO anon, authenticated
+  USING (true);
+
+CREATE POLICY "public_financial_relationships_select"
+  ON financial_relationships FOR SELECT
+  TO anon, authenticated
+  USING (true);
+
+CREATE POLICY "public_entity_connections_select"
+  ON entity_connections FOR SELECT
+  TO anon, authenticated
+  USING (true);
+
+CREATE POLICY "public_promises_select"
+  ON promises FOR SELECT
+  TO anon, authenticated
+  USING (true);
+
+CREATE POLICY "public_career_history_select"
+  ON career_history FOR SELECT
+  TO anon, authenticated
+  USING (true);
+
+CREATE POLICY "public_spending_records_select"
+  ON spending_records FOR SELECT
+  TO anon, authenticated
+  USING (true);
+
+CREATE POLICY "public_warrant_canary_select"
+  ON warrant_canary FOR SELECT
+  TO anon, authenticated
+  USING (true);
+
+-- ---------------------------------------------------------------------------
+-- Public civic comments — readable by all, writable by owner
+-- ---------------------------------------------------------------------------
+
+CREATE POLICY "public_civic_comments_select"
+  ON civic_comments FOR SELECT
+  TO anon, authenticated
+  USING (is_deleted = false);
+
+CREATE POLICY "civic_comments_insert"
+  ON civic_comments FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid()::text = user_id::text);
+
+CREATE POLICY "civic_comments_update"
+  ON civic_comments FOR UPDATE
+  TO authenticated
+  USING (auth.uid()::text = user_id::text);
+
+-- ---------------------------------------------------------------------------
+-- Users — private, owner-only
+-- ---------------------------------------------------------------------------
+
+CREATE POLICY "users_select_own"
+  ON users FOR SELECT
+  TO authenticated
+  USING (auth.uid()::text = id::text);
+
+CREATE POLICY "users_update_own"
+  ON users FOR UPDATE
+  TO authenticated
+  USING (auth.uid()::text = id::text);
+
+-- ---------------------------------------------------------------------------
+-- Official comment submissions — owner-only
+-- Submission is always free; privacy of drafts belongs to the user.
+-- ---------------------------------------------------------------------------
+
+CREATE POLICY "official_comment_submissions_select_own"
+  ON official_comment_submissions FOR SELECT
+  TO authenticated
+  USING (auth.uid()::text = user_id::text);
+
+CREATE POLICY "official_comment_submissions_insert"
+  ON official_comment_submissions FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid()::text = user_id::text);
+
+CREATE POLICY "official_comment_submissions_update_own"
+  ON official_comment_submissions FOR UPDATE
+  TO authenticated
+  USING (auth.uid()::text = user_id::text);
+
+-- ---------------------------------------------------------------------------
+-- Civic credit transactions — owner-only read, service-role write
+-- ---------------------------------------------------------------------------
+
+CREATE POLICY "civic_credit_transactions_select_own"
+  ON civic_credit_transactions FOR SELECT
+  TO authenticated
+  USING (auth.uid()::text = user_id::text);
+
+-- =============================================================================
+-- POSTGIS STORED FUNCTIONS
+-- Called via supabase.rpc() from the application layer.
+-- =============================================================================
+
+-- Find every official who represents a given (coarsened) coordinate.
+-- Mirrors the canonical query in CLAUDE.md.
+CREATE OR REPLACE FUNCTION find_representatives_by_location(user_lat FLOAT, user_lng FLOAT)
+RETURNS TABLE (
+  id             UUID,
+  full_name      TEXT,
+  role_title     TEXT,
+  party          party,
+  governing_body TEXT,
+  jurisdiction   TEXT
+) AS $$
+  SELECT
+    o.id,
+    o.full_name,
+    o.role_title,
+    o.party,
+    gb.name  AS governing_body,
+    j.name   AS jurisdiction
+  FROM officials o
+  JOIN governing_bodies gb ON o.governing_body_id = gb.id
+  JOIN jurisdictions    j  ON o.jurisdiction_id   = j.id
+  WHERE
+    o.is_active = true
+    AND ST_Contains(
+      j.boundary_geometry,
+      ST_SetSRID(ST_Point(user_lng, user_lat), 4326)
+    )
+  ORDER BY j.type, o.role_title;
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
+
+-- Find all jurisdiction nodes that contain a point, from most to least specific.
+CREATE OR REPLACE FUNCTION find_jurisdictions_by_location(user_lat FLOAT, user_lng FLOAT)
+RETURNS TABLE (
+  id         UUID,
+  name       TEXT,
+  type       jurisdiction_type,
+  short_name TEXT
+) AS $$
+  SELECT
+    j.id,
+    j.name,
+    j.type,
+    j.short_name
+  FROM jurisdictions j
+  WHERE
+    j.is_active = true
+    AND ST_Contains(
+      j.boundary_geometry,
+      ST_SetSRID(ST_Point(user_lng, user_lat), 4326)
+    )
+  ORDER BY
+    CASE j.type
+      WHEN 'precinct'       THEN 1
+      WHEN 'district'       THEN 2
+      WHEN 'city'           THEN 3
+      WHEN 'county'         THEN 4
+      WHEN 'state'          THEN 5
+      WHEN 'country'        THEN 6
+      WHEN 'supranational'  THEN 7
+      WHEN 'global'         THEN 8
+      ELSE                       9
+    END;
+$$ LANGUAGE sql STABLE SECURITY DEFINER;

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm add:*)",
+      "Bash(find c:/Users/Craig/Documents/Civitics/App/packages/config -name *.json)",
+      "Bash(find c:/Users/Craig/Documents/Civitics/App/packages/db/node_modules/@supabase/ssr -name *.d.ts)",
+      "Bash(node --env-file=.env.local scripts/test-db-connection.mjs)",
+      "Bash(node --env-file=../../.env.local test-connection.mjs)",
+      "Bash(pnpm --filter @civitics/db typecheck)"
+    ]
+  }
+}

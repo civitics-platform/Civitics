@@ -1,35 +1,36 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../types/database";
 
+type DB = SupabaseClient<Database>;
+
 /**
  * Canonical district lookup: find every official who represents a point.
- * Coordinates must be pre-coarsened (~1km accuracy) before calling this function.
- * Never pass full-precision GPS coordinates.
+ * Coordinates must be pre-coarsened (~1km accuracy) before calling.
+ * Never pass full-precision GPS coordinates — exact user location is never stored.
  *
  * Mirrors the PostGIS query documented in CLAUDE.md.
+ * Backed by the find_representatives_by_location() stored function in the migration.
  */
 export async function findRepresentativesByLocation(
-  db: SupabaseClient<Database>,
+  db: DB,
   lat: number,
   lng: number
 ) {
-  // Using Supabase RPC to call a stored PostGIS function
-  // The underlying SQL uses ST_Contains(j.boundary_geometry, ST_SetSRID(ST_Point($lng, $lat), 4326))
   const { data, error } = await db.rpc("find_representatives_by_location", {
     user_lat: lat,
     user_lng: lng,
   });
-
   if (error) throw error;
   return data;
 }
 
 /**
  * Find all jurisdictions containing a point (for district assignment on signup).
- * Returns jurisdictions from most-specific to least-specific.
+ * Returns jurisdictions ordered from most-specific (precinct) to least (country).
+ * Backed by the find_jurisdictions_by_location() stored function in the migration.
  */
 export async function findJurisdictionsByLocation(
-  db: SupabaseClient<Database>,
+  db: DB,
   lat: number,
   lng: number
 ) {
@@ -37,7 +38,6 @@ export async function findJurisdictionsByLocation(
     user_lat: lat,
     user_lng: lng,
   });
-
   if (error) throw error;
   return data;
 }

@@ -22,7 +22,7 @@ Every feature we build should make that map brighter. If it doesn't, we don't bu
 
 Two distinct products sharing one infrastructure:
 
-1. **Civitics App** — The mission vehicle. "Wikipedia meets Bloomberg Terminal for democracy." Structured civic data, legislative tracking, public comment submission, connection graph visualization, maps, and AI-powered accountability tools. Feels like serious civic infrastructure — closer to a court of record than Twitter. Must never feel like a "politics tab."
+1. **Civitics App** — The mission vehicle. "Wikipedia meets Bloomberg Terminal for democracy." Structured civic data, legislative tracking, public comment submission, connection graph visualization, maps, and AI-powered accountability tools. Feels like serious civic infrastructure — closer to a court of record than Twitter. Must never feel like a "politics tab." Also known as the governance app.
 
 2. **Social App** — The distribution and funding vehicle. A censorship-resistant social platform with the COMMONS token economy. General civic discourse, bipartisan feed mechanics, creator economy, algorithm marketplace, and crowdfunding. Cat memes are welcome. Funds and seeds the governance app's user base.
 
@@ -67,6 +67,26 @@ Every implementation decision must be checked against these:
 Both apps are separate Next.js App Router projects. One account works across both; civic identity and wallet are shared.
 
 ---
+## Claude Code Permissions
+
+Auto-approved operations:
+  pnpm commands
+  File creation in project
+  Directory creation
+  Git read operations
+  
+Always requires approval:
+  Any deletion
+  Git commits and pushes
+  .env file changes
+  Global installs
+  External network calls
+  
+Never without explicit confirmation:
+  DROP/TRUNCATE/DELETE SQL
+  Modifying existing migrations
+  Changes to .gitignore
+  Exposing any credentials
 
 ## Package Manager
 pnpm — not npm, not yarn
@@ -90,6 +110,29 @@ Never use legacy anon or
 service_role keys
 Never use NEXT_PUBLIC_ prefix
 for secret key
+
+## Supabase Clients
+
+Three clients in packages/db/src/client.ts:
+
+createBrowserClient()
+  → 'use client' components only
+  → uses publishable key
+
+createServerClient(cookieStore)
+  → Server Components, Route Handlers
+  → pass cookies() from next/headers
+  → uses publishable key
+  → respects RLS
+
+createAdminClient()
+  → server-only, never client-side
+  → uses secret key
+  → bypasses RLS
+  → data ingestion pipelines only
+
+Import from '@civitics/db' not directly
+from @supabase/supabase-js
 
 
 ## Tech Stack

@@ -1,0 +1,20 @@
+{
+  "name": "@civitics/data",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "data:seed": "tsx --env-file=../../.env.local src/seed.ts",
+    "data:officials": "tsx --env-file=../../.env.local src/pipelines/congress/officials.ts",
+    "data:votes": "tsx --env-file=../../.env.local src/pipelines/congress/votes.ts",
+    "data:jurisdictions": "tsx --env-file=../../.env.local src/jurisdictions/us-states.ts"
+  },
+  "dependencies": {
+    "@civitics/db": "workspace:*"
+  },
+  "devDependencies": {
+    "@civitics/config": "workspace:*",
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.4.0"
+  }
+}

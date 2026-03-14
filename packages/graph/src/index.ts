@@ -101,7 +101,7 @@ export const EDGE_COLORS: Record<EdgeType, string> = {
  * Compute edge stroke width.
  * Donation edges scale with amount; all others are fixed.
  */
-export function edgeWidth(edge: GraphEdge): number {
+export function edgeWidth(edge: Pick<GraphEdge, "type" | "amountCents">): number {
   if (edge.type === "donation" && edge.amountCents) {
     // Scale: $1k = 1px, $100k = 3px, $1M+ = 6px (log scale)
     return Math.min(6, Math.max(1, Math.log10(edge.amountCents / 100_000) + 3));

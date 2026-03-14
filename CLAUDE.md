@@ -136,6 +136,12 @@ createAdminClient()
 Import from '@civitics/db' not directly
 from @supabase/supabase-js
 
+## Deployment Instructions
+Before pushing any code:
+Run pnpm build locally first
+Vercel uses strict TypeScript
+next build must pass locally
+before pushing to GitHub
 
 ## Tech Stack
 

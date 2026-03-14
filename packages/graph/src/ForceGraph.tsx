@@ -18,8 +18,8 @@ export interface ForceGraphProps {
   className?: string;
 }
 
-// D3 mutates link source/target to be node objects at runtime
-type SimLink = GraphEdge & {
+// D3 mutates link source/target from string IDs to node objects at runtime
+type SimLink = Omit<GraphEdge, "source" | "target"> & {
   source: GraphNode;
   target: GraphNode;
 };
@@ -356,7 +356,7 @@ export function ForceGraph({ nodes, edges, onNodeClick, className }: ForceGraphP
     });
 
     simRef.current = sim;
-    return () => sim.stop();
+    return () => { sim.stop(); };
   }, [nodes, edges, handleClick, onNodeClick]);
 
   return (

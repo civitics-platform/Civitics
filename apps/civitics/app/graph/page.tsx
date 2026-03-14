@@ -214,6 +214,7 @@ function DetailPanel({
   nodes: GraphNode[];
   onClose: () => void;
 }) {
+  const meta = node.metadata as Record<string, string | number | null | undefined>;
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const connections = edges.filter(
     (e) => e.source === node.id || e.target === node.id
@@ -252,15 +253,15 @@ function DetailPanel({
             )}
           </div>
           <h2 className="mt-1.5 text-base font-semibold text-gray-900">{node.label}</h2>
-          {node.metadata.role && (
-            <p className="text-xs text-gray-500">{String(node.metadata.role)}</p>
+          {meta.role && (
+            <p className="text-xs text-gray-500">{String(meta.role)}</p>
           )}
-          {node.metadata.state && (
-            <p className="text-xs text-gray-500">{String(node.metadata.state)}</p>
+          {meta.state && (
+            <p className="text-xs text-gray-500">{String(meta.state)}</p>
           )}
-          {node.metadata.fullTitle && (
+          {meta.fullTitle && (
             <p className="mt-1 text-xs text-gray-500 leading-relaxed">
-              {String(node.metadata.fullTitle)}
+              {String(meta.fullTitle)}
             </p>
           )}
         </div>
@@ -276,9 +277,9 @@ function DetailPanel({
       {node.type === "official" && (
         <div className="grid grid-cols-3 gap-px border-b border-gray-100 bg-gray-100">
           {[
-            { v: node.metadata.donorsOnRecord as number, l: "Donors" },
-            { v: node.metadata.promisesKept as number, l: "Kept" },
-            { v: node.metadata.promisesMade as number, l: "Promised" },
+            { v: meta.donorsOnRecord as number, l: "Donors" },
+            { v: meta.promisesKept as number, l: "Kept" },
+            { v: meta.promisesMade as number, l: "Promised" },
           ].map(({ v, l }) => (
             <div key={l} className="bg-white py-3 text-center">
               <p className="text-lg font-bold text-gray-900">{v?.toLocaleString()}</p>
@@ -287,40 +288,40 @@ function DetailPanel({
           ))}
         </div>
       )}
-      {(node.type === "pac" || node.type === "corporation") && node.metadata.totalDonations2026Cents && (
+      {(node.type === "pac" || node.type === "corporation") && meta.totalDonations2026Cents && (
         <div className="grid grid-cols-2 gap-px border-b border-gray-100 bg-gray-100">
           <div className="bg-white py-3 text-center">
             <p className="text-lg font-bold text-orange-700">
-              ${((node.metadata.totalDonations2026Cents as number) / 100).toLocaleString()}
+              ${((meta.totalDonations2026Cents as number) / 100).toLocaleString()}
             </p>
             <p className="text-[10px] text-gray-400">2026 donations</p>
           </div>
-          {node.metadata.lobbyingSpend2025 && (
+          {meta.lobbyingSpend2025 && (
             <div className="bg-white py-3 text-center">
               <p className="text-lg font-bold text-gray-900">
-                ${((node.metadata.lobbyingSpend2025 as number) / 100).toLocaleString()}
+                ${((meta.lobbyingSpend2025 as number) / 100).toLocaleString()}
               </p>
               <p className="text-[10px] text-gray-400">2025 lobbying</p>
             </div>
           )}
         </div>
       )}
-      {node.type === "individual" && node.metadata.totalGiven2026Cents && (
+      {node.type === "individual" && meta.totalGiven2026Cents && (
         <div className="border-b border-gray-100 p-4">
           <p className="text-xs text-gray-400">Total given in 2026 cycle</p>
           <p className="text-lg font-bold text-blue-700">
-            ${((node.metadata.totalGiven2026Cents as number) / 100).toLocaleString()}
+            ${((meta.totalGiven2026Cents as number) / 100).toLocaleString()}
           </p>
-          {node.metadata.occupation && (
-            <p className="mt-1 text-xs text-gray-500">{String(node.metadata.occupation)}</p>
+          {meta.occupation && (
+            <p className="mt-1 text-xs text-gray-500">{String(meta.occupation)}</p>
           )}
         </div>
       )}
-      {node.type === "proposal" && node.metadata.amountB && (
+      {node.type === "proposal" && meta.amountB && (
         <div className="grid grid-cols-2 gap-px border-b border-gray-100 bg-gray-100">
           {[
-            { v: `$${node.metadata.amountB as number}B`, l: "Authorized" },
-            { v: (node.metadata.commentCount as number)?.toLocaleString(), l: "Comments" },
+            { v: `$${meta.amountB as number}B`, l: "Authorized" },
+            { v: (meta.commentCount as number)?.toLocaleString(), l: "Comments" },
           ].map(({ v, l }) => (
             <div key={l} className="bg-white py-3 text-center">
               <p className="text-lg font-bold text-gray-900">{v}</p>

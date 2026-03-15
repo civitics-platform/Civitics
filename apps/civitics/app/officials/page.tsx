@@ -20,7 +20,11 @@ export type OfficialRow = {
   chamber_type: string | null;
 };
 
-export default async function OfficialsPage() {
+export default async function OfficialsPage({
+  searchParams,
+}: {
+  searchParams: { selected?: string };
+}) {
   const cookieStore = await cookies();
   const supabase = createServerClient(cookieStore);
 
@@ -54,5 +58,10 @@ export default async function OfficialsPage() {
     chamber_type: o.governing_bodies?.type ?? null,
   }));
 
-  return <OfficialsList officials={officials} />;
+  return (
+    <OfficialsList
+      officials={officials}
+      defaultSelectedId={searchParams.selected}
+    />
+  );
 }

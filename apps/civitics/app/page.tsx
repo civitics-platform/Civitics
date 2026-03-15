@@ -1,54 +1,16 @@
-// Placeholder data — wired to real APIs in Phase 1
-const OFFICIALS = [
-  {
-    id: "1",
-    name: "Maria Elena Vasquez",
-    role: "U.S. Senator",
-    party: "D",
-    state: "California",
-    photoInitials: "MV",
-    donorsOnRecord: 4821,
-    votesThisTerm: 312,
-    promisesKept: 14,
-    promisesMade: 22,
-  },
-  {
-    id: "2",
-    name: "Thomas R. Hargrove",
-    role: "U.S. Representative",
-    party: "R",
-    state: "Texas · District 21",
-    photoInitials: "TH",
-    donorsOnRecord: 2103,
-    votesThisTerm: 289,
-    promisesKept: 9,
-    promisesMade: 17,
-  },
-  {
-    id: "3",
-    name: "Sandra K. Okonkwo",
-    role: "U.S. Senator",
-    party: "D",
-    state: "New York",
-    photoInitials: "SO",
-    donorsOnRecord: 6447,
-    votesThisTerm: 318,
-    promisesKept: 19,
-    promisesMade: 24,
-  },
-  {
-    id: "4",
-    name: "James F. Bellamy",
-    role: "U.S. Representative",
-    party: "R",
-    state: "Florida · District 7",
-    photoInitials: "JB",
-    donorsOnRecord: 1892,
-    votesThisTerm: 301,
-    promisesKept: 6,
-    promisesMade: 18,
-  },
-];
+import { cookies } from "next/headers";
+import { createServerClient } from "@civitics/db";
+
+type FeaturedOfficial = {
+  id: string;
+  name: string;
+  role: string;
+  party: string | null;
+  state: string | null;
+  district: string | null;
+  chamber: string | null;
+  voteCount: number;
+};
 
 const PROPOSALS = [
   {
@@ -134,11 +96,12 @@ const AGENCIES = [
   },
 ];
 
-const PARTY_STYLES: Record<string, { border: string; badge: string; text: string }> = {
-  D: { border: "border-blue-400", badge: "bg-blue-100 text-blue-800", text: "text-blue-700" },
-  R: { border: "border-red-400", badge: "bg-red-100 text-red-800", text: "text-red-700" },
-  I: { border: "border-purple-400", badge: "bg-purple-100 text-purple-800", text: "text-purple-700" },
+const PARTY_STYLES: Record<string, { border: string; badge: string; text: string; label: string }> = {
+  democrat:    { border: "border-blue-400",   badge: "bg-blue-100 text-blue-800",   text: "text-blue-700",   label: "D" },
+  republican:  { border: "border-red-400",    badge: "bg-red-100 text-red-800",     text: "text-red-700",    label: "R" },
+  independent: { border: "border-purple-400", badge: "bg-purple-100 text-purple-800", text: "text-purple-700", label: "I" },
 };
+const DEFAULT_PARTY = { border: "border-gray-300", badge: "bg-gray-100 text-gray-700", text: "text-gray-600", label: "?" };
 
 const STATUS_STYLES: Record<string, string> = {
   amber: "bg-amber-100 text-amber-800",
@@ -278,7 +241,11 @@ function SectionHeader({
   );
 }
 
-function OfficialsSection() {
+function initials(name: string) {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+}
+
+function OfficialsSection({ officials }: { officials: FeaturedOfficial[] }) {
   return (
     <section>
       <SectionHeader
@@ -288,20 +255,20 @@ function OfficialsSection() {
         linkLabel="Browse all officials"
       />
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {OFFICIALS.map((official) => {
-          const party = PARTY_STYLES[official.party] ?? PARTY_STYLES["I"]!;
-          const keptPct = Math.round((official.promisesKept / official.promisesMade) * 100);
+        {officials.map((official) => {
+          const party = PARTY_STYLES[official.party ?? ""] ?? DEFAULT_PARTY;
+          const location = [official.state, official.district].filter(Boolean).join(" · ");
           return (
             <a
               key={official.id}
-              href="/officials"
+              href={`/officials?selected=${official.id}`}
               className="group block rounded-lg border border-gray-200 bg-white p-4 hover:border-indigo-300 hover:shadow-sm transition-all"
             >
               <div className="flex items-center gap-3">
                 <div
                   className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 bg-gray-100 text-xs font-semibold text-gray-600 ${party.border}`}
                 >
-                  {official.photoInitials}
+                  {initials(official.name)}
                 </div>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-gray-900 group-hover:text-indigo-700">
@@ -310,23 +277,19 @@ function OfficialsSection() {
                   <p className="truncate text-xs text-gray-500">{official.role}</p>
                 </div>
               </div>
-              <p className="mt-2 text-xs text-gray-400">{official.state}</p>
+              {location && <p className="mt-2 text-xs text-gray-400">{location}</p>}
               <div className="mt-3 grid grid-cols-3 gap-2 border-t border-gray-100 pt-3">
                 <div className="text-center">
-                  <p className="text-sm font-semibold text-gray-900">
-                    {official.donorsOnRecord.toLocaleString()}
-                  </p>
-                  <p className="text-[10px] text-gray-400">Donors</p>
+                  <p className={`text-xs font-bold rounded px-1 ${party.badge}`}>{party.label}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">Party</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-sm font-semibold text-gray-900">{official.votesThisTerm}</p>
+                  <p className="text-sm font-semibold text-gray-900">{official.voteCount.toLocaleString()}</p>
                   <p className="text-[10px] text-gray-400">Votes</p>
                 </div>
                 <div className="text-center">
-                  <p className={`text-sm font-semibold ${keptPct >= 70 ? "text-emerald-600" : keptPct >= 50 ? "text-amber-600" : "text-red-600"}`}>
-                    {keptPct}%
-                  </p>
-                  <p className="text-[10px] text-gray-400">Promises</p>
+                  <p className="text-sm font-semibold text-gray-300">—</p>
+                  <p className="text-[10px] text-gray-400">Donors</p>
                 </div>
               </div>
             </a>
@@ -469,7 +432,54 @@ function CommentBanner() {
   );
 }
 
-export default function HomePage() {
+export default async function HomePage() {
+  const cookieStore = await cookies();
+  const supabase = createServerClient(cookieStore);
+
+  // Fetch 2 senators + 2 reps ordered by last name as featured officials
+  const [senRes, repRes] = await Promise.all([
+    supabase
+      .from("officials")
+      .select("id, full_name, role_title, party, district_name, jurisdictions!jurisdiction_id(name), governing_bodies!governing_body_id(short_name)")
+      .eq("is_active", true)
+      .eq("governing_bodies.short_name" as never, "Senate")
+      .order("last_name")
+      .limit(2),
+    supabase
+      .from("officials")
+      .select("id, full_name, role_title, party, district_name, jurisdictions!jurisdiction_id(name), governing_bodies!governing_body_id(short_name)")
+      .eq("is_active", true)
+      .eq("governing_bodies.short_name" as never, "House")
+      .order("last_name")
+      .limit(2),
+  ]);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawFeatured: any[] = [...(senRes.data ?? []), ...(repRes.data ?? [])];
+
+  // Fetch vote counts for each featured official in parallel
+  const voteCounts = await Promise.all(
+    rawFeatured.map((o) =>
+      supabase
+        .from("votes")
+        .select("id", { count: "exact", head: true })
+        .eq("official_id", o.id)
+        .then((r) => ({ id: o.id as string, count: r.count ?? 0 }))
+    )
+  );
+  const voteCountMap = new Map(voteCounts.map((v) => [v.id, v.count]));
+
+  const featuredOfficials: FeaturedOfficial[] = rawFeatured.map((o) => ({
+    id: o.id,
+    name: o.full_name,
+    role: o.role_title,
+    party: o.party ?? null,
+    state: o.jurisdictions?.name ?? null,
+    district: o.district_name ?? null,
+    chamber: o.governing_bodies?.short_name ?? null,
+    voteCount: voteCountMap.get(o.id) ?? 0,
+  }));
+
   return (
     <div className="min-h-screen bg-gray-50">
       <NavBar />
@@ -477,7 +487,7 @@ export default function HomePage() {
       <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-12">
           <CommentBanner />
-          <OfficialsSection />
+          <OfficialsSection officials={featuredOfficials} />
           <ProposalsSection />
           <AgenciesSection />
         </div>
@@ -488,7 +498,7 @@ export default function HomePage() {
             <p className="text-sm text-gray-500">
               Civitics — open civic infrastructure. All data is public record.
             </p>
-            <p className="text-xs text-gray-400">Phase 0 · Placeholder data</p>
+            <p className="text-xs text-gray-400">Phase 1 · Live data</p>
           </div>
         </div>
       </footer>

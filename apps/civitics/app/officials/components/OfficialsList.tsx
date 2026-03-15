@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import type { OfficialRow } from "../page";
 import { OfficialCard } from "./OfficialCard";
 import { OfficialGraph } from "./OfficialGraph";
@@ -27,12 +27,26 @@ function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
 }
 
-export function OfficialsList({ officials }: { officials: OfficialRow[] }) {
+export function OfficialsList({
+  officials,
+  defaultSelectedId,
+}: {
+  officials: OfficialRow[];
+  defaultSelectedId?: string;
+}) {
   const [search, setSearch]         = useState("");
   const [chamberFilter, setChamber] = useState<"all" | "Senate" | "House">("all");
   const [partyFilter, setParty]     = useState<"all" | "democrat" | "republican" | "independent">("all");
   const [stateFilter, setState]     = useState("all");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(defaultSelectedId ?? null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // When arriving with a pre-selected official, scroll it into view
+  useEffect(() => {
+    if (!defaultSelectedId) return;
+    const el = listRef.current?.querySelector(`[data-official-id="${defaultSelectedId}"]`);
+    el?.scrollIntoView({ block: "center" });
+  }, [defaultSelectedId]);
 
   // Derive sorted unique states
   const states = useMemo(() => {
@@ -130,7 +144,7 @@ export function OfficialsList({ officials }: { officials: OfficialRow[] }) {
           </div>
 
           {/* Scrollable list */}
-          <div className="flex-1 overflow-y-auto">
+          <div ref={listRef} className="flex-1 overflow-y-auto">
             {filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-sm text-gray-400">
                 <p>No officials match your filters.</p>
@@ -148,6 +162,7 @@ export function OfficialsList({ officials }: { officials: OfficialRow[] }) {
                 return (
                   <button
                     key={official.id}
+                    data-official-id={official.id}
                     onClick={() => setSelectedId(isSelected ? null : official.id)}
                     className={`w-full border-b border-gray-100 border-l-4 px-4 py-3 text-left transition-colors ${ps.border} ${
                       isSelected

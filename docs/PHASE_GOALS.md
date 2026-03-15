@@ -35,17 +35,18 @@
 
 ---
 
-## Phase 1 — MVP `Weeks 3–10` `5% complete` ← **current**
+## Phase 1 — MVP `Weeks 3–10` `25% complete` ← **current**
 
 > **Done when:** 500 beta users, real government data loading, at least one complete user journey (search → official → vote record → donor → connection graph), grant applications submitted.
 
 ### Data Ingestion Pipelines
 - [x] Congress.gov API → officials + votes
-- [ ] FEC API → financial_relationships
-- [ ] USASpending.gov → spending_records
-- [ ] Regulations.gov → proposals + comment periods
-- [ ] OpenStates → state legislators
-- [ ] CourtListener → judges + rulings
+- [x] FEC API → financial_relationships (pipeline live, running)
+- [x] USASpending.gov → spending_records (2,000 records, FY2024 contracts)
+- [x] Regulations.gov → proposals + comment periods (1,000 proposed rules)
+- [x] OpenStates → state legislators (1,445 state legislators, all 50 states)
+- [x] CourtListener → judges + rulings (365 judges, 280 opinions)
+- [x] Master orchestrator + scheduler (daily/weekly cron)
 
 ### Core Pages
 - [x] Official profile page with real data
@@ -60,6 +61,7 @@
 - [ ] "What does this mean for me" query
 
 ### Community
+- [x] Public accountability dashboard (`/dashboard`) live
 - [ ] User auth via Supabase
 - [ ] Community commenting on entities
 - [ ] Position tracking on proposals

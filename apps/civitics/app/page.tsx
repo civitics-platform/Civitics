@@ -131,6 +131,7 @@ function NavBar() {
               { label: "Agencies", href: "#" },
               { label: "Spending", href: "#" },
               { label: "Connections", href: "/graph" },
+            { label: "Dashboard",   href: "/dashboard" },
             ].map((item) => (
               <a
                 key={item.label}
@@ -498,7 +499,9 @@ export default async function HomePage() {
             <p className="text-sm text-gray-500">
               Civitics — open civic infrastructure. All data is public record.
             </p>
-            <p className="text-xs text-gray-400">Phase 1 · Live data</p>
+            <a href="/dashboard" className="text-xs text-gray-400 hover:text-indigo-600 transition-colors">
+              Platform transparency →
+            </a>
           </div>
         </div>
       </footer>

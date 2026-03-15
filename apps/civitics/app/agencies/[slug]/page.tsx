@@ -120,15 +120,22 @@ function aggregateSpending(rows: SpendingRow[]): SpendingGroup[] {
 // ─── Static params (top 50 agencies pre-rendered) ────────────────────────────
 
 export async function generateStaticParams() {
-  const supabase = createAdminClient();
-  const { data } = await supabase
-    .from("agencies")
-    .select("id")
-    .eq("is_active", true)
-    .order("name")
-    .limit(50);
+  // createAdminClient() throws at build time on Vercel if SUPABASE_SECRET_KEY
+  // isn't in the build env. Return [] so the build succeeds; pages are then
+  // generated on first request and cached via ISR (revalidate = 3600).
+  try {
+    const supabase = createAdminClient();
+    const { data } = await supabase
+      .from("agencies")
+      .select("id")
+      .eq("is_active", true)
+      .order("name")
+      .limit(50);
 
-  return (data ?? []).map((a) => ({ slug: a.id }));
+    return (data ?? []).map((a) => ({ slug: a.id }));
+  } catch {
+    return [];
+  }
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {

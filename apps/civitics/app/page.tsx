@@ -453,6 +453,29 @@ function AgenciesSection({ agencies }: { agencies: FeaturedAgency[] }) {
   );
 }
 
+function GraphBanner() {
+  return (
+    <a
+      href="/graph"
+      className="group block rounded-lg border border-gray-800 bg-gray-950 p-5 hover:border-indigo-700 transition-colors"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-white">
+            Connection Graph
+          </p>
+          <p className="mt-0.5 text-sm text-gray-400">
+            Explore how officials, agencies, donors, and legislation are connected — visualized as a live force graph.
+          </p>
+        </div>
+        <span className="shrink-0 rounded-md border border-gray-700 bg-gray-900 px-4 py-2 text-sm font-medium text-indigo-400 group-hover:border-indigo-700 group-hover:text-indigo-300 transition-colors">
+          Open graph →
+        </span>
+      </div>
+    </a>
+  );
+}
+
 function CommentBanner() {
   return (
     <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-5">
@@ -642,6 +665,7 @@ export default async function HomePage() {
       <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-12">
           <CommentBanner />
+          <GraphBanner />
           <OfficialsSection officials={featuredOfficials} />
           <ProposalsSection proposals={featuredProposals} />
           <AgenciesSection agencies={featuredAgencies} />

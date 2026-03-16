@@ -139,7 +139,11 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const supabase = createAdminClient();
+  // Use public client — secret key is not available at Vercel build time
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
+  );
   const { data } = await supabase.from("agencies").select("name, acronym").eq("id", slug).single();
 
   if (!data) return { title: "Agency" };

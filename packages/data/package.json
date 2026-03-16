@@ -11,20 +11,25 @@
     "data:status": "tsx --env-file=../../.env.local src/pipelines/index.ts status",
     "data:regulations": "tsx --env-file=../../.env.local src/pipelines/regulations/index.ts",
     "data:fec": "tsx --env-file=../../.env.local src/pipelines/fec/index.ts",
+    "data:fec-bulk": "tsx --env-file=../../.env.local src/pipelines/fec-bulk/index.ts",
     "data:usaspending": "tsx --env-file=../../.env.local src/pipelines/usaspending/index.ts",
     "data:courts": "tsx --env-file=../../.env.local src/pipelines/courtlistener/index.ts",
     "data:states": "tsx --env-file=../../.env.local src/pipelines/openstates/index.ts",
+    "data:connections": "tsx --env-file=../../.env.local src/pipelines/connections/index.ts",
     "data:scheduler": "tsx --env-file=../../.env.local src/scheduler.ts"
   },
   "dependencies": {
     "@civitics/db": "workspace:*",
+    "csv-parse": "^5.5.0",
     "fast-xml-parser": "^4.5.0",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "unzipper": "^0.12.3"
   },
   "devDependencies": {
     "@civitics/config": "workspace:*",
     "@types/node": "^20.0.0",
     "@types/node-cron": "^3.0.11",
+    "@types/unzipper": "^0.10.9",
     "tsx": "^4.0.0",
     "typescript": "^5.4.0"
   }

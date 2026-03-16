@@ -57,28 +57,44 @@ interface FecContribution {
 
 const FEC_BASE = "https://api.open.fec.gov/v1";
 
-async function fecGet<T>(path: string, apiKey: string, extraParams: Record<string, string> = {}): Promise<T> {
+async function fecGet<T>(path: string, apiKey: string, extraParams: Record<string, string | string[]> = {}): Promise<T> {
   await sleep(100);
   const url = new URL(`${FEC_BASE}/${path}`);
   url.searchParams.set("api_key", apiKey);
-  for (const [k, v] of Object.entries(extraParams)) url.searchParams.set(k, v);
+  for (const [k, v] of Object.entries(extraParams)) {
+    if (Array.isArray(v)) {
+      for (const item of v) url.searchParams.append(k, item);
+    } else {
+      url.searchParams.set(k, v);
+    }
+  }
   return fetchJson<T>(url.toString(), {}, 0);  // no retry — rate limit hits should fail fast
+}
+
+/** Rate limit sentinel — thrown to abort the pipeline instead of silently skipping. */
+class RateLimitError extends Error {
+  constructor(msg: string) { super(msg); this.name = "RateLimitError"; }
 }
 
 async function searchCandidate(
   apiKey: string,
   lastName: string,
-  state: string
+  state: string,
+  officeCode: "H" | "S"
 ): Promise<FecCandidate[]> {
   try {
     const data = await fecGet<{ results: FecCandidate[] }>(
       "candidates/search/",
       apiKey,
-      { q: lastName, state, office: "H,S", per_page: "10" }
+      { q: lastName, state, office: officeCode, per_page: "10" }
     );
     return data.results ?? [];
-  } catch {
-    return [];
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("429") || msg.includes("OVER_RATE_LIMIT")) {
+      throw new RateLimitError(`FEC API rate limit hit — check your FEC_API_KEY (need a registered personal key at api.data.gov/signup/). Error: ${msg}`);
+    }
+    return [];  // genuine not-found or network transient
   }
 }
 
@@ -179,25 +195,32 @@ export async function runFecPipeline(apiKey: string): Promise<PipelineResult> {
   const CYCLES = [2024, 2022];
 
   try {
-    // 1. Fetch all officials with their last names and state abbreviations
+    // 1. Fetch federal officials only (Senators + Representatives) with their state abbreviations
+    //    FEC only covers federal campaigns — state legislators are not FEC candidates.
+    //    role_title filter avoids wasting 1,400+ API calls on state legislators.
     const { data: officials, error: offErr } = await db
       .from("officials")
-      .select("id, last_name, source_ids, jurisdictions!jurisdiction_id(short_name)")
+      .select("id, last_name, role_title, source_ids, jurisdictions!jurisdiction_id(short_name)")
       .eq("is_active", true)
-      .not("last_name", "is", null);
+      .not("last_name", "is", null)
+      .in("role_title", ["Senator", "Representative"]);
 
     if (offErr) throw new Error(`Could not fetch officials: ${offErr.message}`);
-    console.log(`  Processing ${(officials ?? []).length} officials...`);
+    console.log(`  Processing ${(officials ?? []).length} federal officials...`);
 
     for (const official of officials ?? []) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const o = official as any;
       const lastName   = (o.last_name as string) ?? "";
       const stateAbbr  = (o.jurisdictions?.short_name as string) ?? "";
+      const roleTitle  = (o.role_title as string) ?? "";
       const officialId = o.id as string;
       const sourceIds  = (o.source_ids as Record<string, string>) ?? {};
 
-      if (!lastName || !stateAbbr) continue;
+      // Skip non-state jurisdictions (territories/DC use "US") and missing data
+      if (!lastName || !stateAbbr || stateAbbr === "US") continue;
+
+      const officeCode: "H" | "S" = roleTitle === "Senator" ? "S" : "H";
 
       // Check storage budget before continuing
       const dbMb = await getDbSizeMb();
@@ -210,11 +233,11 @@ export async function runFecPipeline(apiKey: string): Promise<PipelineResult> {
       let candidateId = sourceIds["fec_candidate_id"] ?? null;
 
       if (!candidateId) {
-        const candidates = await searchCandidate(apiKey, lastName, stateAbbr);
-        // Best match: same state, most recent election year
+        const candidates = await searchCandidate(apiKey, lastName, stateAbbr, officeCode);
+        // Best match: same state and office type
         const match = candidates.find(
-          (c) => c.state === stateAbbr && (c.office === "H" || c.office === "S")
-        ) ?? candidates[0];
+          (c) => c.state === stateAbbr && c.office === officeCode
+        ) ?? candidates.find((c) => c.state === stateAbbr) ?? candidates[0];
         if (!match) continue;
         candidateId = match.candidate_id;
         // Persist the FEC ID so future runs skip the search
@@ -271,6 +294,7 @@ export async function runFecPipeline(apiKey: string): Promise<PipelineResult> {
             }
           }
         } catch (err) {
+          if (err instanceof RateLimitError) throw err;  // abort entire pipeline
           console.error(`    ${lastName} (${stateAbbr}) cycle ${cycle}: error —`, err instanceof Error ? err.message : err);
           failed++;
         }

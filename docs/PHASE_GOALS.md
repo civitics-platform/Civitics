@@ -35,18 +35,20 @@
 
 ---
 
-## Phase 1 — MVP `Weeks 3–10` `25% complete` ← **current**
+## Phase 1 — MVP `Weeks 3–10` `30% complete` ← **current**
 
 > **Done when:** 500 beta users, real government data loading, at least one complete user journey (search → official → vote record → donor → connection graph), grant applications submitted.
 
 ### Data Ingestion Pipelines
 - [x] Congress.gov API → officials + votes
-- [x] FEC API → financial_relationships (pipeline live, running)
+- [x] FEC API → financial_relationships (replaced with bulk approach — no rate limits)
+- [x] FEC bulk pipeline → weball24 download → parse → match → upsert → auto-run connections
 - [x] USASpending.gov → spending_records (2,000 records, FY2024 contracts)
 - [x] Regulations.gov → proposals + comment periods (1,000 proposed rules)
 - [x] OpenStates → state legislators (1,445 state legislators, all 50 states)
 - [x] CourtListener → judges + rulings (365 judges, 280 opinions)
 - [x] Master orchestrator + scheduler (daily/weekly cron)
+- [x] Entity connections pipeline (derives donation/vote/oversight/appointment from ingested data)
 
 ### Core Pages
 - [x] Official profile page with real data (list + /officials/[id] standalone)
@@ -54,6 +56,11 @@
 - [ ] Proposal detail page
 - [ ] Search across all entities
 - [x] Homepage wired to real data
+- [x] Connection graph at `/graph` — wired to entity_connections table, real data API
+- [x] Graph share code system — `CIV-XXXX-XXXX` codes, `/graph/[code]` URLs, `graph_snapshots` table
+- [x] Graph screenshot export — PNG 1×/2×/4× with non-removable watermark (URL + data sources + date)
+- [x] Graph preset views — Follow the Money, Votes & Bills, Revolving Door, Full Picture, Clean View
+- [x] Graph empty state — ghost node animation + "Connections being mapped" message when table is empty
 
 ### AI Features
 - [ ] Plain language bill summaries (cached)

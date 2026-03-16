@@ -248,10 +248,25 @@ Civic credits convertible to COMMONS. COMMONS convertible to civic credits. One 
 | Federal Register | Executive orders, rulemaking | Free |
 | OpenStates | All 50 state legislatures | Free |
 
+### FEC Data Strategy
+
+Use FEC bulk downloads — NOT the FEC API. No API key required, no rate limits.
+
+| File | URL | Contents |
+|------|-----|----------|
+| `weball24.zip` | `fec.gov/files/bulk-downloads/2024/weball24.zip` | All-candidates summary — total raised, individual/PAC/party/self contributions per candidate |
+| `cm24.zip` | `fec.gov/files/bulk-downloads/2024/cm24.zip` | Committee master — reserved for future individual-donor drill-down |
+
+**Pipeline:** download → process → delete. Files land in the OS temp dir and are deleted after each run. FEC updates bulk files weekly — run on the weekly cron.
+
+Script: `pnpm --filter @civitics/data data:fec-bulk`
+
+The legacy API-based pipeline (`data:fec`) is retained for reference but must not be used — it hits rate limits.
+
 ### Key Update Schedules
 - **Hourly:** Active proposal status, comment period deadlines
-- **Daily (2am):** Spending data, campaign finance, voting records, new bills
-- **Weekly:** Full reconciliation, AI summary regeneration, search index rebuild
+- **Daily (2am):** Spending data, voting records, new bills
+- **Weekly:** FEC bulk download, full reconciliation, AI summary regeneration, search index rebuild
 
 ### Smart Update Detection
 Use ETag/Last-Modified headers and hash comparison to skip unchanged records. Target 60–80% reduction in redundant API calls.

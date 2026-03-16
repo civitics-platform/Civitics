@@ -1,6 +1,8 @@
 import { createAdminClient } from "@civitics/db";
 import type { GraphEdge, GraphNode, EdgeType, NodeType } from "@civitics/graph";
 
+export const dynamic = "force-dynamic";
+
 /** Map DB entity type string → GraphNode type */
 function mapNodeType(dbType: string): NodeType {
   switch (dbType) {

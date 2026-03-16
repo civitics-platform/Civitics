@@ -1,5 +1,7 @@
 import { createAdminClient } from "@civitics/db";
 import { GraphPage } from "../GraphPage";
+
+export const dynamic = "force-dynamic";
 import type { Metadata } from "next";
 
 // graph_snapshots was created after the Database type was generated.

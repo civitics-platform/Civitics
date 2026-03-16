@@ -172,7 +172,7 @@ function Hero({ stats }: { stats: Stats }) {
           </h1>
           <p className="mt-4 text-lg text-gray-600 leading-relaxed">
             Every vote, donor, promise, and dollar — connected, searchable, and permanent. Official
-            comment submission is always free. No account required to read anything.
+            comment submission is always free. No account required to read anything. bananna
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <a

@@ -166,6 +166,24 @@ Route Handlers AND Pages using createAdminClient():
 Import from '@civitics/db' not directly
 from @supabase/supabase-js
 
+## Active App Directory — CRITICAL
+
+apps/civitics has TWO app directories:
+  apps/civitics/app/       ← ACTIVE (Next.js builds this)
+  apps/civitics/src/app/   ← INACTIVE (ignored by Next.js)
+
+ALWAYS edit files in apps/civitics/app/
+NEVER edit files in apps/civitics/src/app/
+Changes to src/app/ are silently ignored at build time
+and will never appear on the live site.
+
+Next.js uses app/ when both app/ and src/app/ exist,
+because the routes in app/ include agency/official/
+dashboard pages that define the full app structure.
+
+apps/civitics/src/app/ is a stale duplicate — flagged
+for deletion (requires explicit user approval first).
+
 ## Deployment Instructions
 Before pushing any code:
 Run pnpm build locally first

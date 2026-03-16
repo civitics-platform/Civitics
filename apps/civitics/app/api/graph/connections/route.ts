@@ -4,12 +4,22 @@ import type { GraphEdge, GraphNode, EdgeType, NodeType } from "@civitics/graph";
 export const dynamic = "force-dynamic";
 
 /** Map DB entity type string → GraphNode type */
-function mapNodeType(dbType: string): NodeType {
+function mapNodeType(dbType: string, subType?: string): NodeType {
   switch (dbType) {
     case "official": return "official";
     case "agency": return "governing_body";
     case "governing_body": return "governing_body";
     case "proposal": return "proposal";
+    case "financial": {
+      // Map financial entity subtype to graph NodeType
+      switch (subType) {
+        case "pac":
+        case "super_pac":
+        case "party_committee": return "pac";
+        case "individual": return "individual";
+        default: return "corporation";
+      }
+    }
     case "organization": return "corporation";
     default: return "corporation";
   }
@@ -33,9 +43,14 @@ function mapEdgeType(dbType: string): EdgeType {
   }
 }
 
+// financial_entities and graph_snapshots were created after types were generated.
+// TODO: run `supabase gen types typescript` to update packages/db/src/types/database.ts
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyClient = ReturnType<typeof createAdminClient> & { from(table: string): any };
+
 export async function GET() {
   try {
-    const supabase = createAdminClient();
+    const supabase = createAdminClient() as AnyClient;
 
     // Fetch connections ordered by strength, cap at 150 for performance
     const { data: connections, error } = await supabase
@@ -63,13 +78,14 @@ export async function GET() {
     }
 
     const entities = [...entityMap.values()];
-    const officialIds = entities.filter((e) => e.type === "official").map((e) => e.id);
-    const agencyIds = entities.filter((e) => e.type === "agency").map((e) => e.id);
-    const proposalIds = entities.filter((e) => e.type === "proposal").map((e) => e.id);
-    const gbIds = entities.filter((e) => e.type === "governing_body").map((e) => e.id);
+    const officialIds   = entities.filter((e) => e.type === "official").map((e) => e.id);
+    const agencyIds     = entities.filter((e) => e.type === "agency").map((e) => e.id);
+    const proposalIds   = entities.filter((e) => e.type === "proposal").map((e) => e.id);
+    const gbIds         = entities.filter((e) => e.type === "governing_body").map((e) => e.id);
+    const financialIds  = entities.filter((e) => e.type === "financial").map((e) => e.id);
 
     // Batch-fetch names in parallel
-    const [officialsRes, agenciesRes, proposalsRes, gbRes] = await Promise.all([
+    const [officialsRes, agenciesRes, proposalsRes, gbRes, financialRes] = await Promise.all([
       officialIds.length
         ? supabase.from("officials").select("id, full_name, party").in("id", officialIds)
         : Promise.resolve({ data: [] as { id: string; full_name: string; party: string | null }[] }),
@@ -82,10 +98,13 @@ export async function GET() {
       gbIds.length
         ? supabase.from("governing_bodies").select("id, name").in("id", gbIds)
         : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+      financialIds.length
+        ? supabase.from("financial_entities").select("id, name, entity_type").in("id", financialIds)
+        : Promise.resolve({ data: [] as { id: string; name: string; entity_type: string }[] }),
     ]);
 
     // Build name lookup
-    const nameMap = new Map<string, { label: string; party?: string }>();
+    const nameMap = new Map<string, { label: string; party?: string; subType?: string }>();
     for (const o of officialsRes.data ?? []) {
       nameMap.set(o.id, { label: o.full_name, party: o.party ?? undefined });
     }
@@ -98,6 +117,9 @@ export async function GET() {
     for (const g of gbRes.data ?? []) {
       nameMap.set(g.id, { label: g.name });
     }
+    for (const f of financialRes.data ?? []) {
+      nameMap.set(f.id, { label: f.name, subType: f.entity_type });
+    }
 
     // Build nodes — one per unique entity (keyed as "type:id")
     const nodes: GraphNode[] = [];
@@ -106,7 +128,7 @@ export async function GET() {
       if (!info) continue; // skip entities we couldn't resolve
       nodes.push({
         id: key,
-        type: mapNodeType(type),
+        type: mapNodeType(type, info.subType),
         label: info.label,
         party: info.party as GraphNode["party"],
         metadata: { entityType: type, entityId: id },

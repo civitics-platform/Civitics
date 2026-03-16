@@ -16,6 +16,7 @@
     "data:courts": "tsx --env-file=../../.env.local src/pipelines/courtlistener/index.ts",
     "data:states": "tsx --env-file=../../.env.local src/pipelines/openstates/index.ts",
     "data:connections": "tsx --env-file=../../.env.local src/pipelines/connections/index.ts",
+    "data:financial-entities": "tsx --env-file=../../.env.local src/pipelines/financial-entities/index.ts",
     "data:scheduler": "tsx --env-file=../../.env.local src/scheduler.ts"
   },
   "dependencies": {

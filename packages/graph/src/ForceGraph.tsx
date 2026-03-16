@@ -1,7 +1,7 @@
 "use client";
 
 import * as d3 from "d3";
-import { useEffect, useRef, useCallback } from "react";
+import React, { useEffect, useRef, useCallback } from "react";
 import {
   type GraphNode,
   type GraphEdge,
@@ -46,9 +46,13 @@ function truncate(s: string, n: number) {
   return s.length > n ? s.slice(0, n) + "…" : s;
 }
 
-export function ForceGraph({ nodes, edges, onNodeClick, className }: ForceGraphProps) {
+export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
+function ForceGraph({ nodes, edges, onNodeClick, className }: ForceGraphProps, forwardedRef) {
   const svgRef = useRef<SVGSVGElement>(null);
   const simRef = useRef<d3.Simulation<GraphNode, SimLink> | null>(null);
+
+  // Expose internal svgRef to parent via forwardRef
+  React.useImperativeHandle(forwardedRef, () => svgRef.current!, []);
 
   const handleClick = useCallback(
     (node: GraphNode) => onNodeClick?.(node),
@@ -366,4 +370,5 @@ export function ForceGraph({ nodes, edges, onNodeClick, className }: ForceGraphP
       style={{ width: "100%", height: "100%", background: "transparent" }}
     />
   );
-}
+});
+ForceGraph.displayName = "ForceGraph";

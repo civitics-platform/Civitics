@@ -47,17 +47,30 @@ export async function GET() {
   try {
     const supabase = createAdminClient();
 
-    // Fetch connections ordered by strength, cap at 150 for performance
-    const { data: connections, error } = await supabase
+    // Fetch all connections ordered by strength descending.
+    // We then cap to 50 per connection_type in JS so that donations,
+    // oversight, and revolving_door rows are never crowded out by the
+    // ~2,000 vote rows that all sit at strength ≈ 1.0.
+    const { data: allConnections, error } = await supabase
       .from("entity_connections")
       .select("*")
-      .order("strength", { ascending: false })
-      .limit(150);
+      .order("strength", { ascending: false });
 
     if (error) throw error;
-    if (!connections || connections.length === 0) {
+    if (!allConnections || allConnections.length === 0) {
       return Response.json({ nodes: [], edges: [], count: 0 });
     }
+
+    // Take the top 50 highest-strength rows per connection_type.
+    // This keeps the most significant connections of every type visible.
+    const PER_TYPE_LIMIT = 50;
+    const countByType = new Map<string, number>();
+    const connections = allConnections.filter((c) => {
+      const n = countByType.get(c.connection_type) ?? 0;
+      if (n >= PER_TYPE_LIMIT) return false;
+      countByType.set(c.connection_type, n + 1);
+      return true;
+    });
 
     // Collect unique entity (type, id) pairs
     const entityMap = new Map<string, { type: string; id: string }>();
@@ -149,7 +162,7 @@ export async function GET() {
       });
     }
 
-    return Response.json({ nodes, edges, count: connections.length });
+    return Response.json({ nodes, edges, count: allConnections.length });
   } catch (err) {
     console.error("[graph/connections]", err);
     return Response.json({ error: "Failed to load graph data" }, { status: 500 });

@@ -148,4 +148,5 @@ export interface EntitySearchResult {
   type: "official" | "agency" | "proposal";
   subtitle?: string;
   party?: string;
+  connectionCount?: number;
 }

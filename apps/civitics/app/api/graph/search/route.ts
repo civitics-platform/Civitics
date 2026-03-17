@@ -52,5 +52,19 @@ export async function GET(req: Request) {
     })),
   ];
 
+  // Attach connection counts for all result entities
+  const allIds = results.map((r) => r.id);
+  if (allIds.length > 0) {
+    const [fromRes, toRes] = await Promise.all([
+      supabase.from("entity_connections").select("from_id").in("from_id", allIds),
+      supabase.from("entity_connections").select("to_id").in("to_id", allIds),
+    ]);
+    const countMap = new Map<string, number>();
+    for (const r of fromRes.data ?? []) countMap.set(r.from_id, (countMap.get(r.from_id) ?? 0) + 1);
+    for (const r of toRes.data ?? []) countMap.set(r.to_id, (countMap.get(r.to_id) ?? 0) + 1);
+    const resultsWithCounts = results.map((r) => ({ ...r, connectionCount: countMap.get(r.id) ?? 0 }));
+    return Response.json(resultsWithCounts);
+  }
+
   return Response.json(results);
 }

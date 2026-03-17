@@ -1,7 +1,20 @@
 import { createAdminClient } from "@civitics/db";
+import type { Database } from "@civitics/db";
 import type { GraphEdge, GraphNode, EdgeType, NodeType } from "@civitics/graph";
 
+type ConnectionRow = Database["public"]["Tables"]["entity_connections"]["Row"];
+
 export const dynamic = "force-dynamic";
+
+/**
+ * At depth 2, neighbors with fewer than MAX_AUTO_EXPAND connections are expanded
+ * automatically. Neighbors at or above this threshold are returned as "collapsed"
+ * nodes with a + badge — the user must click to expand them manually.
+ *
+ * This prevents financial entities like "Individual Contributors" (which connect to
+ * hundreds of officials) from freezing the graph when using Follow the Money + depth 2.
+ */
+const MAX_AUTO_EXPAND = 50;
 
 /** Map DB entity type string → GraphNode type */
 function mapNodeType(dbType: string, subType?: string): NodeType {
@@ -11,7 +24,6 @@ function mapNodeType(dbType: string, subType?: string): NodeType {
     case "governing_body": return "governing_body";
     case "proposal": return "proposal";
     case "financial": {
-      // Map financial entity subtype to graph NodeType
       switch (subType) {
         case "pac":
         case "super_pac":
@@ -32,7 +44,6 @@ function mapEdgeType(dbType: string): EdgeType {
     "appointment", "revolving_door", "oversight", "lobbying", "co_sponsorship",
   ];
   if (valid.includes(dbType as EdgeType)) return dbType as EdgeType;
-  // Fallbacks for enum values not in graph's EdgeType
   switch (dbType) {
     case "contract_award": return "donation";
     case "business_partner": return "oversight";
@@ -43,56 +54,143 @@ function mapEdgeType(dbType: string): EdgeType {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const entityId = searchParams.get("entityId");
+  // Server handles up to depth 2 (direct + one smart expansion).
+  // Client-side BFS handles further depth filtering on the loaded data.
+  const depth = Math.min(parseInt(searchParams.get("depth") ?? "1", 10), 2);
+
   try {
     const supabase = createAdminClient();
 
-    // Fetch all connections ordered by strength descending.
-    // We then cap to 50 per connection_type in JS so that donations,
-    // oversight, and revolving_door rows are never crowded out by the
-    // ~2,000 vote rows that all sit at strength ≈ 1.0.
-    const { data: allConnections, error } = await supabase
-      .from("entity_connections")
-      .select("*")
-      .order("strength", { ascending: false });
+    let connections: ConnectionRow[] = [];
+    let totalCount = 0;
 
-    if (error) throw error;
-    if (!allConnections || allConnections.length === 0) {
-      return Response.json({ nodes: [], edges: [], count: 0 });
+    // Tracks which neighbor nodes were too large to auto-expand: entityId → connectionCount
+    const collapsedNodes = new Map<string, number>();
+
+    if (entityId) {
+      // ── Entity-focused mode ────────────────────────────────────────────
+      const { data: directConns, error: directErr } = await supabase
+        .from("entity_connections")
+        .select("*")
+        .or(`from_id.eq.${entityId},to_id.eq.${entityId}`)
+        .order("strength", { ascending: false });
+
+      if (directErr) throw directErr;
+      const direct = directConns ?? [];
+
+      if (depth >= 2 && direct.length > 0) {
+        // Get all neighbor IDs from direct connections
+        const neighborIds = Array.from(
+          new Set(direct.map((c) => (c.from_id === entityId ? c.to_id : c.from_id)))
+        );
+
+        // Count how many connections each neighbor has (to decide auto-expand vs. collapsed)
+        const [neighborFromCounts, neighborToCounts] = await Promise.all([
+          supabase.from("entity_connections").select("from_id").in("from_id", neighborIds),
+          supabase.from("entity_connections").select("to_id").in("to_id", neighborIds),
+        ]);
+
+        const neighborConnCounts = new Map<string, number>();
+        for (const r of neighborFromCounts.data ?? []) {
+          neighborConnCounts.set(r.from_id, (neighborConnCounts.get(r.from_id) ?? 0) + 1);
+        }
+        for (const r of neighborToCounts.data ?? []) {
+          neighborConnCounts.set(r.to_id, (neighborConnCounts.get(r.to_id) ?? 0) + 1);
+        }
+
+        const autoExpandIds: string[] = [];
+        for (const id of neighborIds) {
+          const count = neighborConnCounts.get(id) ?? 0;
+          if (count >= MAX_AUTO_EXPAND) {
+            // Too many connections — show as collapsed, let user expand manually
+            collapsedNodes.set(id, count);
+          } else {
+            autoExpandIds.push(id);
+          }
+        }
+
+        if (autoExpandIds.length > 0) {
+          const [expandFromRes, expandToRes] = await Promise.all([
+            supabase.from("entity_connections").select("*").in("from_id", autoExpandIds),
+            supabase.from("entity_connections").select("*").in("to_id", autoExpandIds),
+          ]);
+          const connMap = new Map<string, ConnectionRow>();
+          for (const c of [...direct, ...(expandFromRes.data ?? []), ...(expandToRes.data ?? [])]) {
+            connMap.set(c.id, c);
+          }
+          connections = [...connMap.values()];
+        } else {
+          connections = direct;
+        }
+      } else {
+        connections = direct;
+      }
+
+      totalCount = connections.length;
+
+    } else {
+      // ── Default view: top 10 most connected officials ──────────────────
+      const { data: allForCount, error: countErr } = await supabase
+        .from("entity_connections")
+        .select("from_id, from_type, to_id, to_type");
+
+      if (countErr) throw countErr;
+      totalCount = allForCount?.length ?? 0;
+
+      if (!allForCount || allForCount.length === 0) {
+        return Response.json({ nodes: [], edges: [], count: 0 });
+      }
+
+      const officialCounts = new Map<string, number>();
+      for (const c of allForCount) {
+        if (c.from_type === "official") officialCounts.set(c.from_id, (officialCounts.get(c.from_id) ?? 0) + 1);
+        if (c.to_type === "official") officialCounts.set(c.to_id, (officialCounts.get(c.to_id) ?? 0) + 1);
+      }
+
+      const top10Ids = [...officialCounts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([id]) => id);
+
+      if (top10Ids.length === 0) {
+        return Response.json({ nodes: [], edges: [], count: totalCount });
+      }
+
+      const [fromRes, toRes] = await Promise.all([
+        supabase.from("entity_connections").select("*").in("from_id", top10Ids),
+        supabase.from("entity_connections").select("*").in("to_id", top10Ids),
+      ]);
+
+      const connMap = new Map<string, ConnectionRow>();
+      for (const c of [...(fromRes.data ?? []), ...(toRes.data ?? [])]) {
+        connMap.set(c.id, c);
+      }
+      connections = [...connMap.values()];
     }
 
-    // Take the top 50 highest-strength rows per connection_type.
-    // This keeps the most significant connections of every type visible.
-    const PER_TYPE_LIMIT = 50;
-    const countByType = new Map<string, number>();
-    const connections = allConnections.filter((c) => {
-      const n = countByType.get(c.connection_type) ?? 0;
-      if (n >= PER_TYPE_LIMIT) return false;
-      countByType.set(c.connection_type, n + 1);
-      return true;
-    });
-
-    // Collect unique entity (type, id) pairs
+    // ── Collect unique entity (type, id) pairs ─────────────────────────────
     const entityMap = new Map<string, { type: string; id: string }>();
     for (const conn of connections) {
-      entityMap.set(`${conn.from_type}:${conn.from_id}`, {
-        type: conn.from_type,
-        id: conn.from_id,
-      });
-      entityMap.set(`${conn.to_type}:${conn.to_id}`, {
-        type: conn.to_type,
-        id: conn.to_id,
-      });
+      entityMap.set(`${conn.from_type}:${conn.from_id}`, { type: conn.from_type, id: conn.from_id });
+      entityMap.set(`${conn.to_type}:${conn.to_id}`, { type: conn.to_type, id: conn.to_id });
     }
 
-    const entities = [...entityMap.values()];
-    const officialIds   = entities.filter((e) => e.type === "official").map((e) => e.id);
-    const agencyIds     = entities.filter((e) => e.type === "agency").map((e) => e.id);
-    const proposalIds   = entities.filter((e) => e.type === "proposal").map((e) => e.id);
-    const gbIds         = entities.filter((e) => e.type === "governing_body").map((e) => e.id);
-    const financialIds  = entities.filter((e) => e.type === "financial").map((e) => e.id);
+    // Also ensure collapsed nodes appear as graph nodes (they're in direct connections
+    // but may not have any connections in the expanded set).
+    // They're already included via the `direct` connections above — the entity map
+    // captures them from the direct connection endpoints.
 
-    // Batch-fetch names in parallel
+    const entities = [...entityMap.values()];
+    const officialIds  = entities.filter((e) => e.type === "official").map((e) => e.id);
+    const agencyIds    = entities.filter((e) => e.type === "agency").map((e) => e.id);
+    const proposalIds  = entities.filter((e) => e.type === "proposal").map((e) => e.id);
+    const gbIds        = entities.filter((e) => e.type === "governing_body").map((e) => e.id);
+    const financialIds = entities.filter((e) => e.type === "financial").map((e) => e.id);
+
+    // ── Batch-fetch names in parallel ──────────────────────────────────────
     const [officialsRes, agenciesRes, proposalsRes, gbRes, financialRes] = await Promise.all([
       officialIds.length
         ? supabase.from("officials").select("id, full_name, party").in("id", officialIds)
@@ -111,41 +209,37 @@ export async function GET() {
         : Promise.resolve({ data: [] as { id: string; name: string; entity_type: string }[] }),
     ]);
 
-    // Build name lookup
+    // ── Build name lookup ───────────────────────────────────────────────────
     const nameMap = new Map<string, { label: string; party?: string; subType?: string }>();
-    for (const o of officialsRes.data ?? []) {
-      nameMap.set(o.id, { label: o.full_name, party: o.party ?? undefined });
-    }
-    for (const a of agenciesRes.data ?? []) {
-      nameMap.set(a.id, { label: a.acronym ?? a.name });
-    }
-    for (const p of proposalsRes.data ?? []) {
-      nameMap.set(p.id, { label: p.title });
-    }
-    for (const g of gbRes.data ?? []) {
-      nameMap.set(g.id, { label: g.name });
-    }
-    for (const f of financialRes.data ?? []) {
-      nameMap.set(f.id, { label: f.name, subType: f.entity_type });
-    }
+    for (const o of officialsRes.data ?? []) nameMap.set(o.id, { label: o.full_name, party: o.party ?? undefined });
+    for (const a of agenciesRes.data ?? []) nameMap.set(a.id, { label: a.acronym ?? a.name });
+    for (const p of proposalsRes.data ?? []) nameMap.set(p.id, { label: p.title });
+    for (const g of gbRes.data ?? []) nameMap.set(g.id, { label: g.name });
+    for (const f of financialRes.data ?? []) nameMap.set(f.id, { label: f.name, subType: f.entity_type });
 
-    // Build nodes — one per unique entity (keyed as "type:id")
-    // Use fallback label if name lookup failed — never silently drop a node
+    // ── Build nodes ────────────────────────────────────────────────────────
     const nodes: GraphNode[] = [];
     for (const [key, { type, id }] of entityMap) {
       const info = nameMap.get(id) ?? { label: `Unknown ${type}` };
+      const isCollapsed = collapsedNodes.has(id);
       nodes.push({
         id: key,
         type: mapNodeType(type, info.subType),
         label: info.label,
         party: info.party as GraphNode["party"],
-        metadata: { entityType: type, entityId: id },
+        metadata: {
+          entityType: type,
+          entityId: id,
+          ...(isCollapsed
+            ? { collapsed: true, connectionCount: collapsedNodes.get(id) }
+            : {}),
+        },
       });
     }
 
     const nodeIds = new Set(nodes.map((n) => n.id));
 
-    // Build edges
+    // ── Build edges ────────────────────────────────────────────────────────
     const edges: GraphEdge[] = [];
     for (const c of connections) {
       const sourceKey = `${c.from_type}:${c.from_id}`;
@@ -162,7 +256,7 @@ export async function GET() {
       });
     }
 
-    return Response.json({ nodes, edges, count: allConnections.length });
+    return Response.json({ nodes, edges, count: totalCount });
   } catch (err) {
     console.error("[graph/connections]", err);
     return Response.json({ error: "Failed to load graph data" }, { status: 500 });

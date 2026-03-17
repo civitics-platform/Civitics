@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { ForceGraph } from "@civitics/graph";
 import type { GraphNode, GraphEdge, EdgeType, VisualConfig, EntitySearchResult } from "@civitics/graph";
 import { EDGE_COLORS, DEFAULT_VISUAL_CONFIG } from "@civitics/graph";
@@ -25,6 +25,7 @@ interface Preset {
   label: string;
   edgeTypes: EdgeType[] | null;
   minStrength?: number;
+  defaultDepth?: number;
   description: string;
 }
 
@@ -32,6 +33,7 @@ const PRESETS: Record<PresetId, Preset> = {
   follow_the_money: {
     label: "Follow the Money",
     edgeTypes: ["donation"],
+    defaultDepth: 1,  // Financial networks are dense; depth 1 shows who funds THIS official
     description: "Who funds who and how much",
   },
   votes_and_bills: {
@@ -125,6 +127,9 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
   const [visualConfig, setVisualConfig] = useState<VisualConfig>(
     (initialState?.visualConfig as VisualConfig | undefined) ?? DEFAULT_VISUAL_CONFIG
   );
+  const [minStrength, setMinStrength] = useState<number>(
+    typeof initialState?.minStrength === "number" ? initialState.minStrength : 0
+  );
   const [showCustomize, setShowCustomize] = useState(false);
 
   // Share / screenshot
@@ -132,20 +137,83 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
   const [showShare, setShowShare] = useState(false);
   const [showScreenshot, setShowScreenshot] = useState(false);
 
+  const [expandingNodeId, setExpandingNodeId] = useState<string | null>(null);
+
   const svgRef = useRef<SVGSVGElement>(null);
+  const lastFetchUrl = useRef<string | null>(null);
+  const hasAutoFilteredRef = useRef(false);
 
   // ── Load data ──────────────────────────────────────────────────────────
+  // Server handles depth 1 (direct only) vs depth 2+ (direct + one expansion).
+  // Client-side BFS then filters further based on the selected depth.
   useEffect(() => {
-    fetch("/api/graph/connections")
+    const serverDepth = centerEntity ? Math.min(depth, 2) : undefined;
+    const url = centerEntity
+      ? `/api/graph/connections?entityId=${encodeURIComponent(centerEntity.id)}&depth=${serverDepth}`
+      : "/api/graph/connections";
+
+    // Skip if same URL as last fetch (e.g. depth changed in global mode)
+    if (url === lastFetchUrl.current) return;
+    lastFetchUrl.current = url;
+
+    setLoading(true);
+    setError(null);
+    fetch(url)
       .then((r) => r.json())
       .then((data: { nodes: GraphNode[]; edges: GraphEdge[]; count: number; error?: string }) => {
         if (data.error) throw new Error(data.error);
+        hasAutoFilteredRef.current = false; // allow auto-filter to re-arm for new data
         setAllNodes(data.nodes);
         setAllEdges(data.edges);
         setCount(data.count);
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
+  }, [centerEntity, depth]);
+
+  // ── Expand a collapsed node: fetch its connections and merge ──────────
+  const handleExpandNode = useCallback(async (node: GraphNode) => {
+    const entityId = node.metadata?.entityId as string | undefined;
+    if (!entityId) return;
+    setExpandingNodeId(entityId);
+    try {
+      const res = await fetch(`/api/graph/connections?entityId=${encodeURIComponent(entityId)}&depth=1`);
+      const data = await res.json() as { nodes: GraphNode[]; edges: GraphEdge[]; count: number };
+      // Merge nodes: add new ones, mark the expanded node as no longer collapsed
+      setAllNodes((prev) => {
+        const nodeMap = new Map(prev.map((n) => [n.id, n]));
+        for (const n of data.nodes) {
+          if (!nodeMap.has(n.id)) nodeMap.set(n.id, n);
+        }
+        // Remove collapsed flag from the expanded node
+        for (const [nodeId, n] of nodeMap) {
+          if (n.metadata?.entityId === entityId && n.metadata?.collapsed) {
+            nodeMap.set(nodeId, {
+              ...n,
+              metadata: { ...n.metadata, collapsed: false, connectionCount: undefined },
+            });
+          }
+        }
+        return [...nodeMap.values()];
+      });
+      // Merge edges (dedup by id)
+      setAllEdges((prev) => {
+        const edgeMap = new Map(prev.map((e) => [e.id, e]));
+        for (const e of data.edges) edgeMap.set(e.id, e);
+        return [...edgeMap.values()];
+      });
+      // Update selectedNode if it was the expanded one
+      setSelectedNode((prev) => {
+        if (prev?.metadata?.entityId === entityId) {
+          return { ...prev, metadata: { ...prev.metadata, collapsed: false, connectionCount: undefined } };
+        }
+        return prev;
+      });
+    } catch (err) {
+      console.error("[expand node]", err);
+    } finally {
+      setExpandingNodeId(null);
+    }
   }, []);
 
   // ── Search function for EntitySelector ────────────────────────────────
@@ -172,15 +240,19 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
     []
   );
 
-  // ── Handle preset change — updates both preset UI and activeFilters ────
+  // ── Handle preset change — updates preset UI, filters, strength, depth ─
   const handlePresetChange = useCallback((preset: PresetId) => {
     setActivePreset(preset);
     setActiveFilters(PRESETS[preset].edgeTypes);
+    setMinStrength(PRESETS[preset].minStrength ?? 0);
+    if (PRESETS[preset].defaultDepth !== undefined) {
+      setDepth(PRESETS[preset].defaultDepth!);
+    }
     setSelectedNode(null);
   }, []);
 
   // ── Compute filtered edges ────────────────────────────────────────────
-  const filteredEdges = (() => {
+  const filteredEdges = useMemo(() => {
     let edges = allEdges;
 
     // 1. Apply filter pills (activeFilters)
@@ -189,15 +261,13 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
       edges = edges.filter((e) => allowed.has(e.type));
     }
 
-    // 2. Apply minStrength from active preset (clean_view)
-    const preset = PRESETS[activePreset];
-    if (preset.minStrength !== undefined) {
-      edges = edges.filter((e) => e.strength >= preset.minStrength!);
+    // 2. Apply strength slider (client-side, instant, no re-fetch)
+    if (minStrength > 0) {
+      edges = edges.filter((e) => e.strength >= minStrength);
     }
 
-    // 3. Apply depth filter if centerEntity is set
+    // 3. Apply depth filter if centerEntity is set (client-side BFS)
     if (centerEntity) {
-      // Find the node key — API uses "type:id" format
       const centerId = allNodes.find(
         (n) =>
           n.metadata?.entityId === centerEntity.id &&
@@ -207,7 +277,7 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
     }
 
     return edges;
-  })();
+  }, [allEdges, activeFilters, minStrength, centerEntity, allNodes, depth]);
 
   // Keep only nodes that appear in filtered edges
   const visibleNodeIds = new Set<string>();
@@ -219,6 +289,18 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
     filteredEdges.length === allEdges.length
       ? allNodes
       : allNodes.filter((n) => visibleNodeIds.has(n.id));
+
+  // ── Auto-filter safety net: prevent browser freeze at 1000+ nodes ────
+  // Must be declared after filteredNodes (can't use it before its declaration).
+  // Only fires once per graph load (ref prevents loop). Resets when new data loads.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (filteredNodes.length > 1000 && minStrength < 0.5 && !hasAutoFilteredRef.current) {
+      hasAutoFilteredRef.current = true;
+      setMinStrength(0.5);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredNodes.length]);
 
   const handleNodeClick = useCallback((node: GraphNode | null) => {
     setSelectedNode(node);
@@ -360,12 +442,106 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
         </span>
       </div>
 
+      {/* ── Depth warning ──────────────────────────────────────────── */}
+      {centerEntity && depth >= 3 && (
+        <div className="flex items-center gap-2 px-5 py-1.5 bg-amber-950/40 border-b border-amber-900/50 shrink-0">
+          <svg className="w-3.5 h-3.5 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <span className="text-xs text-amber-400">Large graph — may be slow at depth {depth}. Use the strength slider to focus on significant connections.</span>
+        </div>
+      )}
+
       {/* ── Filter pills ───────────────────────────────────────────── */}
       <FilterPills
         edges={allEdges}
         activeTypes={activeFilters}
         onChange={setActiveFilters}
       />
+
+      {/* ── Strength filter slider ─────────────────────────────────── */}
+      <div className="flex items-center gap-3 px-5 py-2 border-b border-gray-800 bg-gray-950 shrink-0">
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-gray-500 whitespace-nowrap">Min strength</span>
+          <span
+            className="text-gray-600 cursor-help"
+            title={"Donations: 0.0–0.3 = under $10k · 0.3–0.5 = $10k–$100k · 0.5–0.7 = $100k–$500k · 0.7–1.0 = over $500k\nVotes: always 1.0 (certain)\nOversight: always 1.0 (certain)"}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </span>
+        </div>
+        <div className="flex items-center gap-2 flex-1 max-w-xs">
+          <span className="text-xs text-gray-700 shrink-0">Weak</span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={minStrength}
+            onChange={(e) => setMinStrength(parseFloat(e.target.value))}
+            className="flex-1 accent-indigo-500 cursor-pointer"
+            style={{ height: "4px" }}
+          />
+          <span className="text-xs text-gray-700 shrink-0">Strong</span>
+        </div>
+        <div className="flex items-center gap-2 whitespace-nowrap">
+          <span className="text-xs text-gray-400">
+            {minStrength > 0
+              ? `Showing connections ≥ ${minStrength.toFixed(2)}`
+              : "Showing all connections"
+            }
+          </span>
+          {minStrength > 0 && (
+            <button
+              onClick={() => setMinStrength(0)}
+              className="text-xs text-gray-600 hover:text-gray-400 transition-colors"
+              title="Reset to show all"
+            >
+              ×
+            </button>
+          )}
+        </div>
+        {filteredEdges.length < allEdges.length && (
+          <span className="text-xs text-gray-600 whitespace-nowrap ml-auto">
+            {filteredEdges.length.toLocaleString()} / {allEdges.length.toLocaleString()}
+          </span>
+        )}
+      </div>
+
+      {/* ── Node count warnings ──────────────────────────────────────── */}
+      {!loading && filteredNodes.length > 200 && (() => {
+        const n = filteredNodes.length;
+        const isCritical = n > 1000;
+        const isHigh = n > 500;
+        const bg = isCritical ? "bg-red-950/40 border-red-900/50" : isHigh ? "bg-orange-950/40 border-orange-900/50" : "bg-amber-950/40 border-amber-900/50";
+        const textColor = isCritical ? "text-red-400" : isHigh ? "text-orange-400" : "text-amber-400";
+        const msg = isCritical
+          ? `Graph too large to render smoothly (${n.toLocaleString()} nodes) — increase strength filter above 0.5 or reduce depth to 1`
+          : isHigh
+          ? `Very large graph: ${n.toLocaleString()} nodes — may be slow`
+          : `Large graph: ${n.toLocaleString()} nodes — consider increasing strength filter or reducing depth`;
+        return (
+          <div className={`flex items-center gap-2 px-5 py-1.5 border-b shrink-0 ${bg}`}>
+            <svg className={`w-3.5 h-3.5 shrink-0 ${textColor}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span className={`text-xs ${textColor}`}>{msg}</span>
+            {isHigh && minStrength < 0.5 && (
+              <button
+                onClick={() => setMinStrength(0.5)}
+                className={`ml-2 text-xs underline ${textColor}`}
+              >
+                Apply strength ≥ 0.5
+              </button>
+            )}
+            {n > 500 && (
+              <span className="ml-auto text-xs text-gray-600 hidden sm:inline">WebGL rendering in Phase 3</span>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── Main content ─────────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden relative">
@@ -423,6 +599,18 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
             </div>
           )}
 
+          {/* Default view hint — shown when graph is loaded but no entity is selected */}
+          {!loading && !error && allNodes.length > 0 && !centerEntity && (
+            <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
+              <div className="bg-gray-900/80 backdrop-blur-sm border border-gray-700 rounded-lg px-4 py-2 text-center">
+                <p className="text-xs text-gray-500">
+                  Top 10 most connected officials ·{" "}
+                  <span className="text-indigo-400">Select any official to explore their full network</span>
+                </p>
+              </div>
+            </div>
+          )}
+
           {!loading && !error && allNodes.length > 0 && filteredEdges.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
               <div className="text-center">
@@ -476,6 +664,34 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
               </p>
             </div>
 
+            {/* Expand panel for collapsed nodes */}
+            {selectedNode?.metadata?.collapsed === true && (() => {
+              const connCount = Number(selectedNode.metadata.connectionCount ?? 0);
+              const entityId = String(selectedNode.metadata.entityId ?? "");
+              const isExpanding = expandingNodeId === entityId;
+              return (
+                <div className="mb-4 p-3 rounded-lg bg-orange-950/40 border border-orange-900/50">
+                  <p className="text-xs text-orange-400 font-medium mb-1">
+                    {connCount.toLocaleString()} connections not shown
+                  </p>
+                  <p className="text-xs text-gray-500 mb-3">
+                    This node connects to many entities. Expanding may slow the graph.
+                  </p>
+                  <button
+                    onClick={() => handleExpandNode(selectedNode)}
+                    disabled={isExpanding}
+                    className="w-full px-3 py-1.5 text-xs font-medium rounded bg-orange-900/60 hover:bg-orange-800/60 text-orange-300 hover:text-orange-200 transition-colors disabled:opacity-50"
+                  >
+                    {isExpanding
+                      ? "Expanding…"
+                      : connCount > 200
+                      ? `Expand Anyway (${connCount.toLocaleString()} nodes)`
+                      : `Expand (${connCount.toLocaleString()} connections)`}
+                  </button>
+                </div>
+              );
+            })()}
+
             {nodeEdges.length > 0 && (
               <div>
                 <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
@@ -523,7 +739,7 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
               graphState={{
                 preset: activePreset,
                 edgeTypes: activeFilters,
-                minStrength: PRESETS[activePreset].minStrength,
+                minStrength,
                 nodeCount: filteredNodes.length,
                 edgeCount: filteredEdges.length,
                 centerEntityId: centerEntity?.id,

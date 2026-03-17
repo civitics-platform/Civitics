@@ -515,6 +515,72 @@ UI:
   created_by UUID REFERENCES users(id)
   created_at TIMESTAMPTZ DEFAULT NOW()
 
+## Smart Graph Expansion Rules
+
+Never auto-expand nodes with 50+ connections at depth 2+.
+Show them as collapsed nodes with an orange [+] badge.
+User must click the node then use the sidebar "Expand" button.
+
+**MAX_AUTO_EXPAND = 50** — if a neighbor has 50+ connections, it is collapsed.
+
+Per connection type behavior at depth 2:
+- `votes` / `vote_yes` / `vote_no`: auto-expand — proposals have bounded voter counts (~100 per proposal), safe
+- `oversight`: auto-expand — agencies have bounded connections
+- `revolving_door` / `appointment`: auto-expand — bounded by career history
+- `donation`: NEVER auto-expand — financial entities (e.g. "Individual Contributors") connect to hundreds of officials. The 50-connection threshold catches all real cases.
+
+Node count thresholds:
+- < 200 nodes: render freely, no warning
+- 200–500 nodes: amber warning bar above graph
+- 500–1000 nodes: orange warning + "Apply strength ≥ 0.5" button + "WebGL in Phase 3" note
+- 1000+ nodes: red warning + auto-apply strength 0.5 (one-shot, only if minStrength < 0.5)
+
+Follow the Money preset defaults to depth 1:
+- Financial networks are dense — depth 1 shows who funds THIS official
+- Depth 2 of donations (who else does this donor fund?) is interesting but expensive — manual opt-in only
+- Collapsed financial nodes at depth 2 show [+] button — user clicks to expand that specific donor
+
+The goal: **never freeze the browser** while **never hiding data**.
+User chooses complexity consciously. Platform warns, never decides for them.
+
+## Strength Filter
+
+The strength slider is always client-side — never a server query parameter.
+
+All connections are fetched once. The user filters locally. This keeps the graph
+responsive and puts the user in control.
+
+**Default strength threshold: 0.0** — never default to hiding data.
+
+What strength means per connection type:
+- Donations: 0.0–0.3 = under $10k · 0.3–0.5 = $10k–$100k · 0.5–0.7 = $100k–$500k · 0.7–1.0 = over $500k
+- Votes: always 1.0 (certain — happened or it didn't)
+- Oversight: always 1.0 (certain)
+
+Preset interaction:
+- Clean View → sets slider to 0.7 automatically
+- Full Picture → resets slider to 0.0
+
+## Default View (No Entity Selected)
+
+When no entity is selected, show the top 10 most connected officials and all their
+direct connections. This is the most interesting graph by default — dense, revealing,
+and a natural entry point for exploration.
+
+Show a persistent hint: "Select any official to explore their full network"
+
+## Depth and Performance
+
+Server-side depth cap: 2 (direct connections + one expansion).
+Client-side BFS handles further depth filtering on loaded data.
+
+Depth 1: fetch direct connections only (fast, focused)
+Depth 2: fetch direct + one expansion (moderate)
+Depth 3+: same server fetch as depth 2, but warn the user: "Large graph — may be slow"
+
+The user choosing depth = user accepting performance impact.
+The platform never hides data to improve performance — it warns and lets the user decide.
+
 ## What Not To Do
 - Never use React Flow — D3 force simulation only
 - Never show blockchain addresses or transaction hashes in UI

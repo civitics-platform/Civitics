@@ -121,6 +121,13 @@ export function EntitySelector({ selectedEntity, onSelect, searchFn }: EntitySel
                   {r.subtitle && (
                     <span className="text-gray-500 text-xs">{r.subtitle}</span>
                   )}
+                  <span className="ml-auto text-xs shrink-0">
+                    {r.connectionCount != null
+                      ? r.connectionCount > 0
+                        ? <span className="text-indigo-400">{r.connectionCount.toLocaleString()} connections</span>
+                        : <span className="text-gray-600 italic">No connections mapped yet</span>
+                      : null}
+                  </span>
                 </button>
               ))}
             </div>

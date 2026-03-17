@@ -304,6 +304,37 @@ function ForceGraph({ nodes, edges, onNodeClick, className, visualConfig }: Forc
         .attr("fill", "#6b7280")
         .attr("pointer-events", "none")
         .text(truncate(d.label, 22));
+
+      // Collapsed node indicator: orange "+" badge in top-right corner.
+      // Shown when a node has 50+ connections and was not auto-expanded at depth 2.
+      // User must click the node then use the sidebar "Expand" button.
+      if (d.metadata?.collapsed) {
+        const r = getNodeRadius(d.type, visualConfig?.nodeSizeEncoding);
+        // Badge position: top-right corner of the node shape
+        const bx = d.type === "governing_body" ? 28 :
+                   d.type === "proposal"        ? 24 :
+                   d.type === "pac"             ? 18 : r - 2;
+        const by = d.type === "governing_body" ? -16 :
+                   d.type === "proposal"        ? -18 :
+                   d.type === "pac"             ? -20 : -(r - 2);
+
+        el.append("circle")
+          .attr("cx", bx).attr("cy", by)
+          .attr("r", 9)
+          .attr("fill", "#f97316")   // orange — signals "expandable"
+          .attr("stroke", "#111827")
+          .attr("stroke-width", 1.5)
+          .attr("pointer-events", "none");
+        el.append("text")
+          .attr("x", bx).attr("y", by)
+          .attr("text-anchor", "middle")
+          .attr("dominant-baseline", "central")
+          .attr("font-size", "13px")
+          .attr("font-weight", "800")
+          .attr("fill", "white")
+          .attr("pointer-events", "none")
+          .text("+");
+      }
     });
 
     // ── interactions ───────────────────────────────────────────────────────

@@ -2,6 +2,7 @@
 
 > This file tracks progress against the phased development plan defined in `CLAUDE.md`.
 > Update checkboxes as tasks complete. Phases are sequential; each unlocks the next.
+> Last audited: 2026-03-16 (verified against actual files, tables, and code — not guessed).
 
 ---
 
@@ -35,47 +36,84 @@
 
 ---
 
-## Phase 1 — MVP `Weeks 3–10` `30% complete` ← **current**
+## Phase 1 — MVP `Weeks 3–10` `~65% complete` ← **current**
 
-> **Done when:** 500 beta users, real government data loading, at least one complete user journey (search → official → vote record → donor → connection graph), grant applications submitted.
+> **Done when:** Search works, homepage shows real data for all sections (proposals link live, not `href="#"`), one complete user journey end to end (search → official → vote record → donor → connection graph), auth working, 500 beta users, grant applications submitted.
 
 ### Data Ingestion Pipelines
-- [x] Congress.gov API → officials + votes
-- [x] FEC API → financial_relationships (replaced with bulk approach — no rate limits)
-- [ ] FEC Individuals Donations bulk file (2GB - pending R2)
-- [x] FEC bulk pipeline → weball24 download → parse → match → upsert → auto-run connections
-- [x] USASpending.gov → spending_records (2,000 records, FY2024 contracts)
-- [x] Regulations.gov → proposals + comment periods (1,000 proposed rules)
-- [x] OpenStates → state legislators (1,445 state legislators, all 50 states)
-- [x] CourtListener → judges + rulings (365 judges, 280 opinions)
-- [x] Master orchestrator + scheduler (daily/weekly cron)
-- [x] Entity connections pipeline (derives donation/vote/oversight/appointment from ingested data)
+- [x] Congress.gov API → officials + votes (`packages/data/src/pipelines/congress/`)
+- [x] FEC bulk pipeline → `weball24.zip` download → parse → match → upsert → auto-run connections (`packages/data/src/pipelines/fec-bulk/`)
+  - Note: FEC API-based pipeline (`fec/`) retained for reference but must not be used — hits rate limits
+- [x] FEC Individuals bulk file pipeline (`packages/data/src/pipelines/financial-entities/`) — creates `financial_entities` table rows from FEC donor categories
+  - Note: Full 2GB individual-level FEC file pending Cloudflare R2 account
+- [x] USASpending.gov → spending_records (`packages/data/src/pipelines/usaspending/`)
+- [x] Regulations.gov → proposals + comment periods (`packages/data/src/pipelines/regulations/`)
+- [x] OpenStates → state legislators (`packages/data/src/pipelines/openstates/`)
+- [x] CourtListener → judges + rulings (`packages/data/src/pipelines/courtlistener/`)
+- [x] Entity connections pipeline — derives donation/vote/oversight/appointment from ingested data (`packages/data/src/pipelines/connections/`)
+- [x] Master orchestrator + scheduler (`packages/data/src/pipelines/index.ts`)
+- [x] Sync log tracking — `data_sync_log` table, per-pipeline run records
 
 ### Core Pages
-- [x] Official profile page with real data (list + /officials/[id] standalone)
-- [x] Agency profile page (/agencies list + /agencies/[id] profile)
-- [ ] Proposal detail page
-- [ ] Search across all entities
-- [x] Homepage wired to real data
-- [x] Connection graph at `/graph` — wired to entity_connections table, real data API
-- [x] Graph share code system — `CIV-XXXX-XXXX` codes, `/graph/[code]` URLs, `graph_snapshots` table
-- [x] Graph screenshot export — PNG 1×/2×/4× with non-removable watermark (URL + data sources + date)
-- [x] Graph preset views — Follow the Money, Votes & Bills, Revolving Door, Full Picture, Clean View
-- [x] Graph empty state — ghost node animation + "Connections being mapped" message when table is empty
-- [x] Graph entity selector — search-as-you-type for officials, agencies, proposals; centers graph on selection
-- [x] Graph depth control — 1–5 hop selector; client-side BFS filter; amber warning at depth 4+
-- [x] Graph filter pills — per-connection-type toggles with live counts; syncs with presets; shows "Custom" badge
-- [x] Graph customize panel — node size/color encoding, edge thickness/opacity, layout, theme (dark/light/print)
+- [x] Homepage wired to real data — officials, proposals, agencies, spending counts pulled live from Supabase
+  - Note: Proposals and Agencies nav links still `href="#"` (no `/proposals/` or full `/agencies/` browse page yet)
+- [x] Officials list page (`/officials`) — full list, party filter, real data
+- [x] Official detail page (`/officials/[id]`) — votes, donor data, real data
+- [x] Agency list page (`/agencies`) — real data
+- [x] Agency detail page (`/agencies/[slug]`) — real data
+- [ ] Proposals list + detail page — route does not exist (`/proposals/` and `/proposals/[id]` missing)
+- [ ] Search — no search component or API route exists anywhere in the app
+- [x] Public accountability dashboard (`/dashboard`) — platform stats, pipeline health, data counts
+
+### Graph Features
+- [x] Connection graph with D3 force simulation (`packages/graph/src/ForceGraph.tsx`)
+- [x] Graph page at `/graph` — dark theme, wired to `entity_connections` table via `/api/graph/connections`
+- [x] Share code system — `CIV-XXXX-XXXX` codes, `/graph/[code]` URLs, `graph_snapshots` table, `/api/graph/snapshot` route
+- [x] Screenshot export — PNG 1×/2×/4× with non-removable watermark (URL + data sources + date)
+- [x] 5 of 8 preset views built — Follow the Money, Votes & Bills, Revolving Door, Full Picture, Clean View
+  - Not yet built: Committee Power, Industry Capture, Co-Sponsor Network
+- [x] Ghost node empty state animation — shown when `entity_connections` table is empty
+- [x] Entity selector — search-as-you-type for officials, agencies, proposals; centers graph on selection
+- [x] Depth control — 1–5 hop selector; client-side BFS filter
+- [x] Filter pills — per-connection-type toggles with live counts; syncs with presets; "Custom" badge
+- [x] Customize panel — node size/color encoding, edge thickness/opacity, layout, theme
+- [x] Node types rendered: official (circle), proposal (document rect), corporation/financial (diamond, green), pac (triangle, orange), individual (dashed circle, blue), governing_body (rounded rect, purple)
+  - Note: `entity_connections` schema uses `from_id`/`from_type`/`to_id`/`to_type` — different from original CLAUDE.md spec which showed `entity_a_id`/`entity_b_id`
+- [ ] AI narrative ("Explain this graph") — not yet built
+- [ ] Path finder (shortest path between two entities) — Phase 2
+- [ ] Timeline scrubber — Phase 2
+- [ ] Comparison mode (split screen) — Phase 2
+
+### Infrastructure
+- [x] Supabase storage buckets created
+- [x] Storage utility (`packages/db/src/storage.ts`) — `uploadFile()` / `getFile()` / `getStorageUrl()`, path-based (migration-ready for R2)
+- [x] `data_sync_log` table tracking all pipeline runs
+- [x] `api_usage_logs` table
+- [x] `financial_entities` table (created after main schema — types not yet regenerated)
+- [x] `graph_snapshots` table (created after main schema — types not yet regenerated)
+  - TODO: run `pnpm --filter @civitics/db gen:types` to regenerate `database.ts` and remove the `any` casts in graph API routes
+- [ ] Cloudflare R2 — pending Cloudflare account / payment card
+  - Migration path: set `STORAGE_PROVIDER=r2`, run `packages/data/src/migrations/supabase-to-r2.ts` — no DB changes required, paths are provider-agnostic
+- [ ] Custom storage domain
+
+### Database (as of 2026-03-16 audit)
+- [x] `entity_connections` — 2,212 rows
+- [x] `officials` — 1,983 rows
+- [x] `proposals` — 1,917 rows
+- [x] `spending_records` — 1,980 rows
+- [x] `votes` — 226,873 rows
+- [x] `financial_entities` — FEC donor categories seeded
+- [x] `graph_snapshots` — table exists, rows created on share
+- [x] `civic_comments` — table exists, no commenting UI yet
 
 ### AI Features
-- [ ] Plain language bill summaries (cached)
+- [ ] Plain language bill summaries (cached, generated once on ingestion)
 - [ ] Basic credit system in Supabase
-- [ ] "What does this mean for me" query
+- [ ] "What does this mean for me" personalized query
 
-### Community
-- [x] Public accountability dashboard (`/dashboard`) live
-- [ ] User auth via Supabase
-- [ ] Community commenting on entities
+### Community & Auth
+- [ ] User auth via Supabase (no auth route handler exists)
+- [ ] Community commenting on entities (`civic_comments` table exists, no UI)
 - [ ] Position tracking on proposals
 - [ ] Follow officials and agencies
 
@@ -96,6 +134,14 @@
 - [ ] Donor impact calculator
 - [ ] Vote pattern analyzer
 - [ ] Revolving door tracker
+
+### Graph Enhancements (Phase 2)
+- [ ] AI narrative — "Explain this graph" button (1 civic credit, cached per state hash)
+- [ ] Path finder — shortest path between two entities (PostgreSQL recursive CTE already stubbed in `packages/db/src/queries/entity-connections.ts`)
+- [ ] Timeline scrubber — animate graph through time with play button
+- [ ] Comparison mode — split screen two entities
+- [ ] Remaining 3 preset views — Committee Power, Industry Capture, Co-Sponsor Network
+- [ ] Community presets — user-saved named presets (`graph_presets` table)
 
 ### AI Power Features
 - [ ] Connection mapping queries

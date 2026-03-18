@@ -83,3 +83,6 @@ export {
   findRepresentativesByLocation,
   findJurisdictionsByLocation,
 } from "./queries/district-lookup";
+
+// Storage (Supabase now, R2 later — paths are provider-agnostic)
+export { getStorageUrl, uploadFile, getFile, fileExists } from "./storage";

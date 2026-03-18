@@ -10,8 +10,14 @@
     "clean": "turbo run clean"
   },
   "devDependencies": {
+    "supabase": "latest",
     "turbo": "^2.0.0",
     "typescript": "^5.4.0"
+  },
+  "pnpm": {
+    "neverBuiltDependencies": [
+      "supabase"
+    ]
   },
   "engines": {
     "node": ">=20.0.0",

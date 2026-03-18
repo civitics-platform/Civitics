@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { cookies } from "next/headers";
 import { createServerClient } from "@civitics/db";
+import { DistrictMap } from "./components/DistrictMap";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -665,6 +666,7 @@ export default async function HomePage() {
       <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-12">
           <CommentBanner />
+          <DistrictMap />
           <GraphBanner />
           <OfficialsSection officials={featuredOfficials} />
           <ProposalsSection proposals={featuredProposals} />

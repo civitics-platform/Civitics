@@ -101,6 +101,28 @@ Never commit `node_modules`. Never use npm or yarn.
 
 ---
 
+## Environment Variables
+
+Local development: .env.local
+  Gitignored, never committed
+  
+Production: Vercel Dashboard
+  Settings → Environment Variables
+  Encrypted at rest
+  Never in code files
+
+These are equivalent but separate:
+  .env.local = local secrets
+  Vercel env vars = production secrets
+
+Both must be kept in sync manually
+When adding a new API key:
+  1. Add to .env.local
+  2. Add to Vercel immediately
+  3. Add key name (no value)
+     to .env.example
+  4. Update CLAUDE.md if relevant
+
 ## Supabase API Keys
 
 Use NEW format keys only:

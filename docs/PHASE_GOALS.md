@@ -92,8 +92,7 @@
 - [x] `financial_entities` table (created after main schema — types not yet regenerated)
 - [x] `graph_snapshots` table (created after main schema — types not yet regenerated)
   - TODO: run `pnpm --filter @civitics/db gen:types` to regenerate `database.ts` and remove the `any` casts in graph API routes
-- [ ] Cloudflare R2 — pending Cloudflare account / payment card
-  - Migration path: set `STORAGE_PROVIDER=r2`, run `packages/data/src/migrations/supabase-to-r2.ts` — no DB changes required, paths are provider-agnostic
+- [x] Cloudflare R2 — buckets created (`civitics-documents`, `civitics-cache`), storage.ts updated to use @aws-sdk/client-s3, STORAGE_PROVIDER=r2 active
 - [ ] Custom storage domain
 
 ### Database (as of 2026-03-16 audit)
@@ -107,7 +106,7 @@
 - [x] `civic_comments` — table exists, no commenting UI yet
 
 ### AI Features
-- [ ] Plain language bill summaries (cached, generated once on ingestion)
+- [x] Plain language bill summaries — `generateSummary()` in `packages/ai/src/client.ts`, Haiku model, cache + $4.00/month cost guard, logs to `api_usage_logs`
 - [ ] Basic credit system in Supabase
 - [ ] "What does this mean for me" personalized query
 
@@ -118,9 +117,9 @@
 - [ ] Follow officials and agencies
 
 ### Maps
-- [ ] Mapbox account + API key
-- [ ] District finder from address
-- [ ] "Find your representatives" map
+- [x] Mapbox account + API key — NEXT_PUBLIC_MAPBOX_TOKEN configured
+- [x] District finder from address — `DistrictMap` component geocodes address via Mapbox, calls `/api/representatives`
+- [x] "Find your representatives" map — live on homepage between CommentBanner and GraphBanner
 
 ---
 

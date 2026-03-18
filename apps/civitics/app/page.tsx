@@ -119,7 +119,7 @@ function NavBar() {
           <nav className="hidden md:flex items-center gap-6">
             {[
               { label: "Officials",    href: "/officials" },
-              { label: "Proposals",   href: "#" },
+              { label: "Proposals",   href: "/proposals" },
               { label: "Agencies",    href: "/agencies" },
               { label: "Spending",    href: "#" },
               { label: "Connections", href: "/graph" },
@@ -183,7 +183,7 @@ function Hero({ stats }: { stats: Stats }) {
               Find your representatives
             </a>
             <a
-              href="#"
+              href="/proposals?status=open"
               className="rounded-md border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
             >
               Browse open comment periods
@@ -309,7 +309,7 @@ function ProposalsSection({ proposals }: { proposals: FeaturedProposal[] }) {
         <SectionHeader
           title="Proposals"
           description="Bills, regulations, and rules open for public comment — submit your position for free."
-          href="#"
+          href="/proposals"
           linkLabel="Browse all proposals"
         />
         <p className="mt-4 text-sm text-gray-500">No open comment periods right now. Check back soon.</p>
@@ -322,7 +322,7 @@ function ProposalsSection({ proposals }: { proposals: FeaturedProposal[] }) {
       <SectionHeader
         title="Proposals"
         description="Bills, regulations, and rules open for public comment — submit your position for free."
-        href="#"
+        href="/proposals"
         linkLabel="Browse all proposals"
       />
       <div className="mt-4 flex flex-col gap-3">
@@ -336,7 +336,7 @@ function ProposalsSection({ proposals }: { proposals: FeaturedProposal[] }) {
           return (
             <a
               key={proposal.id}
-              href="#"
+              href={`/proposals/${proposal.id}`}
               className="group block rounded-lg border border-gray-200 bg-white p-5 hover:border-indigo-300 hover:shadow-sm transition-all"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -491,7 +491,7 @@ function CommentBanner() {
           </p>
         </div>
         <a
-          href="#"
+          href="/proposals?status=open"
           className="shrink-0 rounded-md border border-indigo-300 bg-white px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 transition-colors"
         >
           View open periods →

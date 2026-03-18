@@ -56,12 +56,14 @@
 
 ### Core Pages
 - [x] Homepage wired to real data — officials, proposals, agencies, spending counts pulled live from Supabase
-  - Note: Proposals and Agencies nav links still `href="#"` (no `/proposals/` or full `/agencies/` browse page yet)
+  - Proposals nav and CTA links now wired to `/proposals` and `/proposals?status=open`
 - [x] Officials list page (`/officials`) — full list, party filter, real data
 - [x] Official detail page (`/officials/[id]`) — votes, donor data, real data
 - [x] Agency list page (`/agencies`) — real data
 - [x] Agency detail page (`/agencies/[slug]`) — real data
-- [ ] Proposals list + detail page — route does not exist (`/proposals/` and `/proposals/[id]` missing)
+- [x] Proposals list page (`/proposals`) — status/type/agency/search filters, open-now featured section, pagination
+- [x] Proposal detail page (`/proposals/[id]`) — full summary, comment period banner, 3-step comment draft tool, vote record, related proposals, generateStaticParams for top 50
+  - AI summaries: show cached `summary_plain` only — no on-demand generation (AI credit system not yet live)
 - [ ] Search — no search component or API route exists anywhere in the app
 - [x] Public accountability dashboard (`/dashboard`) — platform stats, pipeline health, data counts
 

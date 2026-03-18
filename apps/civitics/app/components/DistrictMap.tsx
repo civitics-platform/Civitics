@@ -441,15 +441,17 @@ export function DistrictMap() {
       </div>
 
       {/*
-        Fixed-height container — no layout shift when map activates.
-        Both the inactive panel and the map div are absolutely positioned inside
-        and cross-fade via opacity transitions.
+        The map container always has explicit dimensions so Mapbox can initialize.
+        The inactive overlay is absolutely positioned inside it and fades out
+        when the map activates — no layout shift, smooth cross-fade.
       */}
-      <div className="relative w-full min-h-[400px] md:min-h-[500px] rounded-lg border border-gray-200 overflow-hidden">
-
-        {/* Inactive panel (placeholder / address_input / loading) — fades out */}
+      <div
+        ref={containerRef}
+        className="relative w-full h-[400px] md:h-[500px] rounded-lg border border-gray-200 overflow-hidden"
+      >
+        {/* Inactive overlay (placeholder / address_input / loading) — fades out */}
         <div
-          className={`absolute inset-0 transition-opacity duration-300 ${
+          className={`absolute inset-0 z-10 transition-opacity duration-300 ${
             mapState === "active"
               ? "opacity-0 pointer-events-none"
               : "opacity-100"
@@ -465,18 +467,6 @@ export function DistrictMap() {
           {mapState === "address_input" && renderAddressInput()}
           {mapState === "loading" && renderLoading()}
         </div>
-
-        {/*
-          Map container — always in the DOM once first rendered so React never
-          unmounts Mapbox. Hidden via opacity until active; absolute positioning
-          gives it real dimensions even while invisible so Mapbox can init.
-        */}
-        <div
-          ref={containerRef}
-          className={`absolute inset-0 transition-opacity duration-300 ${
-            mapState === "active" ? "opacity-100" : "opacity-0 pointer-events-none"
-          }`}
-        />
 
         {/* Change address — overlaid top-left on the live map */}
         {mapState === "active" && (

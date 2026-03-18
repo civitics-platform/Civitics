@@ -7,8 +7,26 @@
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"],
       "env": [
+        "NEXT_PUBLIC_SUPABASE_URL",
+        "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
         "SUPABASE_SECRET_KEY",
-        "CONGRESS_API_KEY"
+        "NEXT_PUBLIC_MAPBOX_TOKEN",
+        "ANTHROPIC_API_KEY",
+        "STORAGE_PROVIDER",
+        "CLOUDFLARE_ACCOUNT_ID",
+        "CLOUDFLARE_API_TOKEN",
+        "CLOUDFLARE_R2_ACCESS_KEY_ID",
+        "CLOUDFLARE_R2_SECRET_ACCESS_KEY",
+        "CLOUDFLARE_R2_BUCKET_DOCUMENTS",
+        "CLOUDFLARE_R2_BUCKET_CACHE",
+        "CLOUDFLARE_R2_PUBLIC_URL_DOCUMENTS",
+        "VERCEL_TOKEN",
+        "VERCEL_PROJECT_ID",
+        "CONGRESS_API_KEY",
+        "COURTLISTENER_API_KEY",
+        "OPENSTATES_API_KEY",
+        "FEC_API_KEY",
+        "REGULATIONS_API_KEY"
       ]
     },
     "dev": {

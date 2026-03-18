@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 // Allowed service/metric combinations — reject anything unexpected
 const ALLOWED: Record<string, string[]> = {
-  mapbox: ["map_load"],
+  mapbox: ["map_load", "map_activated", "geolocation_used", "address_used"],
   r2:     ["file_read", "file_write"],
   vercel: ["deployment"],
 };

@@ -35,6 +35,7 @@ type FeaturedProposal = {
   summary: string | null;
   openForComment: boolean;
   agencyId: string | null;
+  agencyName: string | null;
 };
 
 type FeaturedAgency = {
@@ -381,10 +382,10 @@ function ProposalsSection({ proposals }: { proposals: FeaturedProposal[] }) {
               ) : null}
               <div className="mt-3 flex items-center gap-4 text-xs text-gray-400">
                 <span>{typeLabel}</span>
-                {proposal.agencyId && (
+                {(proposal.agencyName ?? proposal.agencyId) && (
                   <>
                     <span>·</span>
-                    <span>{proposal.agencyId}</span>
+                    <span>{proposal.agencyName ?? proposal.agencyId}</span>
                   </>
                 )}
                 {proposal.introducedAt && (
@@ -438,9 +439,9 @@ function AgenciesSection({ agencies }: { agencies: FeaturedAgency[] }) {
               </div>
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-gray-900 group-hover:text-indigo-700">
-                  {agency.acronym}
+                  {agency.name}
                 </p>
-                <p className="truncate text-xs text-gray-500">Federal Agency</p>
+                <p className="truncate text-xs text-gray-500">{agency.acronym}</p>
               </div>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 border-t border-gray-100 pt-3">
@@ -571,6 +572,19 @@ export default async function HomePage() {
     proposalData = fallback ?? [];
   }
 
+  // Resolve full agency names for proposals (metadata stores acronym, not FK)
+  const proposalAcronyms = [
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...new Set(proposalData.map((p) => (p.metadata as any)?.agency_id).filter(Boolean)),
+  ] as string[];
+  const { data: proposalAgencyRows } = proposalAcronyms.length > 0
+    ? await supabase.from("agencies").select("acronym, name").in("acronym", proposalAcronyms)
+    : { data: [] };
+  const agencyNameMap: Record<string, string> = {};
+  for (const a of proposalAgencyRows ?? []) {
+    if (a.acronym) agencyNameMap[a.acronym] = a.name;
+  }
+
   // Wave 2: federal officials (top 20 by vote count later) + agency proposal counts (all parallel)
   const [officialsRes, ...agencyStatPairs] = await Promise.all([
     supabase
@@ -651,6 +665,7 @@ export default async function HomePage() {
       summary: p.summary_plain ?? null,
       openForComment: p.status === "open_comment",
       agencyId: meta?.agency_id ?? null,
+      agencyName: meta?.agency_id ? (agencyNameMap[meta.agency_id] ?? null) : null,
     };
   });
 

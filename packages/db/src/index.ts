@@ -86,3 +86,6 @@ export {
 
 // Storage (Supabase now, R2 later — paths are provider-agnostic)
 export { getStorageUrl, uploadFile, getFile, fileExists } from "./storage";
+
+// Reference data
+export { AGENCY_NAMES, agencyFullName } from "./agency-names";

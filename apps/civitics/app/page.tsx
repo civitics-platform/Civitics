@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { cookies } from "next/headers";
-import { createServerClient } from "@civitics/db";
+import { createServerClient, agencyFullName } from "@civitics/db";
 import { DistrictMap } from "./components/DistrictMap";
 import { GlobalSearch } from "./components/GlobalSearch";
 
@@ -439,7 +439,7 @@ function AgenciesSection({ agencies }: { agencies: FeaturedAgency[] }) {
               </div>
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-gray-900 group-hover:text-indigo-700">
-                  {agency.name}
+                  {agencyFullName(agency.acronym) ?? agency.name}
                 </p>
                 <p className="truncate text-xs text-gray-500">{agency.acronym}</p>
               </div>
@@ -572,18 +572,7 @@ export default async function HomePage() {
     proposalData = fallback ?? [];
   }
 
-  // Resolve full agency names for proposals (metadata stores acronym, not FK)
-  const proposalAcronyms = [
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ...new Set(proposalData.map((p) => (p.metadata as any)?.agency_id).filter(Boolean)),
-  ] as string[];
-  const { data: proposalAgencyRows } = proposalAcronyms.length > 0
-    ? await supabase.from("agencies").select("acronym, name").in("acronym", proposalAcronyms)
-    : { data: [] };
-  const agencyNameMap: Record<string, string> = {};
-  for (const a of proposalAgencyRows ?? []) {
-    if (a.acronym) agencyNameMap[a.acronym] = a.name;
-  }
+  // Agency names resolved from static map — DB stores name=acronym for many rows
 
   // Wave 2: federal officials (top 20 by vote count later) + agency proposal counts (all parallel)
   const [officialsRes, ...agencyStatPairs] = await Promise.all([
@@ -665,7 +654,7 @@ export default async function HomePage() {
       summary: p.summary_plain ?? null,
       openForComment: p.status === "open_comment",
       agencyId: meta?.agency_id ?? null,
-      agencyName: meta?.agency_id ? (agencyNameMap[meta.agency_id] ?? null) : null,
+      agencyName: agencyFullName(meta?.agency_id),
     };
   });
 

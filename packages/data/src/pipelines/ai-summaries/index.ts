@@ -20,7 +20,7 @@
  *   pnpm --filter @civitics/data data:ai-summaries-new
  */
 
-import { createAdminClient } from "@civitics/db";
+import { createAdminClient, agencyFullName } from "@civitics/db";
 import { createAiClient, MODELS } from "@civitics/ai";
 import { sleep } from "../utils";
 
@@ -113,36 +113,7 @@ function computeCostCents(inputTokens: number, outputTokens: number): number {
 // Step 1 — Proposals
 // ---------------------------------------------------------------------------
 
-// Agency acronym → full name (subset; used for prompt context only)
-const AGENCY_NAMES: Record<string, string> = {
-  EPA: "Environmental Protection Agency",
-  FAA: "Federal Aviation Administration",
-  USCG: "U.S. Coast Guard",
-  FCC: "Federal Communications Commission",
-  FWS: "U.S. Fish and Wildlife Service",
-  NOAA: "National Oceanic and Atmospheric Administration",
-  IRS: "Internal Revenue Service",
-  NCUA: "National Credit Union Administration",
-  OSHA: "Occupational Safety and Health Administration",
-  AMS: "Agricultural Marketing Service",
-  CMS: "Centers for Medicare & Medicaid Services",
-  OCC: "Office of the Comptroller of the Currency",
-  NRC: "Nuclear Regulatory Commission",
-  ED: "Department of Education",
-  FERC: "Federal Energy Regulatory Commission",
-  OPM: "Office of Personnel Management",
-  FDA: "Food and Drug Administration",
-  VA: "Department of Veterans Affairs",
-  CPSC: "Consumer Product Safety Commission",
-  NHTSA: "National Highway Traffic Safety Administration",
-  HHS: "Department of Health and Human Services",
-  DOT: "Department of Transportation",
-  DOE: "Department of Energy",
-  SEC: "Securities and Exchange Commission",
-  CFTC: "Commodity Futures Trading Commission",
-  FMCSA: "Federal Motor Carrier Safety Administration",
-  FTA: "Federal Transit Administration",
-};
+// Agency names resolved from shared map in @civitics/db
 
 async function fetchOpenProposals(db: ReturnType<typeof createAdminClient>): Promise<ProposalRow[]> {
   // Proposals store agency as metadata->>'agency_id' (acronym string), not a FK.
@@ -182,7 +153,7 @@ async function fetchOpenProposals(db: ReturnType<typeof createAdminClient>): Pro
         summary_plain: p.summary_plain ?? null,
         type: p.type,
         agency_acronym: acronym,
-        agency_name: acronym ? (AGENCY_NAMES[acronym] ?? null) : null,
+        agency_name: agencyFullName(acronym),
       };
     });
 }

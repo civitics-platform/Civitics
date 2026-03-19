@@ -226,11 +226,11 @@ export function GlobalSearch({
   const isHero = variant === "hero";
   const inputClass = isHero
     ? "w-full rounded-lg border border-gray-300 bg-white px-5 py-3.5 text-base text-gray-900 placeholder-gray-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-    : "w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400";
+    : "w-full rounded-full border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-500 placeholder-gray-400 shadow-sm hover:border-gray-400 hover:shadow focus:border-indigo-400 focus:text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-400/20 cursor-text transition-shadow";
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div ref={containerRef} className={`relative ${isHero ? "w-full max-w-xl" : "w-56 lg:w-72"}`}>
+    <div ref={containerRef} className={`relative ${isHero ? "w-full max-w-xl" : "w-48 lg:w-64"}`}>
       <div className="relative">
         <span className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 ${isHero ? "text-base" : "text-sm"}`}>
           {loading ? (
@@ -249,12 +249,12 @@ export function GlobalSearch({
           onKeyDown={handleKeyDown}
           onFocus={() => { if (results && results.total > 0) setOpen(true); }}
           placeholder={placeholder}
-          className={`${inputClass} ${isHero ? "pl-12" : "pl-9"}`}
+          className={`${inputClass} ${isHero ? "pl-12" : "pl-9 pr-14"}`}
           autoComplete="off"
           spellCheck={false}
         />
         {!isHero && (
-          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 hidden rounded border border-gray-200 bg-white px-1 py-0.5 text-[10px] font-medium text-gray-400 lg:block">
+          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 hidden rounded-full border border-gray-300 bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-500 lg:block">
             ⌘K
           </span>
         )}

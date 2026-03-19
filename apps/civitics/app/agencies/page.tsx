@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { cookies } from "next/headers";
-import { createServerClient } from "@civitics/db";
+import { createServerClient, agencyFullName } from "@civitics/db";
 import { AgenciesList } from "./components/AgenciesList";
 
 export const metadata = { title: "Agencies" };
@@ -57,7 +57,7 @@ export default async function AgenciesPage() {
     const pair = statPairs[i];
     return {
       id: agency.id,
-      name: agency.name,
+      name: agencyFullName(agency.acronym) ?? agency.name,
       short_name: agency.short_name ?? null,
       acronym: agency.acronym ?? null,
       agency_type: agency.agency_type,

@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { cookies } from "next/headers";
 import { createServerClient } from "@civitics/db";
 import { ProposalCard, type ProposalCardData } from "./components/ProposalCard";
+import { AGENCY_FULL_NAMES } from "./components/agencyNames";
 
 const PAGE_SIZE = 20;
 
@@ -110,23 +111,10 @@ export default async function ProposalsPage({
     .order("comment_period_end", { ascending: true, nullsFirst: false })
     .range(offset, offset + PAGE_SIZE - 1);
 
-  // ─── Agency name lookup ───────────────────────────────────────────────────
-  const agencyLookupQuery = supabase
-    .from("agencies")
-    .select("acronym,name")
-    .not("acronym", "is", null);
-
-  const [openFeaturedRes, mainRes, agencyLookupRes] = await Promise.all([
+  const [openFeaturedRes, mainRes] = await Promise.all([
     openFeaturedQuery,
     mainQuery,
-    agencyLookupQuery,
   ]);
-
-  // Build acronym → full name map
-  const agencyNameMap: Record<string, string> = {};
-  for (const a of agencyLookupRes.data ?? []) {
-    if (a.acronym) agencyNameMap[a.acronym] = a.name;
-  }
 
   const rawOpenFeatured = (openFeaturedRes.data ?? []) as ProposalCardData[];
   const rawMainProposals = (mainRes.data ?? []) as ProposalCardData[];
@@ -162,7 +150,7 @@ export default async function ProposalsPage({
     const acronym = p.metadata?.agency_id ?? null;
     return {
       ...p,
-      agency_name: acronym ? (agencyNameMap[acronym] ?? null) : null,
+      agency_name: acronym ? (AGENCY_FULL_NAMES[acronym] ?? null) : null,
       ai_summary: summaryMap[p.id] ?? null,
     };
   }
@@ -268,11 +256,14 @@ export default async function ProposalsPage({
                 className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               >
                 <option value="">All Agencies</option>
-                {AGENCIES.map((a) => (
-                  <option key={a} value={a}>
-                    {a}{agencyNameMap[a] ? ` · ${agencyNameMap[a].slice(0, 35)}${agencyNameMap[a].length > 35 ? "…" : ""}` : ""}
-                  </option>
-                ))}
+                {AGENCIES.map((a) => {
+                  const fullName = AGENCY_FULL_NAMES[a];
+                  return (
+                    <option key={a} value={a}>
+                      {a}{fullName ? ` · ${fullName.length > 35 ? fullName.slice(0, 35) + "…" : fullName}` : ""}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 

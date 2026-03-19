@@ -4,6 +4,7 @@ import { createServerClient } from "@civitics/db";
 import { createClient } from "@supabase/supabase-js";
 import { CommentPeriodBadge } from "../components/CommentPeriodBadge";
 import { CommentDraftSection } from "../components/CommentDraftSection";
+import { AGENCY_FULL_NAMES } from "../components/agencyNames";
 
 export const revalidate = 3600;
 
@@ -149,15 +150,7 @@ export default async function ProposalDetailPage({
   const docType = p.metadata?.document_type ?? null;
   const docketId = p.metadata?.docket_id ?? null;
 
-  // Agency full name lookup
-  const agencyNameRes = agencyAcronym
-    ? await supabase
-        .from("agencies")
-        .select("name")
-        .eq("acronym", agencyAcronym)
-        .single()
-    : null;
-  const agencyFullName = agencyNameRes?.data?.name ?? null;
+  const agencyFullName = agencyAcronym ? (AGENCY_FULL_NAMES[agencyAcronym] ?? null) : null;
 
   // Votes (for congressional bills)
   const votesPromise = p.type === "bill"

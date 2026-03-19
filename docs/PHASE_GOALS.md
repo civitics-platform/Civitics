@@ -36,7 +36,7 @@
 
 ---
 
-## Phase 1 — MVP `Weeks 3–10` `~80% complete` ← **current**
+## Phase 1 — MVP `Weeks 3–10` `~83% complete` ← **current**
 
 > **Done when:** Search works, one complete user journey end to end (search → official → vote record → donor → connection graph), auth working, 500 beta users, grant applications submitted.
 
@@ -62,8 +62,7 @@
 - [x] Agency list page (`/agencies`) — real data
 - [x] Agency detail page (`/agencies/[slug]`) — real data
 - [x] Proposals list page (`/proposals`) — status/type/agency/search filters, open-now featured section, clickable cards, full agency names, pagination with filter preservation
-- [x] Proposal detail page (`/proposals/[id]`) — full summary, comment period banner, 3-step comment draft tool, vote record, related proposals, generateStaticParams for top 50
-  - AI summaries: show cached `summary_plain` only — no on-demand generation (credit system not yet live)
+- [x] Proposal detail page (`/proposals/[id]`) — "What This Means" AI summary section, comment period banner, 3-step comment draft tool, vote record, related proposals, generateStaticParams for top 50
 - [x] Public accountability dashboard (`/dashboard`) — platform stats, pipeline health, data counts
 - [ ] Search — no search component or API route exists anywhere in the app
 
@@ -98,7 +97,12 @@
 - [x] `ai_summary_cache` table — entity-based cache, UNIQUE on (entity_type, entity_id, summary_type)
 - [x] `generateSummary()` function — `packages/ai/src/client.ts`, Haiku model, $4.00/month cost guard, logs to `api_usage_logs`
 - [x] Anthropic API connected
-- [ ] Plain language summaries running on ingestion (in progress — function exists, pipeline integration pending)
+- [x] Plain language bill summaries (cached) — pipeline + on-demand generation wired to UI
+  - `packages/data/src/pipelines/ai-summaries/index.ts` — batch: 100 open proposals + 50 officials, ~$0.035/run
+  - `pnpm --filter @civitics/data data:ai-summaries` (full) / `data:ai-summaries-new` (incremental)
+  - Route handlers: `GET /api/proposals/[id]/summary` + `GET /api/officials/[id]/summary` (on-demand, cached)
+  - Proposal detail page: "What This Means" section — cached AI summary → on-demand (open only) → official summary
+  - Official profile page: "About" section — cached AI profile → on-demand (if votes/donor data)
 - [ ] Basic credit system in Supabase
 - [ ] "What does this mean for me" personalized query
 

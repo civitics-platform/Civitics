@@ -89,6 +89,22 @@ evidence      (JSONB array of source URLs)
 The original CLAUDE.md spec used `entity_a_id` / `entity_b_id` — **those names are wrong**.
 All API routes, queries, and pipelines must use `from_id` / `from_type` / `to_id` / `to_type`.
 
+## officials table — column names
+  role_title  (NOT role_type)
+  full_name   (NOT name)
+  is_active   (boolean)
+  source_ids  (JSONB — stores external IDs)
+    source_ids->>'fec_id'
+    source_ids->>'bioguide_id'
+    source_ids->>'congress_id'
+  metadata    (JSONB — flexible fields)
+    metadata->>'state'
+    metadata->>'district'
+    metadata->>'level' (federal/state)
+
+Common mistake: role_type does
+not exist — always use role_title"
+
 ---
 
 ## RLS Patterns

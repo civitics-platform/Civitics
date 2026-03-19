@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createServerClient } from "@civitics/db";
 import { createClient } from "@supabase/supabase-js";
 import { OfficialGraph } from "../components/OfficialGraph";
+import { AiProfileSection } from "../components/AiProfileSection";
 
 export const revalidate = 3600;
 
@@ -110,8 +111,11 @@ export default async function OfficialProfilePage({
   const cookieStore = await cookies();
   const supabase = createServerClient(cookieStore);
 
-  // Fetch official + joins in parallel with votes, donor count, donor amounts
-  const [officialRes, voteCountRes, votesRes, donorCountRes, donorAmtRes] =
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any;
+
+  // Fetch official + joins in parallel with votes, donor count, donor amounts, AI summary
+  const [officialRes, voteCountRes, votesRes, donorCountRes, donorAmtRes, aiSummaryRes] =
     await Promise.all([
       supabase
         .from("officials")
@@ -140,6 +144,13 @@ export default async function OfficialProfilePage({
         .from("financial_relationships")
         .select("donor_name, donor_type, industry, amount_cents")
         .eq("official_id", params.id),
+      sb
+        .from("ai_summary_cache")
+        .select("summary_text")
+        .eq("entity_type", "official")
+        .eq("entity_id", params.id)
+        .eq("summary_type", "profile")
+        .maybeSingle(),
     ]);
 
   if (officialRes.error || !officialRes.data) {
@@ -190,6 +201,7 @@ export default async function OfficialProfilePage({
 
   const voteCount = voteCountRes.count ?? 0;
   const donorCount = donorCountRes.count ?? 0;
+  const cachedAiProfile: string | null = aiSummaryRes?.data?.summary_text ?? null;
   const totalDonations = (donorAmtRes.data ?? []).reduce(
     (sum, r) => sum + (r.amount_cents ?? 0),
     0
@@ -274,6 +286,16 @@ export default async function OfficialProfilePage({
                     Term: {formatDate(official.term_start)} → {official.term_end ? formatDate(official.term_end) : "present"}
                   </p>
                 )}
+
+                {/* About — AI civic profile */}
+                {cachedAiProfile ? (
+                  <div className="mt-3 rounded-md border border-indigo-100 bg-indigo-50 px-4 py-3">
+                    <p className="text-sm text-gray-700 leading-relaxed">{cachedAiProfile}</p>
+                    <p className="mt-1.5 text-[10px] text-indigo-400">Civic profile · AI generated</p>
+                  </div>
+                ) : (voteCount > 0 || donorCount > 0) ? (
+                  <AiProfileSection officialId={official.id} />
+                ) : null}
 
                 {/* Contact */}
                 <div className="mt-3 flex flex-wrap gap-3">

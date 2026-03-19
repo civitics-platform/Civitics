@@ -205,6 +205,9 @@ importers:
 
   packages/data:
     dependencies:
+      '@civitics/ai':
+        specifier: workspace:*
+        version: link:../ai
       '@civitics/db':
         specifier: workspace:*
         version: link:../db

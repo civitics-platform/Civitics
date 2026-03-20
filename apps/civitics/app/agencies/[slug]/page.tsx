@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { createServerClient, createAdminClient } from "@civitics/db";
 import { createClient } from "@supabase/supabase-js";
 import { AgencyGraph } from "./components/AgencyGraph";
+import { PageViewTracker } from "../../components/PageViewTracker";
 
 export const revalidate = 3600;
 
@@ -280,6 +281,7 @@ export default async function AgencyProfilePage({
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <PageViewTracker entityType="agency" entityId={slug} />
       {/* Top bar */}
       <header className="border-b border-gray-200 bg-white px-5 py-3">
         <div className="flex items-center gap-3">

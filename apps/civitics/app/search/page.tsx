@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 
 import { createAdminClient } from "@civitics/db";
 import type { SearchOfficial, SearchProposal, SearchAgency } from "../api/search/route";
+import { PageViewTracker } from "../components/PageViewTracker";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -321,6 +322,7 @@ export default async function SearchPage({
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <PageViewTracker entityType="search" />
       {/* Header */}
       <header className="border-b border-gray-200 bg-white">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">

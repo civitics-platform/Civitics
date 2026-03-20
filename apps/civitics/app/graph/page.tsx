@@ -1,4 +1,5 @@
 import { GraphPage } from "./GraphPage";
+import { PageViewTracker } from "../components/PageViewTracker";
 
 export const metadata = {
   title: "Connection Graph",
@@ -6,5 +7,10 @@ export const metadata = {
 };
 
 export default function Page() {
-  return <GraphPage />;
+  return (
+    <>
+      <PageViewTracker entityType="graph" />
+      <GraphPage />
+    </>
+  );
 }

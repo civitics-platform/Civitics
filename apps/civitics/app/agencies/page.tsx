@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { cookies } from "next/headers";
 import { createServerClient, agencyFullName } from "@civitics/db";
 import { AgenciesList } from "./components/AgenciesList";
+import { PageViewTracker } from "../components/PageViewTracker";
 
 export const metadata = { title: "Agencies" };
 
@@ -68,5 +69,10 @@ export default async function AgenciesPage() {
     };
   });
 
-  return <AgenciesList agencies={agencies} />;
+  return (
+    <>
+      <PageViewTracker entityType="agency_list" />
+      <AgenciesList agencies={agencies} />
+    </>
+  );
 }

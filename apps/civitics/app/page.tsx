@@ -5,6 +5,7 @@ import { createServerClient, agencyFullName } from "@civitics/db";
 import { DistrictMap } from "./components/DistrictMap";
 import { GlobalSearch } from "./components/GlobalSearch";
 import { AuthButton } from "./components/AuthButton";
+import { PageViewTracker } from "./components/PageViewTracker";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -669,6 +670,7 @@ export default async function HomePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <PageViewTracker />
       <NavBar />
       <Hero stats={stats} />
       <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">

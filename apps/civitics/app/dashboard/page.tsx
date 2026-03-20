@@ -82,6 +82,53 @@ async function getServiceUsage(period: string) {
   }
 }
 
+async function getPageViewAnalytics() {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = createAdminClient() as any;
+  try {
+    const [summary, topPages, sources, devices, countries, bots, topOfficials, topProposals] =
+      await Promise.all([
+        db.rpc("get_pv_summary"),
+        db.rpc("get_pv_top_pages", { lim: 8 }),
+        db.rpc("get_pv_sources"),
+        db.rpc("get_pv_devices"),
+        db.rpc("get_pv_countries", { lim: 8 }),
+        db.rpc("get_pv_bots"),
+        db.rpc("get_pv_top_officials", { lim: 5 }),
+        db.rpc("get_pv_top_proposals", { lim: 5 }),
+      ]);
+
+    type SummaryRow = { total_views: number; human_views: number; bot_views: number };
+    type PageRow    = { page: string; views: number; unique_sessions: number };
+    type SourceRow  = { referrer: string; visits: number };
+    type DeviceRow  = { device_type: string; count: number };
+    type CountryRow = { country_code: string; count: number };
+    type BotRow     = { visitor_type: string; count: number };
+    type OfficialRow = { official_id: string; full_name: string; role_title: string; views: number };
+    type ProposalRow = { proposal_id: string; title: string; views: number };
+
+    const s: SummaryRow = summary.data?.[0] ?? { total_views: 0, human_views: 0, bot_views: 0 };
+    return {
+      totalViews:   Number(s.total_views),
+      humanViews:   Number(s.human_views),
+      botViews:     Number(s.bot_views),
+      topPages:     (topPages.data ?? [])    as PageRow[],
+      sources:      (sources.data ?? [])     as SourceRow[],
+      devices:      (devices.data ?? [])     as DeviceRow[],
+      countries:    (countries.data ?? [])   as CountryRow[],
+      bots:         (bots.data ?? [])        as BotRow[],
+      topOfficials: (topOfficials.data ?? []) as OfficialRow[],
+      topProposals: (topProposals.data ?? []) as ProposalRow[],
+    };
+  } catch {
+    return {
+      totalViews: 0, humanViews: 0, botViews: 0,
+      topPages: [], sources: [], devices: [], countries: [],
+      bots: [], topOfficials: [], topProposals: [],
+    };
+  }
+}
+
 async function getSiteActivity(period: string) {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -422,12 +469,13 @@ export default async function DashboardPage() {
   const fetchedAt = new Date();
   const period = `${fetchedAt.getFullYear()}-${String(fetchedAt.getMonth() + 1).padStart(2, "0")}`;
 
-  const [dbBytes, ai, svcUsage, r2Stats, siteActivity, syncLog] = await Promise.all([
+  const [dbBytes, ai, svcUsage, r2Stats, siteActivity, pv, syncLog] = await Promise.all([
     getDatabaseSizeBytes(),
     getAnthropicUsage(),
     getServiceUsage(period),
     getCloudflareR2Stats(),
     getSiteActivity(period),
+    getPageViewAnalytics(),
     getSyncLog(),
   ]);
 
@@ -508,30 +556,163 @@ export default async function DashboardPage() {
             />
             <DashboardStatsSection />
 
-            {/* Site Activity — self-tracked */}
-            <div className="mt-4 rounded-lg border border-gray-200 bg-white p-5">
-              <p className="text-sm font-semibold text-gray-900 mb-3">Site Activity (self-tracked, this month)</p>
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                <div>
-                  <p className="text-xl font-bold tabular-nums text-gray-900">{siteActivity.mapActivations.toLocaleString()}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Map activations</p>
-                </div>
-                <div>
-                  <p className="text-xl font-bold tabular-nums text-gray-900">{siteActivity.graphShares.toLocaleString()}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Graph shares created</p>
-                </div>
-                <div>
-                  <p className="text-xl font-bold tabular-nums text-gray-900">{siteActivity.aiSummaries.toLocaleString()}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">AI summaries cached</p>
-                </div>
-                <div>
-                  <p className="text-xl font-bold tabular-nums text-gray-900">{siteActivity.commentsDrafted.toLocaleString()}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Official comments drafted</p>
-                </div>
+            {/* Site Activity — self-hosted analytics */}
+            <div className="mt-4 rounded-lg border border-gray-200 bg-white p-5 space-y-5">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-gray-900">Site Activity — self-hosted, privacy-first, no cookies</p>
+                <span className="text-xs text-gray-400">this month</span>
               </div>
-              <p className="mt-3 text-xs text-gray-400 italic">
-                Detailed visitor analytics are collected by Vercel and visible to platform maintainers.
-                We track civic engagement metrics above ourselves.
+
+              {pv.totalViews === 0 ? (
+                <p className="text-xs text-gray-400">No page views recorded yet — tracking activates on first visitor after deploy.</p>
+              ) : (
+                <>
+                  {/* Summary row */}
+                  <div className="grid grid-cols-3 gap-4 border-b border-gray-100 pb-4">
+                    <div>
+                      <p className="text-2xl font-bold tabular-nums text-gray-900">{pv.humanViews.toLocaleString()}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Human visits</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold tabular-nums text-gray-900">{pv.totalViews.toLocaleString()}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Total page views</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold tabular-nums text-gray-900">{pv.botViews.toLocaleString()}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Bot visits ({pv.totalViews > 0 ? Math.round((pv.botViews / pv.totalViews) * 100) : 0}%)</p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    {/* Top pages */}
+                    {pv.topPages.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Top pages</p>
+                        <div className="space-y-1">
+                          {pv.topPages.map((r) => (
+                            <div key={r.page} className="flex items-center justify-between text-xs">
+                              <span className="font-mono text-gray-600 truncate max-w-[160px]">{r.page}</span>
+                              <span className="tabular-nums text-gray-500 shrink-0 ml-2">{Number(r.views).toLocaleString()} views</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Traffic sources + Devices */}
+                    <div className="space-y-4">
+                      {pv.sources.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Traffic sources</p>
+                          <div className="space-y-1">
+                            {pv.sources.map((r) => {
+                              const total = pv.sources.reduce((s, x) => s + Number(x.visits), 0);
+                              const pct = total > 0 ? Math.round((Number(r.visits) / total) * 100) : 0;
+                              return (
+                                <div key={r.referrer} className="flex items-center justify-between text-xs">
+                                  <span className="capitalize text-gray-600">{r.referrer}</span>
+                                  <span className="tabular-nums text-gray-500">{pct}%</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      {pv.devices.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Devices</p>
+                          <div className="space-y-1">
+                            {pv.devices.map((r) => {
+                              const total = pv.devices.reduce((s, x) => s + Number(x.count), 0);
+                              const pct = total > 0 ? Math.round((Number(r.count) / total) * 100) : 0;
+                              return (
+                                <div key={r.device_type} className="flex items-center justify-between text-xs">
+                                  <span className="capitalize text-gray-600">{r.device_type}</span>
+                                  <span className="tabular-nums text-gray-500">{pct}%</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Top countries */}
+                    {pv.countries.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Top countries</p>
+                        <div className="space-y-1">
+                          {pv.countries.map((r) => (
+                            <div key={r.country_code} className="flex items-center justify-between text-xs">
+                              <span className="text-gray-600">{r.country_code}</span>
+                              <span className="tabular-nums text-gray-500">{Number(r.count).toLocaleString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Engagement */}
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Civic engagement</p>
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-600">Map activations</span>
+                          <span className="tabular-nums text-gray-500">{siteActivity.mapActivations.toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-600">Graph shares</span>
+                          <span className="tabular-nums text-gray-500">{siteActivity.graphShares.toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-600">AI summaries cached</span>
+                          <span className="tabular-nums text-gray-500">{siteActivity.aiSummaries.toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-600">Comments drafted</span>
+                          <span className="tabular-nums text-gray-500">{siteActivity.commentsDrafted.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Most viewed entities */}
+                  {(pv.topOfficials.length > 0 || pv.topProposals.length > 0) && (
+                    <div className="grid gap-5 sm:grid-cols-2 border-t border-gray-100 pt-4">
+                      {pv.topOfficials.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Most viewed officials (30d)</p>
+                          <div className="space-y-1">
+                            {pv.topOfficials.map((r) => (
+                              <div key={r.official_id} className="flex items-center justify-between text-xs">
+                                <span className="text-gray-600 truncate max-w-[160px]">{r.full_name}</span>
+                                <span className="tabular-nums text-gray-500 shrink-0 ml-2">{Number(r.views).toLocaleString()}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {pv.topProposals.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Most viewed proposals (30d)</p>
+                          <div className="space-y-1">
+                            {pv.topProposals.map((r) => (
+                              <div key={r.proposal_id} className="flex items-center justify-between text-xs">
+                                <span className="text-gray-600 truncate max-w-[180px]">{r.title}</span>
+                                <span className="tabular-nums text-gray-500 shrink-0 ml-2">{Number(r.views).toLocaleString()}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+
+              <p className="text-xs text-gray-400 italic border-t border-gray-100 pt-3">
+                All analytics are self-hosted. No third-party tracking. No cookies. No fingerprinting.
+                Session IDs reset when you close your browser. Raw data deleted after 90 days.
               </p>
             </div>
           </section>

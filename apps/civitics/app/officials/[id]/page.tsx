@@ -4,6 +4,7 @@ import { createServerClient } from "@civitics/db";
 import { createClient } from "@supabase/supabase-js";
 import { OfficialGraph } from "../components/OfficialGraph";
 import { AiProfileSection } from "../components/AiProfileSection";
+import { PageViewTracker } from "../../components/PageViewTracker";
 
 export const revalidate = 3600;
 
@@ -223,6 +224,7 @@ export default async function OfficialProfilePage({
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <PageViewTracker entityType="official" entityId={params.id} />
       {/* Nav */}
       <header className="border-b border-gray-200 bg-white">
         <div className="mx-auto max-w-5xl px-4 py-3 sm:px-6">

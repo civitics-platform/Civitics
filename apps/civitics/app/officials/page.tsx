@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { cookies } from "next/headers";
 import { createServerClient } from "@civitics/db";
 import { OfficialsList } from "./components/OfficialsList";
+import { PageViewTracker } from "../components/PageViewTracker";
 
 export const metadata = { title: "Officials" };
 
@@ -61,9 +62,12 @@ export default async function OfficialsPage({
   }));
 
   return (
-    <OfficialsList
-      officials={officials}
-      defaultSelectedId={searchParams.selected}
-    />
+    <>
+      <PageViewTracker entityType="official_list" />
+      <OfficialsList
+        officials={officials}
+        defaultSelectedId={searchParams.selected}
+      />
+    </>
   );
 }

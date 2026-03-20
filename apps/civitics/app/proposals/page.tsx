@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@civitics/db";
 import { ProposalCard, type ProposalCardData } from "./components/ProposalCard";
 import { AGENCY_FULL_NAMES } from "./components/agencyNames";
+import { PageViewTracker } from "../components/PageViewTracker";
 
 const PAGE_SIZE = 20;
 
@@ -172,6 +173,7 @@ export default async function ProposalsPage({
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <PageViewTracker entityType="proposal_list" />
       {/* ─── Header ────────────────────────────────────────────────────────── */}
       <div className="border-b border-gray-200 bg-white">
         <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">

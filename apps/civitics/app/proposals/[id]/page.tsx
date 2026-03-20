@@ -6,6 +6,7 @@ import { CommentPeriodBadge } from "../components/CommentPeriodBadge";
 import { CommentDraftSection } from "../components/CommentDraftSection";
 import { AGENCY_FULL_NAMES } from "../components/agencyNames";
 import { AiSummarySection } from "../components/AiSummarySection";
+import { PageViewTracker } from "../../components/PageViewTracker";
 
 export const revalidate = 3600;
 
@@ -202,6 +203,7 @@ export default async function ProposalDetailPage({
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <PageViewTracker entityType="proposal" entityId={params.id} />
 
       {/* ─── Header ─────────────────────────────────────────────────────────── */}
       <div className="border-b border-gray-200 bg-white">

@@ -3,7 +3,7 @@
 > This file tracks progress against the phased development plan defined in `CLAUDE.md`.
 > Update checkboxes as tasks complete. Phases are sequential; each unlocks the next.
 > Last audited: 2026-03-18 (verified against actual files, tables, and code — not guessed).
-> Last updated: 2026-03-19 — user auth via Supabase (magic link + OAuth) complete.
+> Last updated: 2026-03-19 — self-hosted page view analytics live.
 
 ---
 
@@ -125,6 +125,7 @@
 - [x] `graph_snapshots` table (types not yet regenerated)
   - TODO: run `pnpm --filter @civitics/db gen:types` to regenerate `database.ts` and remove `any` casts
 - [x] Vercel Analytics + Speed Insights — installed, wired into root layout
+- [x] Self-hosted page view analytics — `page_views` table, `/api/track-view` route, `PageViewTracker` component, bot detection, country tracking, no cookies, 90-day retention
 - [x] All services monitored — dashboard at `/dashboard` shows live pipeline health + data counts
 - [ ] Custom storage domain
 

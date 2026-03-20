@@ -37,13 +37,14 @@ async function getAnthropicUsage() {
     const monthRows: Row[] = month.data ?? [];
     const daily7Rows: Row[] = daily7.data ?? [];
 
-    // Actual cost from token counts (post-fix rows only — pre-fix rows have null tokens)
-    const tokenCostDollars = (rows: Row[]) =>
+    // Combined cost: token-based (accurate) + cost_cents fallback for old NULL-token rows
+    const combinedCostDollars = (rows: Row[]) =>
       rows.reduce((s, r) => {
         if (r.input_tokens != null && r.output_tokens != null) {
           return s + (r.input_tokens * 0.25 + r.output_tokens * 1.25) / 1_000_000;
         }
-        return s;
+        // Fallback: use stored cost_cents for rows that predate token tracking
+        return s + (r.cost_cents ?? 0) / 100;
       }, 0);
 
     const dayBuckets: number[] = Array(7).fill(0);
@@ -56,7 +57,7 @@ async function getAnthropicUsage() {
     for (const r of monthRows) { const k = r.model ?? "unknown"; modelBreakdown[k] = (modelBreakdown[k] ?? 0) + 1; }
 
     return {
-      monthCostDollars: tokenCostDollars(monthRows),
+      monthCostDollars: combinedCostDollars(monthRows),
       monthInputTokens: monthRows.reduce((s, r) => s + (r.input_tokens ?? 0), 0),
       monthOutputTokens: monthRows.reduce((s, r) => s + (r.output_tokens ?? 0), 0),
       todayCalls: todayRows.length,
@@ -311,6 +312,14 @@ function Sparkline({ values, maxVal }: { values: number[]; maxVal: number }) {
       <polyline points={points} fill="none" stroke="#6366f1" strokeWidth="1.5" strokeLinejoin="round" />
     </svg>
   );
+}
+
+function formatCost(dollars: number): string {
+  if (dollars === 0) return "$0.00";
+  if (dollars < 0.001) return `$${dollars.toFixed(5)}`;
+  if (dollars < 0.01)  return `$${dollars.toFixed(4)}`;
+  if (dollars < 0.10)  return `$${dollars.toFixed(3)}`;
+  return `$${dollars.toFixed(2)}`;
 }
 
 function ServiceCard({
@@ -735,7 +744,7 @@ export default async function DashboardPage() {
               {/* Anthropic */}
               <ServiceCard
                 name="Anthropic"
-                cost={`$${ai.monthCostDollars.toFixed(4)}`}
+                cost={formatCost(ai.monthCostDollars)}
                 level={aiLevel}
                 note="Hard cap: $4.00/month. Cost guard enforced server-side."
               >

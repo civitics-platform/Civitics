@@ -34,11 +34,19 @@ async function getMonthlySpendCents(): Promise<number> {
 
     const { data } = await db
       .from("api_usage_logs")
-      .select("cost_cents")
+      .select("cost_cents, input_tokens, output_tokens")
       .eq("service", "anthropic")
       .gte("created_at", start.toISOString());
 
-    return data?.reduce((sum, r) => sum + (r.cost_cents ?? 0), 0) ?? 0;
+    // Prefer token-based cost when available (accurate); fall back to stored cost_cents
+    return data?.reduce((sum, r) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const row = r as any;
+      if (row.input_tokens != null && row.output_tokens != null) {
+        return sum + (row.input_tokens * 0.25 + row.output_tokens * 1.25) / 10_000;
+      }
+      return sum + (row.cost_cents ?? 0);
+    }, 0) ?? 0;
   } catch {
     return 0; // fail open — a failed check should not block generation
   }
@@ -198,10 +206,9 @@ export async function generateSummary(
   const inputTokens = message.usage.input_tokens;
   const outputTokens = message.usage.output_tokens;
   const tokensUsed = inputTokens + outputTokens;
-  // Haiku pricing: $0.25/M input + $1.25/M output → fractional cents (DECIMAL)
-  // Math.round to 2 decimal places avoids the old Math.ceil() inflation
-  // (Math.ceil turned every 0.02¢ call into 1¢, inflating 181 calls to $1.81)
-  const costCents = Math.round((inputTokens * 0.25 + outputTokens * 1.25) / 10000 * 100) / 100;
+  // Haiku: $0.25/M input + $1.25/M output → exact fractional cents
+  // Stored as DECIMAL(10,4) — no rounding, no Math.ceil, no Math.round
+  const costCents = (inputTokens * 0.25 + outputTokens * 1.25) / 10_000;
 
   // Cache and log in parallel — neither blocks the response
   await Promise.all([

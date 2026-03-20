@@ -63,10 +63,16 @@ async function getMonthlySpendCents(): Promise<number> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data } = await (db as any)
       .from("api_usage_logs")
-      .select("cost_cents")
+      .select("cost_cents, input_tokens, output_tokens")
       .eq("service", "anthropic")
       .gte("created_at", start.toISOString());
-    return data?.reduce((sum: number, r: { cost_cents: number }) => sum + (r.cost_cents ?? 0), 0) ?? 0;
+    // Prefer token-based cost when available; fall back to stored cost_cents
+    return data?.reduce((sum: number, r: { cost_cents: number; input_tokens: number | null; output_tokens: number | null }) => {
+      if (r.input_tokens != null && r.output_tokens != null) {
+        return sum + (r.input_tokens * 0.25 + r.output_tokens * 1.25) / 10_000;
+      }
+      return sum + (r.cost_cents ?? 0);
+    }, 0) ?? 0;
   } catch {
     return 0;
   }
@@ -91,22 +97,25 @@ async function writeSummaryCache(
 async function logApiUsage(
   db: ReturnType<typeof createAdminClient>,
   model: string,
-  tokensUsed: number,
+  inputTokens: number,
+  outputTokens: number,
   costCents: number
 ): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (db as any).from("api_usage_logs").insert({
-    service: "anthropic",
-    endpoint: "ai_summaries_pipeline",
+    service:       "anthropic",
+    endpoint:      "ai_summaries_pipeline",
     model,
-    tokens_used: tokensUsed,
-    cost_cents: costCents,
+    tokens_used:   inputTokens + outputTokens,
+    input_tokens:  inputTokens,
+    output_tokens: outputTokens,
+    cost_cents:    costCents,
   });
 }
 
 function computeCostCents(inputTokens: number, outputTokens: number): number {
-  // Haiku: $0.25/M input + $1.25/M output
-  return Math.ceil((inputTokens * 0.00025 + outputTokens * 0.00125) / 10);
+  // Haiku: $0.25/M input + $1.25/M output → exact fractional cents, no rounding
+  return (inputTokens * 0.25 + outputTokens * 1.25) / 10_000;
 }
 
 // ---------------------------------------------------------------------------
@@ -218,7 +227,7 @@ async function generateProposalSummaries(
 
       await Promise.all([
         writeSummaryCache(db, "proposal", proposal.id, "plain_language", summaryText, MODELS.haiku, inputTokens + outputTokens),
-        logApiUsage(db, MODELS.haiku, inputTokens + outputTokens, costCents),
+        logApiUsage(db, MODELS.haiku, inputTokens, outputTokens, costCents),
       ]);
 
       totalCostCents += costCents;
@@ -372,7 +381,7 @@ async function generateOfficialSummaries(
 
       await Promise.all([
         writeSummaryCache(db, "official", official.id, "profile", summaryText, MODELS.haiku, inputTokens + outputTokens),
-        logApiUsage(db, MODELS.haiku, inputTokens + outputTokens, costCents),
+        logApiUsage(db, MODELS.haiku, inputTokens, outputTokens, costCents),
       ]);
 
       totalCostCents += costCents;

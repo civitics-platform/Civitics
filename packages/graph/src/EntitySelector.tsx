@@ -48,6 +48,7 @@ export function EntitySelector({ selectedEntity, onSelect, searchFn }: EntitySel
   const officials = results.filter((r) => r.type === "official");
   const agencies = results.filter((r) => r.type === "agency");
   const proposals = results.filter((r) => r.type === "proposal");
+  const financialEntities = results.filter((r) => r.type === "financial_entity");
 
   function handleSelect(result: EntitySearchResult) {
     onSelect({ id: result.id, type: result.type, label: result.label });
@@ -80,7 +81,7 @@ export function EntitySelector({ selectedEntity, onSelect, searchFn }: EntitySel
           placeholder={
             selectedEntity
               ? `Centered on: ${selectedEntity.label}`
-              : "Search officials, agencies, proposals…"
+              : "Search officials, agencies, proposals, PACs…"
           }
           className="w-full pl-9 pr-10 py-3 text-sm bg-gray-900 border-b border-gray-700 text-gray-200 placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:bg-gray-800 transition-colors"
         />
@@ -165,6 +166,34 @@ export function EntitySelector({ selectedEntity, onSelect, searchFn }: EntitySel
                   <span className="text-gray-300 truncate flex-1">{r.label}</span>
                   {r.subtitle && (
                     <span className="text-xs text-amber-500 shrink-0">{r.subtitle}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+          {financialEntities.length > 0 && (
+            <div>
+              <div className="px-3 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-800/50">
+                Donors / PACs
+              </div>
+              {financialEntities.map((r) => (
+                <button
+                  key={r.id}
+                  onMouseDown={(e) => { e.preventDefault(); handleSelect(r); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-800 transition-colors text-left"
+                >
+                  <span
+                    className="w-2 h-2 rounded-sm shrink-0 bg-orange-500"
+                    title="Financial entity"
+                  />
+                  <span className="text-gray-300 truncate flex-1">{r.label}</span>
+                  {r.subtitle && (
+                    <span className="text-xs text-green-500 shrink-0">{r.subtitle}</span>
+                  )}
+                  {r.connectionCount != null && r.connectionCount > 0 && (
+                    <span className="text-xs text-indigo-400 shrink-0 ml-auto">
+                      {r.connectionCount.toLocaleString()} connections
+                    </span>
                   )}
                 </button>
               ))}

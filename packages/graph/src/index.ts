@@ -1,6 +1,9 @@
 export { ForceGraph } from "./ForceGraph";
 export type { ForceGraphProps } from "./ForceGraph";
 
+export { TreemapGraph } from "./TreemapGraph";
+export type { TreemapGraphProps } from "./TreemapGraph";
+
 export { EntitySelector } from "./EntitySelector";
 export type { EntitySelectorProps } from "./EntitySelector";
 export { DepthControl } from "./DepthControl";
@@ -9,6 +12,11 @@ export { FilterPills } from "./FilterPills";
 export type { FilterPillsProps } from "./FilterPills";
 export { CustomizePanel } from "./CustomizePanel";
 export type { CustomizePanelProps } from "./CustomizePanel";
+
+export { CollapsiblePanel } from "./CollapsiblePanel";
+export type { CollapsiblePanelProps } from "./CollapsiblePanel";
+export { GraphSidebar, PRESETS, PRESET_ORDER } from "./GraphSidebar";
+export type { GraphSidebarProps, PresetId } from "./GraphSidebar";
 
 /**
  * @civitics/graph
@@ -145,7 +153,7 @@ export const DEFAULT_VISUAL_CONFIG: VisualConfig = {
 export interface EntitySearchResult {
   id: string;
   label: string;
-  type: "official" | "agency" | "proposal";
+  type: "official" | "agency" | "proposal" | "financial_entity";
   subtitle?: string;
   party?: string;
   connectionCount?: number;

@@ -99,14 +99,49 @@ export type Database = {
           },
         ]
       }
+      ai_summary_cache: {
+        Row: {
+          created_at: string
+          entity_id: string
+          entity_type: string
+          id: string
+          model: string
+          summary_text: string
+          summary_type: string
+          tokens_used: number | null
+        }
+        Insert: {
+          created_at?: string
+          entity_id: string
+          entity_type: string
+          id?: string
+          model: string
+          summary_text: string
+          summary_type: string
+          tokens_used?: number | null
+        }
+        Update: {
+          created_at?: string
+          entity_id?: string
+          entity_type?: string
+          id?: string
+          model?: string
+          summary_text?: string
+          summary_type?: string
+          tokens_used?: number | null
+        }
+        Relationships: []
+      }
       api_usage_logs: {
         Row: {
           cost_cents: number
           created_at: string
           endpoint: string | null
           id: string
+          input_tokens: number | null
           metadata: Json
           model: string | null
+          output_tokens: number | null
           service: string
           tokens_used: number | null
         }
@@ -115,8 +150,10 @@ export type Database = {
           created_at?: string
           endpoint?: string | null
           id?: string
+          input_tokens?: number | null
           metadata?: Json
           model?: string | null
+          output_tokens?: number | null
           service: string
           tokens_used?: number | null
         }
@@ -125,8 +162,10 @@ export type Database = {
           created_at?: string
           endpoint?: string | null
           id?: string
+          input_tokens?: number | null
           metadata?: Json
           model?: string | null
+          output_tokens?: number | null
           service?: string
           tokens_used?: number | null
         }
@@ -253,13 +292,6 @@ export type Database = {
             referencedRelation: "proposals"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "civic_comments_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
         ]
       }
       civic_credit_transactions: {
@@ -299,15 +331,7 @@ export type Database = {
           transaction_type?: string
           user_id?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "civic_credit_transactions_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       data_sync_log: {
         Row: {
@@ -402,6 +426,57 @@ export type Database = {
           to_id?: string
           to_type?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      entity_tags: {
+        Row: {
+          ai_model: string | null
+          confidence: number | null
+          created_at: string | null
+          display_icon: string | null
+          display_label: string
+          entity_id: string
+          entity_type: string
+          generated_by: string
+          id: string
+          metadata: Json | null
+          pipeline_version: string | null
+          tag: string
+          tag_category: string
+          visibility: string
+        }
+        Insert: {
+          ai_model?: string | null
+          confidence?: number | null
+          created_at?: string | null
+          display_icon?: string | null
+          display_label: string
+          entity_id: string
+          entity_type: string
+          generated_by: string
+          id?: string
+          metadata?: Json | null
+          pipeline_version?: string | null
+          tag: string
+          tag_category: string
+          visibility?: string
+        }
+        Update: {
+          ai_model?: string | null
+          confidence?: number | null
+          created_at?: string | null
+          display_icon?: string | null
+          display_label?: string
+          entity_id?: string
+          entity_type?: string
+          generated_by?: string
+          id?: string
+          metadata?: Json | null
+          pipeline_version?: string | null
+          tag?: string
+          tag_category?: string
+          visibility?: string
         }
         Relationships: []
       }
@@ -724,13 +799,6 @@ export type Database = {
             referencedRelation: "proposals"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "official_comment_submissions_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
         ]
       }
       officials: {
@@ -822,6 +890,69 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      page_views: {
+        Row: {
+          bot_name: string | null
+          browser: string | null
+          country_code: string | null
+          device_type: string | null
+          entity_id: string | null
+          entity_type: string | null
+          id: string
+          is_bot: boolean | null
+          page: string
+          referrer: string | null
+          session_id: string | null
+          viewed_at: string | null
+        }
+        Insert: {
+          bot_name?: string | null
+          browser?: string | null
+          country_code?: string | null
+          device_type?: string | null
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string
+          is_bot?: boolean | null
+          page: string
+          referrer?: string | null
+          session_id?: string | null
+          viewed_at?: string | null
+        }
+        Update: {
+          bot_name?: string | null
+          browser?: string | null
+          country_code?: string | null
+          device_type?: string | null
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string
+          is_bot?: boolean | null
+          page?: string
+          referrer?: string | null
+          session_id?: string | null
+          viewed_at?: string | null
+        }
+        Relationships: []
+      }
+      pipeline_state: {
+        Row: {
+          key: string
+          updated_at: string | null
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string | null
+          value?: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string | null
+          value?: Json
+        }
+        Relationships: []
       }
       promises: {
         Row: {
@@ -1016,6 +1147,36 @@ export type Database = {
           },
         ]
       }
+      service_usage: {
+        Row: {
+          count: number
+          created_at: string
+          id: string
+          metadata: Json
+          metric: string
+          period: string
+          service: string
+        }
+        Insert: {
+          count?: number
+          created_at?: string
+          id?: string
+          metadata?: Json
+          metric: string
+          period: string
+          service: string
+        }
+        Update: {
+          count?: number
+          created_at?: string
+          id?: string
+          metadata?: Json
+          metric?: string
+          period?: string
+          service?: string
+        }
+        Relationships: []
+      }
       spending_records: {
         Row: {
           amount_cents: number
@@ -1099,71 +1260,45 @@ export type Database = {
       }
       users: {
         Row: {
-          ai_queries_reset_at: string | null
-          ai_queries_today: number
+          auth_provider: string | null
           avatar_url: string | null
-          civic_credits_balance: number
-          created_at: string
+          civic_credits_balance: number | null
+          created_at: string | null
           display_name: string | null
-          district_jurisdiction_id: string | null
           email: string | null
           id: string
-          is_active: boolean
-          is_email_verified: boolean
-          is_government_verified: boolean
-          privy_user_id: string | null
-          updated_at: string
-          wallet_address: string | null
-          wallet_chain: string | null
-          zip_code: string | null
+          is_active: boolean | null
+          last_seen: string | null
+          metadata: Json | null
+          updated_at: string | null
         }
         Insert: {
-          ai_queries_reset_at?: string | null
-          ai_queries_today?: number
+          auth_provider?: string | null
           avatar_url?: string | null
-          civic_credits_balance?: number
-          created_at?: string
+          civic_credits_balance?: number | null
+          created_at?: string | null
           display_name?: string | null
-          district_jurisdiction_id?: string | null
           email?: string | null
-          id?: string
-          is_active?: boolean
-          is_email_verified?: boolean
-          is_government_verified?: boolean
-          privy_user_id?: string | null
-          updated_at?: string
-          wallet_address?: string | null
-          wallet_chain?: string | null
-          zip_code?: string | null
+          id: string
+          is_active?: boolean | null
+          last_seen?: string | null
+          metadata?: Json | null
+          updated_at?: string | null
         }
         Update: {
-          ai_queries_reset_at?: string | null
-          ai_queries_today?: number
+          auth_provider?: string | null
           avatar_url?: string | null
-          civic_credits_balance?: number
-          created_at?: string
+          civic_credits_balance?: number | null
+          created_at?: string | null
           display_name?: string | null
-          district_jurisdiction_id?: string | null
           email?: string | null
           id?: string
-          is_active?: boolean
-          is_email_verified?: boolean
-          is_government_verified?: boolean
-          privy_user_id?: string | null
-          updated_at?: string
-          wallet_address?: string | null
-          wallet_chain?: string | null
-          zip_code?: string | null
+          is_active?: boolean | null
+          last_seen?: string | null
+          metadata?: Json | null
+          updated_at?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "users_district_jurisdiction_id_fkey"
-            columns: ["district_jurisdiction_id"]
-            isOneToOne: false
-            referencedRelation: "jurisdictions"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       votes: {
         Row: {
@@ -1176,7 +1311,6 @@ export type Database = {
           roll_call_number: string | null
           session: string | null
           source_ids: Json
-          source_url: string | null
           updated_at: string
           vote: string
           voted_at: string | null
@@ -1191,7 +1325,6 @@ export type Database = {
           roll_call_number?: string | null
           session?: string | null
           source_ids?: Json
-          source_url?: string | null
           updated_at?: string
           vote: string
           voted_at?: string | null
@@ -1206,7 +1339,6 @@ export type Database = {
           roll_call_number?: string | null
           session?: string | null
           source_ids?: Json
-          source_url?: string | null
           updated_at?: string
           vote?: string
           voted_at?: string | null
@@ -1287,7 +1419,99 @@ export type Database = {
         }[]
       }
       get_database_size_bytes: { Args: never; Returns: number }
+      get_officials_breakdown: {
+        Args: never
+        Returns: {
+          category: string
+          count: number
+        }[]
+      }
+      get_pv_bots: {
+        Args: never
+        Returns: {
+          count: number
+          visitor_type: string
+        }[]
+      }
+      get_pv_countries: {
+        Args: { lim?: number }
+        Returns: {
+          count: number
+          country_code: string
+        }[]
+      }
+      get_pv_devices: {
+        Args: never
+        Returns: {
+          count: number
+          device_type: string
+        }[]
+      }
+      get_pv_sources: {
+        Args: never
+        Returns: {
+          referrer: string
+          visits: number
+        }[]
+      }
+      get_pv_summary: {
+        Args: never
+        Returns: {
+          bot_views: number
+          human_views: number
+          total_views: number
+        }[]
+      }
+      get_pv_top_officials: {
+        Args: { lim?: number }
+        Returns: {
+          full_name: string
+          official_id: string
+          role_title: string
+          views: number
+        }[]
+      }
+      get_pv_top_pages: {
+        Args: { lim?: number }
+        Returns: {
+          page: string
+          unique_sessions: number
+          views: number
+        }[]
+      }
+      get_pv_top_proposals: {
+        Args: { lim?: number }
+        Returns: {
+          proposal_id: string
+          title: string
+          views: number
+        }[]
+      }
+      increment_service_usage: {
+        Args: { p_metric: string; p_period: string; p_service: string }
+        Returns: undefined
+      }
       increment_snapshot_view: { Args: { p_code: string }; Returns: undefined }
+      search_graph_entities: {
+        Args: { lim?: number; q: string }
+        Returns: {
+          entity_type: string
+          id: string
+          label: string
+          party: string
+          subtitle: string
+        }[]
+      }
+      treemap_officials_by_donations: {
+        Args: { lim?: number }
+        Returns: {
+          official_id: string
+          official_name: string
+          party: string
+          state: string
+          total_donated_cents: number
+        }[]
+      }
     }
     Enums: {
       connection_type:

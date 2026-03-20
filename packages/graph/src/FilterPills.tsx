@@ -19,9 +19,11 @@ export interface FilterPillsProps {
   edges: GraphEdge[];
   activeTypes: EdgeType[] | null; // null = all active
   onChange: (types: EdgeType[] | null) => void;
+  /** When true, omits the outer bar styling (for embedding in sidebar) */
+  compact?: boolean;
 }
 
-export function FilterPills({ edges, activeTypes, onChange }: FilterPillsProps) {
+export function FilterPills({ edges, activeTypes, onChange, compact = false }: FilterPillsProps) {
   const counts = useMemo(() => {
     const map = new Map<EdgeType, number>();
     for (const e of edges) {
@@ -50,7 +52,7 @@ export function FilterPills({ edges, activeTypes, onChange }: FilterPillsProps) 
   }
 
   return (
-    <div className="flex items-center gap-1.5 px-5 py-2 border-b border-gray-800 bg-gray-950 shrink-0 overflow-x-auto">
+    <div className={compact ? "flex flex-wrap gap-1" : "flex items-center gap-1.5 px-5 py-2 border-b border-gray-800 bg-gray-950 shrink-0 overflow-x-auto"}>
       <button
         onClick={() => onChange(null)}
         className={`

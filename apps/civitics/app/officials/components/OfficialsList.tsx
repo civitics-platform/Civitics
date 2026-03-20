@@ -5,6 +5,25 @@ import type { OfficialRow } from "../page";
 import { OfficialCard } from "./OfficialCard";
 import { OfficialGraph } from "./OfficialGraph";
 
+// Issue area filter pills
+const ISSUE_PILLS = [
+  { tag: "healthcare", label: "Healthcare",  icon: "🏥" },
+  { tag: "climate",    label: "Climate",     icon: "🌊" },
+  { tag: "finance",    label: "Finance",     icon: "📈" },
+  { tag: "defense",    label: "Defense",     icon: "🛡" },
+  { tag: "technology", label: "Tech",        icon: "💻" },
+  { tag: "labor",      label: "Labor",       icon: "👷" },
+  { tag: "agriculture",label: "Agriculture", icon: "🌾" },
+];
+
+// Donor pattern filter pills
+const PATTERN_PILLS = [
+  { tag: "grassroots", label: "Grassroots",  icon: "🌱" },
+  { tag: "pac_heavy",  label: "PAC-Heavy",   icon: "💰" },
+  { tag: "bipartisan", label: "Bipartisan",  icon: "🤝" },
+  { tag: "partisan",   label: "Partisan",    icon: null },
+];
+
 const PARTY_STYLES: Record<string, { border: string; badge: string; dot: string }> = {
   democrat:    { border: "border-l-blue-500",   badge: "bg-blue-50 text-blue-700",   dot: "bg-blue-500" },
   republican:  { border: "border-l-red-500",    badge: "bg-red-50 text-red-700",     dot: "bg-red-500" },
@@ -38,6 +57,8 @@ export function OfficialsList({
   const [chamberFilter, setChamber] = useState<"all" | "Senate" | "House">("all");
   const [partyFilter, setParty]     = useState<"all" | "democrat" | "republican" | "independent">("all");
   const [stateFilter, setState]     = useState("all");
+  const [issueFilter, setIssue]     = useState<string | null>(null);
+  const [patternFilter, setPattern] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(defaultSelectedId ?? null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -64,6 +85,8 @@ export function OfficialsList({
         if (chamberFilter !== "all" && o.chamber !== chamberFilter) return false;
         if (partyFilter !== "all" && o.party !== partyFilter) return false;
         if (stateFilter !== "all" && o.state_name !== stateFilter) return false;
+        if (issueFilter && !(o.tags ?? []).some((t) => t.tag === issueFilter && t.tag_category === "topic")) return false;
+        if (patternFilter && !(o.tags ?? []).some((t) => t.tag === patternFilter)) return false;
         return true;
       })
       .sort((a, b) => {
@@ -73,7 +96,7 @@ export function OfficialsList({
         return a.full_name.localeCompare(b.full_name);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [officials, search, chamberFilter, partyFilter, stateFilter]);
+  }, [officials, search, chamberFilter, partyFilter, stateFilter, issueFilter, patternFilter]);
 
   const selected = useMemo(
     () => officials.find((o) => o.id === selectedId) ?? null,
@@ -146,6 +169,40 @@ export function OfficialsList({
                 ))}
               </select>
             </div>
+            {/* Issue area pills */}
+            <div className="flex flex-wrap gap-1 pt-1">
+              {ISSUE_PILLS.map((pill) => (
+                <button
+                  key={pill.tag}
+                  onClick={() => setIssue(issueFilter === pill.tag ? null : pill.tag)}
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                    issueFilter === pill.tag
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-100 text-gray-600 hover:bg-blue-50 hover:text-blue-700"
+                  }`}
+                >
+                  {pill.icon} {pill.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Donor pattern pills */}
+            <div className="flex flex-wrap gap-1">
+              {PATTERN_PILLS.map((pill) => (
+                <button
+                  key={pill.tag}
+                  onClick={() => setPattern(patternFilter === pill.tag ? null : pill.tag)}
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                    patternFilter === pill.tag
+                      ? "bg-purple-600 text-white"
+                      : "bg-gray-100 text-gray-600 hover:bg-purple-50 hover:text-purple-700"
+                  }`}
+                >
+                  {pill.icon && <span>{pill.icon}</span>} {pill.label}
+                </button>
+              ))}
+            </div>
+
             {filtered.length !== officials.length && (
               <p className="text-xs text-gray-400">
                 {filtered.length.toLocaleString()} of {officials.length.toLocaleString()} shown
@@ -159,7 +216,7 @@ export function OfficialsList({
               <div className="flex flex-col items-center justify-center py-16 text-sm text-gray-400">
                 <p>No officials match your filters.</p>
                 <button
-                  onClick={() => { setSearch(""); setChamber("all"); setParty("all"); setState("all"); }}
+                  onClick={() => { setSearch(""); setChamber("all"); setParty("all"); setState("all"); setIssue(null); setPattern(null); }}
                   className="mt-3 text-xs text-indigo-500 hover:underline"
                 >
                   Clear filters

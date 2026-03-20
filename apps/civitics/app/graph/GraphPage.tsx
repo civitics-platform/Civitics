@@ -12,6 +12,21 @@ import { SharePanel } from "./SharePanel";
 import { ScreenshotPanel } from "./ScreenshotPanel";
 import { GhostGraph } from "./GhostGraph";
 
+// ── Industry keyword matching for donor filter ────────────────────────────
+
+const INDUSTRY_FILTERS: { id: string; label: string; icon: string; keywords: string[] }[] = [
+  { id: "pharma",      label: "Pharma",      icon: "💊", keywords: ["pharma", "drug", "medical", "health", "biotech", "pfizer", "merck", "ama"] },
+  { id: "oil_gas",     label: "Oil & Gas",   icon: "🛢", keywords: ["oil", "gas", "energy", "petroleum", "exxon", "chevron", "koch", "pipeline"] },
+  { id: "finance",     label: "Finance",     icon: "📈", keywords: ["bank", "financial", "investment", "securities", "goldman", "jpmorgan", "wells"] },
+  { id: "tech",        label: "Tech",        icon: "💻", keywords: ["tech", "software", "google", "amazon", "meta", "apple", "microsoft"] },
+  { id: "defense",     label: "Defense",     icon: "🛡", keywords: ["defense", "military", "lockheed", "boeing", "raytheon", "northrop"] },
+  { id: "real_estate", label: "Real Estate", icon: "🏠", keywords: ["real estate", "realty", "housing", "property"] },
+  { id: "labor",       label: "Labor",       icon: "👷", keywords: ["union", "workers", "seiu", "afscme", "teamsters", "afl"] },
+  { id: "agriculture", label: "Agriculture", icon: "🌾", keywords: ["farm", "agri", "crop", "cattle", "dairy"] },
+];
+
+const FINANCIAL_NODE_TYPES = new Set(["pac", "individual", "corporation"]);
+
 // ── Preset definitions ─────────────────────────────────────────────────────
 
 type PresetId =
@@ -131,6 +146,7 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
     typeof initialState?.minStrength === "number" ? initialState.minStrength : 0
   );
   const [showCustomize, setShowCustomize] = useState(false);
+  const [industryFilter, setIndustryFilter] = useState<string | null>(null);
 
   // Share / screenshot
   const [shareCode, setShareCode] = useState<string | null>(initialCode ?? null);
@@ -276,8 +292,29 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
       edges = filterEdgesByDepth(edges, centerId, depth);
     }
 
+    // 4. Industry filter — only show donation edges from matching financial nodes
+    if (industryFilter) {
+      const industryDef = INDUSTRY_FILTERS.find((f) => f.id === industryFilter);
+      if (industryDef) {
+        const matchingNodeIds = new Set(
+          allNodes
+            .filter(
+              (n) =>
+                FINANCIAL_NODE_TYPES.has(n.type) &&
+                industryDef.keywords.some((kw) => n.label.toLowerCase().includes(kw))
+            )
+            .map((n) => n.id)
+        );
+        edges = edges.filter(
+          (e) =>
+            e.type === "donation" &&
+            (matchingNodeIds.has(e.source) || matchingNodeIds.has(e.target))
+        );
+      }
+    }
+
     return edges;
-  }, [allEdges, activeFilters, minStrength, centerEntity, allNodes, depth]);
+  }, [allEdges, activeFilters, minStrength, centerEntity, allNodes, depth, industryFilter]);
 
   // Keep only nodes that appear in filtered edges
   const visibleNodeIds = new Set<string>();
@@ -458,6 +495,40 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
         activeTypes={activeFilters}
         onChange={setActiveFilters}
       />
+
+      {/* ── Industry donor filter ───────────────────────────────────── */}
+      <div className="flex items-center gap-2 px-5 py-2 border-b border-gray-800 bg-gray-950 shrink-0 overflow-x-auto">
+        <span className="text-[11px] text-gray-600 whitespace-nowrap shrink-0">Donor industry:</span>
+        <button
+          onClick={() => setIndustryFilter(null)}
+          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium whitespace-nowrap transition-colors ${
+            industryFilter === null
+              ? "bg-gray-600 text-white"
+              : "bg-gray-800 text-gray-400 hover:text-gray-200 hover:bg-gray-700"
+          }`}
+        >
+          All Industries
+        </button>
+        {INDUSTRY_FILTERS.map((f) => (
+          <button
+            key={f.id}
+            onClick={() => setIndustryFilter(industryFilter === f.id ? null : f.id)}
+            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium whitespace-nowrap transition-colors ${
+              industryFilter === f.id
+                ? "bg-green-700 text-white"
+                : "bg-gray-800 text-gray-400 hover:text-gray-200 hover:bg-gray-700"
+            }`}
+          >
+            <span>{f.icon}</span>
+            {f.label}
+          </button>
+        ))}
+        {industryFilter && (
+          <span className="ml-2 text-[11px] text-amber-400 whitespace-nowrap shrink-0">
+            Showing only {INDUSTRY_FILTERS.find((f) => f.id === industryFilter)?.label} donation connections
+          </span>
+        )}
+      </div>
 
       {/* ── Strength filter slider ─────────────────────────────────── */}
       <div className="flex items-center gap-3 px-5 py-2 border-b border-gray-800 bg-gray-950 shrink-0">

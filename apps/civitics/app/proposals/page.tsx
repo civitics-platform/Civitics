@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@civitics/db";
 import { ProposalCard, type ProposalCardData } from "./components/ProposalCard";
 import { AGENCY_FULL_NAMES } from "./components/agencyNames";
+import type { EntityTag } from "../components/tags/EntityTags";
 import { PageViewTracker } from "../components/PageViewTracker";
 
 const PAGE_SIZE = 20;
@@ -23,10 +24,23 @@ const AGENCIES = [
   "CMS","OCC","NRC","ED","FERC","OPM","FDA","VA","CPSC","NHTSA",
 ];
 
+// Topic filter pills — top 8 by proposal volume
+const TOPIC_PILLS = [
+  { tag: "climate",             label: "Climate",      icon: "🌊" },
+  { tag: "healthcare",          label: "Healthcare",   icon: "🏥" },
+  { tag: "finance",             label: "Finance",      icon: "📈" },
+  { tag: "aviation",            label: "Aviation",     icon: "✈️" },
+  { tag: "agriculture",         label: "Agriculture",  icon: "🌾" },
+  { tag: "energy",              label: "Energy",       icon: "⚡" },
+  { tag: "education",           label: "Education",    icon: "📚" },
+  { tag: "consumer_protection", label: "Consumer",     icon: "🛡" },
+];
+
 type SearchParams = {
   status?: string;
   type?: string;
   agency?: string;
+  topics?: string;
   q?: string;
   page?: string;
 };
@@ -39,10 +53,19 @@ function buildUrl(base: SearchParams, updates: Partial<SearchParams>): string {
   if (merged.status && merged.status !== "all") params.set("status", merged.status);
   if (merged.type)   params.set("type",   merged.type);
   if (merged.agency) params.set("agency", merged.agency);
+  if (merged.topics) params.set("topics", merged.topics);
   if (merged.q)      params.set("q",      merged.q);
   if (merged.page && merged.page !== "1") params.set("page", merged.page);
   const qs = params.toString();
   return `/proposals${qs ? `?${qs}` : ""}`;
+}
+
+function toggleTopicInUrl(base: SearchParams, topic: string): string {
+  const current = (base.topics ?? "").split(",").filter(Boolean);
+  const next = current.includes(topic)
+    ? current.filter((t) => t !== topic)
+    : [...current, topic];
+  return buildUrl(base, { topics: next.join(",") || undefined });
 }
 
 function buildCountLabel(
@@ -67,9 +90,11 @@ export default async function ProposalsPage({
   const statusFilter = searchParams.status ?? "open";
   const typeFilter   = searchParams.type   ?? "";
   const agencyFilter = searchParams.agency ?? "";
+  const topicsFilter = searchParams.topics ?? "";
   const searchQ      = searchParams.q      ?? "";
   const page         = Math.max(1, parseInt(searchParams.page ?? "1", 10));
   const offset       = (page - 1) * PAGE_SIZE;
+  const activeTopics = topicsFilter ? topicsFilter.split(",").filter(Boolean) : [];
 
   const now = new Date().toISOString();
 
@@ -107,6 +132,21 @@ export default async function ProposalsPage({
   // Text search
   if (searchQ) mainQuery = mainQuery.ilike("title", `%${searchQ}%`);
 
+  // Topic filter — if active topics, get matching proposal IDs first
+  if (activeTopics.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sbAny = supabase as any;
+    const { data: tagRows } = await sbAny
+      .from("entity_tags")
+      .select("entity_id")
+      .eq("entity_type", "proposal")
+      .in("tag", activeTopics);
+    const topicFilteredIds = (tagRows ?? []).map((r: { entity_id: string }) => r.entity_id) as string[];
+    if (topicFilteredIds.length > 0) {
+      mainQuery = mainQuery.in("id", topicFilteredIds);
+    }
+  }
+
   // Sort and paginate
   mainQuery = mainQuery
     .order("comment_period_end", { ascending: true, nullsFirst: false })
@@ -132,27 +172,43 @@ export default async function ProposalsPage({
   // ai_summary_cache may not be in generated types — cast to bypass
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
-  const summaryRes =
+  const [summaryRes, tagsRes] = await Promise.all([
     allProposalIds.length > 0
-      ? await sb
+      ? sb
           .from("ai_summary_cache")
           .select("entity_id,summary_text")
           .eq("entity_type", "proposal")
           .in("entity_id", allProposalIds)
-      : { data: [] };
+      : Promise.resolve({ data: [] }),
+    allProposalIds.length > 0
+      ? sb
+          .from("entity_tags")
+          .select("entity_id,tag,tag_category,display_label,display_icon,visibility,confidence,generated_by,ai_model,metadata")
+          .eq("entity_type", "proposal")
+          .in("entity_id", allProposalIds)
+      : Promise.resolve({ data: [] }),
+  ]);
 
   const summaryMap: Record<string, string> = {};
   for (const s of summaryRes.data ?? []) {
     if (!summaryMap[s.entity_id]) summaryMap[s.entity_id] = s.summary_text;
   }
 
-  // Enrich proposals with agency names and AI summaries
+  const tagsMap: Record<string, EntityTag[]> = {};
+  for (const t of tagsRes.data ?? []) {
+    const eid = t.entity_id as string;
+    if (!tagsMap[eid]) tagsMap[eid] = [];
+    tagsMap[eid]!.push(t as EntityTag);
+  }
+
+  // Enrich proposals with agency names, AI summaries, and tags
   function enrich(p: ProposalCardData): ProposalCardData {
     const acronym = p.metadata?.agency_id ?? null;
     return {
       ...p,
       agency_name: acronym ? (AGENCY_FULL_NAMES[acronym] ?? null) : null,
       ai_summary: summaryMap[p.id] ?? null,
+      tags: tagsMap[p.id] ?? [],
     };
   }
 
@@ -160,12 +216,13 @@ export default async function ProposalsPage({
   const mainProposals = rawMainProposals.map(enrich);
 
   const showFeaturedSection =
-    statusFilter !== "closed" && !typeFilter && !agencyFilter && !searchQ && page === 1;
+    statusFilter !== "closed" && !typeFilter && !agencyFilter && !topicsFilter && !searchQ && page === 1;
 
   const currentParams: SearchParams = {
     status: statusFilter,
     type: typeFilter || undefined,
     agency: agencyFilter || undefined,
+    topics: topicsFilter || undefined,
     q: searchQ || undefined,
   };
 
@@ -214,6 +271,37 @@ export default async function ProposalsPage({
             </div>
           </section>
         )}
+
+        {/* ─── Topic filter pills ──────────────────────────────────────── */}
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <a
+            href={buildUrl(currentParams, { topics: undefined })}
+            className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              activeTopics.length === 0
+                ? "bg-indigo-600 text-white"
+                : "bg-white border border-gray-200 text-gray-600 hover:border-indigo-300 hover:text-indigo-700"
+            }`}
+          >
+            All
+          </a>
+          {TOPIC_PILLS.map((pill) => {
+            const isActive = activeTopics.includes(pill.tag);
+            return (
+              <a
+                key={pill.tag}
+                href={toggleTopicInUrl(currentParams, pill.tag)}
+                className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                  isActive
+                    ? "bg-indigo-600 text-white"
+                    : "bg-white border border-gray-200 text-gray-600 hover:border-indigo-300 hover:text-indigo-700"
+                }`}
+              >
+                <span>{pill.icon}</span>
+                {pill.label}
+              </a>
+            );
+          })}
+        </div>
 
         {/* ─── Filters ───────────────────────────────────────────────────── */}
         <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4">
@@ -288,7 +376,7 @@ export default async function ProposalsPage({
               Filter
             </button>
 
-            {(statusFilter !== "open" || typeFilter || agencyFilter || searchQ) && (
+            {(statusFilter !== "open" || typeFilter || agencyFilter || topicsFilter || searchQ) && (
               <a
                 href="/proposals"
                 className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"

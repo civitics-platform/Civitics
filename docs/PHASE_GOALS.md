@@ -3,7 +3,7 @@
 > This file tracks progress against the phased development plan defined in `CLAUDE.md`.
 > Update checkboxes as tasks complete. Phases are sequential; each unlocks the next.
 > Last audited: 2026-03-18 (verified against actual files, tables, and code — not guessed).
-> Last updated: 2026-03-19 — self-hosted page view analytics live.
+> Last updated: 2026-03-19 — entity tagging system, connections auto-scheduler, nightly sync pipeline live.
 
 ---
 
@@ -37,7 +37,7 @@
 
 ---
 
-## Phase 1 — MVP `Weeks 3–10` `~92% complete` ← **current**
+## Phase 1 — MVP `Weeks 3–10` `~97% complete` ← **current**
 
 > **Done when:** Search works, one complete user journey end to end (search → official → vote record → donor → connection graph), auth working, 500 beta users, grant applications submitted.
 
@@ -52,7 +52,9 @@
 - [x] OpenStates → state legislators (`packages/data/src/pipelines/openstates/`) — 6,268 inserted, 1,031 updated (2026-03-17)
 - [x] CourtListener → judges + rulings (`packages/data/src/pipelines/courtlistener/`)
 - [x] Entity connections pipeline — derives donation/vote/oversight/appointment from ingested data (`packages/data/src/pipelines/connections/`)
+- [x] Delta connections runner — only re-derives changed officials since last run (`packages/data/src/pipelines/connections/delta.ts`)
 - [x] Master orchestrator + scheduler (`packages/data/src/pipelines/index.ts`)
+- [x] Nightly sync pipeline — `runNightlySync()` export, full sequence: data → connections delta → rule tags → AI tags
 - [x] Sync log tracking — `data_sync_log` table, per-pipeline run records
 
 ### Core Pages
@@ -127,6 +129,14 @@
 - [x] Vercel Analytics + Speed Insights — installed, wired into root layout
 - [x] Self-hosted page view analytics — `page_views` table, `/api/track-view` route, `PageViewTracker` component, bot detection, country tracking, no cookies, 90-day retention
 - [x] All services monitored — dashboard at `/dashboard` shows live pipeline health + data counts
+- [x] Entity tagging system — `entity_tags` table (migration 0012), three-tier display (primary/secondary/internal), rule-based + AI taggers
+  - Rule-based: urgency (closing_soon/urgent/new), agency→sector, proposal scope, tenure, bipartisan/partisan, donor patterns, industry name-matching — zero cost, confidence 1.0
+  - AI-based: proposal topic classification + official issue area classification via Haiku (~$0.60 full batch), dry-run cost estimate before running
+  - Pre-vote timing flags: donation + vote within 90 days → internal tag on financial entity
+- [x] Tag UI — `EntityTags` component with 3-tier expand: primary always shown, +N more, ⚙ research tags with warning blurb, localStorage dismiss
+- [x] Tag filtering — topic filter pills on `/proposals`, issue area + donor pattern pills on `/officials`, industry donor filter on `/graph`
+- [x] Vercel cron — `vercel.json` schedule (2am UTC), `/api/cron/nightly-sync` secured with CRON_SECRET
+- [x] `pipeline_state` table — tracks last connections run timestamp for delta detection
 - [ ] Custom storage domain
 
 ### Database (as of 2026-03-18)

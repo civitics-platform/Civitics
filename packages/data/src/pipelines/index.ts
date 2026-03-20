@@ -16,6 +16,9 @@ import { runFecPipeline } from "./fec";
 import { runUsaSpendingPipeline } from "./usaspending";
 import { runCourtListenerPipeline } from "./courtlistener";
 import { runOpenStatesPipeline } from "./openstates";
+import { runConnectionsDelta } from "./connections/delta";
+import { runRuleBasedTagger } from "./tags/rules";
+import { runAiTagger } from "./tags/ai-tagger";
 import { seedJurisdictions, seedGoverningBodies } from "../jurisdictions/us-states";
 
 // ---------------------------------------------------------------------------
@@ -228,6 +231,70 @@ export async function runAllPipelines(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Nightly sync — used by Vercel cron and standalone scheduler
+// ---------------------------------------------------------------------------
+
+export async function runNightlySync(): Promise<void> {
+  console.log("\n╔══════════════════════════════════════════╗");
+  console.log("║          Nightly Sync Starting            ║");
+  console.log("╚══════════════════════════════════════════╝");
+  console.log(`  Started: ${new Date().toISOString()}`);
+
+  const apiKey = process.env["REGULATIONS_API_KEY"];
+
+  // Seed jurisdictions (idempotent)
+  const db = createAdminClient();
+  const { federalId, stateIds } = await seedJurisdictions(db);
+  const { senateId } = await seedGoverningBodies(db, federalId);
+
+  // 1. Daily data pipelines
+  if (apiKey) {
+    try { await runRegulationsPipeline(apiKey, federalId); }
+    catch (err) { console.error("[nightly] regulations failed:", err instanceof Error ? err.message : err); }
+  }
+
+  // Weekly pipelines (Sunday only)
+  const dayOfWeek = new Date().getDay();
+  if (dayOfWeek === 0) {
+    const fecKey = process.env["FEC_API_KEY"];
+    const clKey  = process.env["COURTLISTENER_API_KEY"];
+    const osKey  = process.env["OPENSTATES_API_KEY"];
+
+    if (fecKey) {
+      try { await runFecPipeline(fecKey); }
+      catch (err) { console.error("[nightly] fec failed:", err instanceof Error ? err.message : err); }
+    }
+
+    try { await runUsaSpendingPipeline(federalId); }
+    catch (err) { console.error("[nightly] usaspending failed:", err instanceof Error ? err.message : err); }
+
+    if (clKey) {
+      try { await runCourtListenerPipeline(clKey, federalId, senateId); }
+      catch (err) { console.error("[nightly] courtlistener failed:", err instanceof Error ? err.message : err); }
+    }
+
+    if (osKey) {
+      try { await runOpenStatesPipeline(osKey, stateIds); }
+      catch (err) { console.error("[nightly] openstates failed:", err instanceof Error ? err.message : err); }
+    }
+  }
+
+  // 2. Derive connections (delta only)
+  try { await runConnectionsDelta(); }
+  catch (err) { console.error("[nightly] connections-delta failed:", err instanceof Error ? err.message : err); }
+
+  // 3. Rule-based tags (all new/updated entities)
+  try { await runRuleBasedTagger(); }
+  catch (err) { console.error("[nightly] tag-rules failed:", err instanceof Error ? err.message : err); }
+
+  // 4. AI tags (new entities only, $0.10 max per nightly run)
+  try { await runAiTagger({ maxCostCents: 10, onlyNew: true }); }
+  catch (err) { console.error("[nightly] tag-ai failed:", err instanceof Error ? err.message : err); }
+
+  console.log(`\n  Nightly sync complete: ${new Date().toISOString()}`);
+}
+
+// ---------------------------------------------------------------------------
 // Standalone entry points
 // ---------------------------------------------------------------------------
 
@@ -236,6 +303,8 @@ if (require.main === module) {
 
   if (command === "status") {
     printStatus().then(() => process.exit(0)).catch((e) => { console.error(e); process.exit(1); });
+  } else if (command === "nightly") {
+    runNightlySync().then(() => process.exit(0)).catch((e) => { console.error(e); process.exit(1); });
   } else {
     runAllPipelines().then(() => process.exit(0)).catch((e) => { console.error(e); process.exit(1); });
   }

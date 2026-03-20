@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CommentPeriodBadge } from "./CommentPeriodBadge";
 import { SubmitCommentButton } from "./SubmitCommentButton";
+import { EntityTags, type EntityTag } from "../../components/tags/EntityTags";
 
 export type ProposalCardData = {
   id: string;
@@ -17,6 +18,7 @@ export type ProposalCardData = {
   // Resolved at query time by the page
   agency_name?: string | null;
   ai_summary?: string | null;
+  tags?: EntityTag[];
 };
 
 const STATUS_BADGE: Record<string, { label: string; color: string }> = {
@@ -135,6 +137,16 @@ export function ProposalCard({ proposal }: { proposal: ProposalCardData }) {
               {summaryTruncated}
             </p>
           </div>
+        )}
+
+        {/* Tags */}
+        {proposal.tags && proposal.tags.length > 0 && (
+          <EntityTags
+            entityType="proposal"
+            entityId={proposal.id}
+            tags={proposal.tags}
+            variant="compact"
+          />
         )}
 
         <div className="mt-auto space-y-3">

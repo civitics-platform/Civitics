@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@civitics/db";
 import { OfficialsList } from "./components/OfficialsList";
 import { PageViewTracker } from "../components/PageViewTracker";
+import type { EntityTag } from "../components/tags/EntityTags";
 
 export const metadata = { title: "Officials" };
 
@@ -21,6 +22,7 @@ export type OfficialRow = {
   state_name: string | null;
   chamber: string | null;
   chamber_type: string | null;
+  tags?: EntityTag[];
 };
 
 export default async function OfficialsPage({
@@ -59,7 +61,30 @@ export default async function OfficialsPage({
     state_name: o.jurisdictions?.name ?? null,
     chamber: o.governing_bodies?.short_name ?? null,
     chamber_type: o.governing_bodies?.type ?? null,
+    tags: [],
   }));
+
+  // Pre-fetch tags for all officials
+  if (officials.length > 0) {
+    const officialIds = officials.map((o) => o.id);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sbAny = supabase as any;
+    const { data: tagRows } = await sbAny
+      .from("entity_tags")
+      .select("entity_id,tag,tag_category,display_label,display_icon,visibility,confidence,generated_by,ai_model")
+      .eq("entity_type", "official")
+      .in("entity_id", officialIds);
+
+    const tagsByOfficial: Record<string, EntityTag[]> = {};
+    for (const t of tagRows ?? []) {
+      const eid = t.entity_id as string;
+      if (!tagsByOfficial[eid]) tagsByOfficial[eid] = [];
+      tagsByOfficial[eid]!.push(t as EntityTag);
+    }
+    for (const o of officials) {
+      o.tags = tagsByOfficial[o.id] ?? [];
+    }
+  }
 
   return (
     <>

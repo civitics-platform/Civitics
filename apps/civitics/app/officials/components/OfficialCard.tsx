@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createBrowserClient } from "@civitics/db";
 import type { OfficialRow } from "../page";
+import { EntityTags } from "../../components/tags/EntityTags";
 
 type RecentVote = {
   id: string;
@@ -162,6 +163,15 @@ export function OfficialCard({ official }: { official: OfficialRow }) {
                 {official.term_start ? formatDate(official.term_start) : "?"} →{" "}
                 {official.term_end ? formatDate(official.term_end) : "present"}
               </p>
+            )}
+            {/* Tags */}
+            {official.tags && official.tags.length > 0 && (
+              <EntityTags
+                entityType="official"
+                entityId={official.id}
+                tags={official.tags}
+                variant="compact"
+              />
             )}
           </div>
         </div>

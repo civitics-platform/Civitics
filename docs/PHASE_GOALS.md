@@ -2,8 +2,8 @@
 
 > This file tracks progress against the phased development plan defined in `CLAUDE.md`.
 > Update checkboxes as tasks complete. Phases are sequential; each unlocks the next.
-> Last audited: 2026-03-18 (verified against actual files, tables, and code — not guessed).
-> Last updated: 2026-03-20 — live DB counts updated; officials 8,251 / financial_relationships 19,647 / entity_connections 27,852.
+> Last audited: 2026-03-21 (verified against actual files, tables, and code — not guessed).
+> Last updated: 2026-03-21 — Phase 1 ~88% complete; 51k vote connections live (227k pending IO recovery).
 
 ---
 
@@ -37,9 +37,9 @@
 
 ---
 
-## Phase 1 — MVP `Weeks 3–10` `~97% complete` ← **current**
+## Phase 1 — MVP `Weeks 3–10` `~88% complete` ← **current**
 
-> **Done when:** Search works, one complete user journey end to end (search → official → vote record → donor → connection graph), auth working, 500 beta users, grant applications submitted.
+> **Done when:** Vote backfill complete, search ranking fixed, auth tested end-to-end, grant applications submitted, first 500 users.
 
 ### Data Ingestion Pipelines
 - [x] Congress.gov API → officials + votes (`packages/data/src/pipelines/congress/`)
@@ -47,11 +47,13 @@
   - Note: FEC API-based pipeline (`fec/`) retained for reference only — do not use (hits rate limits)
   - Note: Full 2GB individual-level FEC file (`indiv24.zip`) pending Cloudflare R2 account
 - [x] Financial entities pipeline — `financial_entities` rows from FEC donor categories (`packages/data/src/pipelines/financial-entities/`)
+  - 19,647 donation connections live
 - [x] USASpending.gov → spending_records (`packages/data/src/pipelines/usaspending/`)
 - [x] Regulations.gov → proposals + comment periods (`packages/data/src/pipelines/regulations/`)
 - [x] OpenStates → state legislators (`packages/data/src/pipelines/openstates/`) — 6,268 inserted, 1,031 updated (2026-03-17)
 - [x] CourtListener → judges + rulings (`packages/data/src/pipelines/courtlistener/`)
 - [x] Entity connections pipeline — derives donation/vote/oversight/appointment from ingested data (`packages/data/src/pipelines/connections/`)
+  - Note: 51k vote connections live; full 227k pending IO recovery
 - [x] Delta connections runner — only re-derives changed officials since last run (`packages/data/src/pipelines/connections/delta.ts`)
 - [x] Master orchestrator + scheduler (`packages/data/src/pipelines/index.ts`)
 - [x] Nightly sync pipeline — `runNightlySync()` export, full sequence: data → connections delta → rule tags → AI tags
@@ -68,6 +70,7 @@
 - [x] Agency detail page (`/agencies/[slug]`) — real data
 - [x] Proposals list page (`/proposals`) — status/type/agency/search filters, open-now featured section, clickable cards, full agency names, pagination with filter preservation
 - [x] Proposal detail page (`/proposals/[id]`) — "What This Means" AI summary section, comment period banner, 3-step comment draft tool, vote record, related proposals, generateStaticParams for top 50
+  - Note: `vote_category` filter UI pending full migration completion
 - [x] Public accountability dashboard (`/dashboard`) — platform stats, pipeline health, data counts
 - [x] Search — universal search across officials, proposals, agencies
   - `GET /api/search?q=&type=` — parallel queries, special cases (state abbr, party, role), trigram+ILIKE
@@ -80,7 +83,8 @@
 - [x] Graph page at `/graph` — dark theme, wired to `entity_connections` table via `/api/graph/connections`
 - [x] Share code system — `CIV-XXXX-XXXX` codes, `/graph/[code]` URLs, `graph_snapshots` table, `/api/graph/snapshot` route
 - [x] Screenshot export — PNG 1×/2×/4× with non-removable watermark (URL + data sources + date)
-- [x] 5 of 8 preset views built — Follow the Money, Votes & Bills, Revolving Door, Full Picture, Clean View
+- [x] 5 preset views built — Follow the Money, Votes & Bills, Revolving Door, Full Picture, Clean View
+  - Nominations preset ("Who did this senator confirm?") + Full Record preset (all including procedural) also added
   - Not yet built: Committee Power, Industry Capture, Co-Sponsor Network
 - [x] Proposal vote categorization — `vote_category` column on `proposals` (substantive/procedural/nomination/regulation)
   - Migration `0019_proposal_vote_category.sql` applied; all existing proposals categorized
@@ -88,7 +92,6 @@
 - [x] Nomination votes as separate connection type — `nomination_vote_yes` / `nomination_vote_no` edges
   - Connections pipeline derives these from proposals with `vote_category = 'nomination'`
   - Shown as distinct visual element (violet/pink) vs. legislation votes (blue/red)
-- [x] Graph presets updated — Nominations preset ("Who did this senator confirm?"), Full Record preset (all including procedural)
 - [x] Graph API supports `?include_procedural=true` for researchers and journalists
 - [x] Ghost node empty state animation — shown when `entity_connections` table is empty
 - [x] Entity selector — search-as-you-type for officials, agencies, proposals; centers graph on selection
@@ -99,10 +102,18 @@
 - [x] Smart expansion — click node to expand neighbors; keyboard shortcut support
 - [x] Node types rendered: official (circle), proposal (document rect), corporation/financial (diamond, green), pac (triangle, orange), individual (dashed circle, blue), governing_body (rounded rect, purple)
   - Note: `entity_connections` schema uses `from_id`/`from_type`/`to_id`/`to_type` — different from original CLAUDE.md spec which showed `entity_a_id`/`entity_b_id`
-- [ ] AI narrative ("Explain this graph") — not yet built
-- [ ] Path finder (shortest path between two entities) — Phase 2
-- [ ] Timeline scrubber — Phase 2
-- [ ] Comparison mode (split screen) — Phase 2
+- [x] Embed code export — shareable iframe snippet from graph state
+- [x] Visualization registry pattern — pluggable viz registry, all views registered uniformly
+
+### Graph Visualizations (Phase 1+)
+- [x] Treemap visualization — hierarchical breakdown of connection types / donor industries
+- [x] Chord diagram — 13 industry groups, $1.75B flow visualized as arc ribbons
+- [x] Sunburst / radial visualization — radial hierarchy drill-down from selected node
+- [x] Comparison mode — split-screen two entities side by side
+- [x] Path finder — shortest path between two entities (PostgreSQL recursive CTE, `packages/db/src/queries/entity-connections.ts`)
+- [x] AI narrative — "Explain this graph" (cached per state hash)
+- [x] Graph snapshot API — `/api/graph/snapshot` (save + retrieve named snapshots)
+- [x] Entity search API — `/api/graph/entities` (search-as-you-type for graph entity selector)
 
 ### Maps
 - [x] Mapbox account + API key — `NEXT_PUBLIC_MAPBOX_TOKEN` configured
@@ -115,13 +126,42 @@
 - [x] `generateSummary()` function — `packages/ai/src/client.ts`, Haiku model, $4.00/month cost guard, logs to `api_usage_logs`
 - [x] Anthropic API connected
 - [x] Plain language bill summaries (cached) — pipeline + on-demand generation wired to UI
-  - `packages/data/src/pipelines/ai-summaries/index.ts` — batch: 100 open proposals + 50 officials, ~$0.035/run
+  - `packages/data/src/pipelines/ai-summaries/index.ts` — batch: 100 open proposals + 50 officials, ~$0.035/run (180 cached, ~$0.035 total spend)
   - `pnpm --filter @civitics/data data:ai-summaries` (full) / `data:ai-summaries-new` (incremental)
   - Route handlers: `GET /api/proposals/[id]/summary` + `GET /api/officials/[id]/summary` (on-demand, cached)
   - Proposal detail page: "What This Means" section — cached AI summary → on-demand (open only) → official summary
   - Official profile page: "About" section — cached AI profile → on-demand (if votes/donor data)
+- [x] Entity tagging system — 5,978 tags applied across officials, proposals, financial entities
+- [x] Topic / issue classification — AI-based proposal topic + official issue area tags via Haiku
+- [x] Donor industry tagging — rule-based industry name-matching on financial entities
+- [x] AI cost gate system — hard monthly budget cap enforced before any API call
+- [x] Pre-run cost estimation — real API sampling before batch runs, dry-run mode
+- [x] Post-run verification — actual vs. estimated cost logged and surfaced in dashboard
+- [x] Autonomous cron mode — budget-gated auto-approval for nightly AI runs
 - [ ] Basic credit system in Supabase
 - [ ] "What does this mean for me" personalized query
+
+### Cost Management System
+- [x] Pre-run cost estimation with real API sampling
+- [x] Autonomous cron approval — budget-gated auto-approval for scheduled runs
+- [x] Post-run verification — actual vs. estimated cost diff logged
+- [x] Pipeline cost history table — per-run cost records in `data_sync_log`
+- [x] Budget alerts system — threshold alerts surfaced in admin dashboard
+- [x] Configurable thresholds — admin-adjustable budget limits via dashboard UI
+- [x] Admin dashboard controls — manual pipeline triggers, alert history, limit config
+
+### Diagnostic Tools
+- [x] Graph snapshot API — `/api/graph/snapshot`
+- [x] Platform status API — `/api/claude/status`
+- [x] Claude diagnostic snapshot — `/api/claude/snapshot`
+- [x] Entity search API — `/api/graph/entities`
+
+### Data Quality
+- [x] Entity tagging — 5,978 tags applied (rule-based + AI)
+- [x] Industry classification — FEC donor industries mapped to 13 standard groups
+- [x] Voting pattern analysis — partisan/bipartisan tags, pre-vote timing flags
+- [x] Donor pattern tags — donation timing relative to votes flagged on financial entities
+- [x] Proposal vote categorization — substantive/procedural/nomination/regulation (migration applied)
 
 ### Infrastructure
 - [x] Supabase storage buckets created
@@ -145,15 +185,22 @@
 - [x] Tag filtering — topic filter pills on `/proposals`, issue area + donor pattern pills on `/officials`, industry donor filter on `/graph`
 - [x] Vercel cron — `vercel.json` schedule (2am UTC), `/api/cron/nightly-sync` secured with CRON_SECRET
 - [x] `pipeline_state` table — tracks last connections run timestamp for delta detection
+- [x] Nightly auto-sync pipeline — full sequence scheduled and running
+- [x] Connections auto-scheduler — delta runner triggered nightly
+- [x] Pipeline operations dashboard — manual triggers, run history, status per pipeline
+- [x] Cron run status tracking — per-run records with duration, rows affected, cost
+- [x] AI cost trend chart — historical cost per run visualized in admin dashboard
+- [x] Alert history — past threshold breaches logged and viewable
+- [x] Admin-only dashboard controls — gated by `ADMIN_EMAIL` env var
 - [ ] Custom storage domain
 
-### Database (as of 2026-03-20)
+### Database (as of 2026-03-21)
 - [x] `officials` — 8,251 rows (federal Congress + 6,268 state legislators + 651 judges via OpenStates / CourtListener)
 - [x] `proposals` — 2,066 rows
 - [x] `votes` — 227,153 rows
 - [x] `spending_records` — 1,980 rows
 - [x] `financial_relationships` — 19,647 rows (FEC bulk)
-- [x] `entity_connections` — 27,852 rows
+- [x] `entity_connections` — 51k vote connections live; full 227k pending IO recovery
 - [x] `financial_entities` — FEC donor categories seeded
 - [x] `graph_snapshots` — table exists, rows created on share
 - [x] `civic_comments` — table exists, no commenting UI yet
@@ -173,6 +220,16 @@
 - [ ] Position tracking on proposals
 - [ ] Follow officials and agencies
 
+### Remaining Phase 1
+- [ ] Vote backfill complete — 51k/227k done, pending IO recovery
+- [ ] Proposal vote_category migration — full data population for all proposals
+- [ ] Elizabeth Warren (and other senators) appearing in search results
+- [ ] Community commenting
+- [ ] Position tracking
+- [ ] Follow officials/agencies
+- [ ] 500 beta users
+- [ ] Grant applications submitted
+
 ---
 
 ## Phase 2 — Growth `Weeks 11–22` `Planned`
@@ -187,10 +244,7 @@
 - [ ] Revolving door tracker
 
 ### Graph Enhancements (Phase 2)
-- [ ] AI narrative — "Explain this graph" button (1 civic credit, cached per state hash)
-- [ ] Path finder — shortest path between two entities (PostgreSQL recursive CTE already stubbed in `packages/db/src/queries/entity-connections.ts`)
 - [ ] Timeline scrubber — animate graph through time with play button
-- [ ] Comparison mode — split screen two entities
 - [ ] Remaining 3 preset views — Committee Power, Industry Capture, Co-Sponsor Network
 - [ ] Community presets — user-saved named presets (`graph_presets` table)
 

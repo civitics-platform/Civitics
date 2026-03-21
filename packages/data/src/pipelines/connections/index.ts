@@ -30,13 +30,15 @@ import {
 // ---------------------------------------------------------------------------
 
 interface ConnectionCounts {
-  donation:     number;
-  vote_yes:     number;
-  vote_no:      number;
-  vote_abstain: number;
-  oversight:    number;
-  appointment:  number;
-  failed:       number;
+  donation:            number;
+  vote_yes:            number;
+  vote_no:             number;
+  vote_abstain:        number;
+  nomination_vote_yes: number;
+  nomination_vote_no:  number;
+  oversight:           number;
+  appointment:         number;
+  failed:              number;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,15 +54,22 @@ function donationStrength(amountCents: number): number {
   return Math.max(0, Math.min(1.0, Math.log10(amountCents / 100000) / 4));
 }
 
-/** Map votes.vote value to connection_type. Returns null for non-definitive votes. */
-function voteToConnectionType(vote: string): string | null {
+/**
+ * Map votes.vote value to connection_type.
+ * Returns null for non-definitive votes.
+ *
+ * @param vote        The vote value (yes/no/abstain/etc.)
+ * @param voteCategory The proposal's vote_category (nomination → distinct edge types)
+ */
+function voteToConnectionType(vote: string, voteCategory?: string | null): string | null {
+  const isNomination = voteCategory === "nomination";
   switch (vote) {
-    case "yes":         return "vote_yes";
-    case "no":          return "vote_no";
+    case "yes":        return isNomination ? "nomination_vote_yes" : "vote_yes";
+    case "no":         return isNomination ? "nomination_vote_no"  : "vote_no";
     case "abstain":
     case "present":
-    case "not_voting":  return "vote_abstain";
-    default:            return null; // paired_yes / paired_no — skip
+    case "not_voting": return "vote_abstain";
+    default:           return null; // paired_yes / paired_no — skip
   }
 }
 
@@ -172,18 +181,36 @@ async function deriveDonationConnections(
 ): Promise<void> {
   console.log("\n  [1/4] Donation connections...");
 
-  const { data: rows, error } = await db
-    .from("financial_relationships")
-    .select(
-      "official_id, donor_name, donor_type, amount_cents, cycle_year, source_url, fec_committee_id"
-    )
-    .not("official_id", "is", null);
+  const PAGE_SIZE = 1000;
+  let page = 0;
+  const rows: {
+    official_id: string; donor_name: string; donor_type: string;
+    amount_cents: number; cycle_year: number | null;
+    source_url: string | null; fec_committee_id: string | null;
+  }[] = [];
 
-  if (error) {
-    console.error("    Error fetching financial_relationships:", error.message);
-    return;
+  while (true) {
+    const from = page * PAGE_SIZE;
+    const to   = from + PAGE_SIZE - 1;
+    const { data: batch, error } = await db
+      .from("financial_relationships")
+      .select(
+        "official_id, donor_name, donor_type, amount_cents, cycle_year, source_url, fec_committee_id"
+      )
+      .not("official_id", "is", null)
+      .range(from, to);
+
+    if (error) {
+      console.error("    Error fetching financial_relationships:", error.message);
+      return;
+    }
+    if (!batch || batch.length === 0) break;
+    rows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    page++;
   }
-  if (!rows || rows.length === 0) {
+
+  if (rows.length === 0) {
     console.log("    No financial_relationships found. Skipping.");
     return;
   }
@@ -336,63 +363,129 @@ async function deriveVoteConnections(
 ): Promise<void> {
   console.log("\n  [2/4] Vote connections...");
 
-  const { data: votes, error } = await db
-    .from("votes")
-    .select("official_id, proposal_id, vote, voted_at, roll_call_number, chamber, session, source_ids");
-
-  if (error) {
-    console.error("    Error fetching votes:", error.message);
-    return;
-  }
-  if (!votes || votes.length === 0) {
-    console.log("    No votes found. Skipping.");
-    return;
-  }
-  console.log(`    Processing ${votes.length} vote records`);
-
-  for (const v of votes) {
-    const connType = voteToConnectionType(String(v.vote ?? ""));
-    if (!connType) continue;
-
-    const sourceIds  = (v.source_ids as Record<string, string>) ?? {};
-    const rollCallKey =
-      sourceIds["roll_call"] ??
-      sourceIds["house_clerk_url"] ??
-      sourceIds["senate_lis_url"] ??
-      null;
-
-    const evidence: Record<string, unknown>[] = [
-      {
-        source:       "congress_gov",
-        vote_date:    v.voted_at ?? null,
-        roll_call:    v.roll_call_number ?? null,
-        chamber:      v.chamber ?? null,
-        session:      v.session ?? null,
-        roll_call_key: rollCallKey,
-      },
-    ];
-
-    const result = await upsertConnection(db, {
-      fromType:       "official",
-      fromId:         String(v.official_id),
-      toType:         "proposal",
-      toId:           String(v.proposal_id),
-      connectionType: connType,
-      strength:       1.0,
-      evidence,
-    });
-
-    if (result === "failed") {
-      counts.failed++;
-    } else {
-      if (connType === "vote_yes")    counts.vote_yes++;
-      else if (connType === "vote_no") counts.vote_no++;
-      else                             counts.vote_abstain++;
+  // Load all proposal vote_categories upfront so we can emit
+  // nomination_vote_yes/no for confirmation votes.
+  console.log("    Fetching proposal vote_categories...");
+  const proposalCategoryMap = new Map<string, string | null>();
+  {
+    const PROP_PAGE = 1000;
+    let propPage = 0;
+    while (true) {
+      const from = propPage * PROP_PAGE;
+      const to   = from + PROP_PAGE - 1;
+      const { data: props, error: propErr } = await db
+        .from("proposals")
+        .select("id, vote_category")
+        .range(from, to);
+      if (propErr) {
+        console.error("    Warning: could not fetch proposal vote_categories:", propErr.message);
+        break;
+      }
+      if (!props || props.length === 0) break;
+      for (const p of props) proposalCategoryMap.set(String(p.id), p.vote_category ?? null);
+      if (props.length < PROP_PAGE) break;
+      propPage++;
     }
+    console.log(`    Loaded ${proposalCategoryMap.size} proposal categories`);
+  }
+
+  // Supabase PostgREST caps responses at 1000 rows. Page through all votes,
+  // then batch-upsert using the unique constraint (from_id, to_id, connection_type).
+  const FETCH_SIZE  = 1000;
+  const UPSERT_SIZE = 500;
+  let page = 0;
+  let totalFetched = 0;
+
+  while (true) {
+    const from = page * FETCH_SIZE;
+    const to   = from + FETCH_SIZE - 1;
+
+    const { data: votes, error } = await db
+      .from("votes")
+      .select("official_id, proposal_id, vote, voted_at, roll_call_number, chamber, session, source_ids")
+      .range(from, to);
+
+    if (error) {
+      console.error("    Error fetching votes:", error.message);
+      return;
+    }
+    if (!votes || votes.length === 0) {
+      if (page === 0) console.log("    No votes found. Skipping.");
+      break;
+    }
+
+    totalFetched += votes.length;
+
+    // Build batch rows for this page
+    const batch: Record<string, unknown>[] = [];
+    for (const v of votes) {
+      const voteCategory = proposalCategoryMap.get(String(v.proposal_id)) ?? null;
+      const connType = voteToConnectionType(String(v.vote ?? ""), voteCategory);
+      if (!connType) continue;
+
+      const sourceIds    = (v.source_ids as Record<string, string>) ?? {};
+      const rollCallKey  =
+        sourceIds["roll_call"] ??
+        sourceIds["house_clerk_url"] ??
+        sourceIds["senate_lis_url"] ??
+        null;
+
+      batch.push({
+        from_type:       "official",
+        from_id:         String(v.official_id),
+        to_type:         "proposal",
+        to_id:           String(v.proposal_id),
+        connection_type: connType,
+        strength:        1.0,
+        evidence: [
+          {
+            source:        "congress_gov",
+            vote_date:     v.voted_at ?? null,
+            roll_call:     v.roll_call_number ?? null,
+            chamber:       v.chamber ?? null,
+            session:       v.session ?? null,
+            roll_call_key: rollCallKey,
+          },
+        ],
+      });
+    }
+
+    // Upsert in sub-batches to avoid payload limits
+    for (let i = 0; i < batch.length; i += UPSERT_SIZE) {
+      const chunk = batch.slice(i, i + UPSERT_SIZE);
+      const { error: upsertErr } = await db
+        .from("entity_connections")
+        .upsert(chunk, { onConflict: "from_id,to_id,connection_type" });
+
+      if (upsertErr) {
+        console.error(`    Upsert error (page ${page + 1}, chunk ${i / UPSERT_SIZE + 1}):`, upsertErr.message);
+        counts.failed += chunk.length;
+      } else {
+        for (const row of chunk) {
+          const ct = row.connection_type as string;
+          if (ct === "vote_yes")              counts.vote_yes++;
+          else if (ct === "vote_no")          counts.vote_no++;
+          else if (ct === "nomination_vote_yes") counts.nomination_vote_yes++;
+          else if (ct === "nomination_vote_no")  counts.nomination_vote_no++;
+          else                                counts.vote_abstain++;
+        }
+      }
+    }
+
+    if (page % 10 === 0) {
+      console.log(
+        `    Fetched ${totalFetched} votes so far... (vote_yes: ${counts.vote_yes}, vote_no: ${counts.vote_no}, nom_yes: ${counts.nomination_vote_yes}, nom_no: ${counts.nomination_vote_no}, abstain: ${counts.vote_abstain})`
+      );
+    }
+
+    if (votes.length < FETCH_SIZE) break;
+    page++;
   }
 
   console.log(
-    `    Created/updated: ${counts.vote_yes} vote_yes, ${counts.vote_no} vote_no, ${counts.vote_abstain} vote_abstain`
+    `    Created/updated: ${counts.vote_yes} vote_yes, ${counts.vote_no} vote_no, ` +
+    `${counts.nomination_vote_yes} nomination_vote_yes, ${counts.nomination_vote_no} nomination_vote_no, ` +
+    `${counts.vote_abstain} vote_abstain`
   );
 }
 
@@ -539,13 +632,15 @@ export async function runConnectionsPipeline(): Promise<PipelineResult> {
   const db = createAdminClient() as any;
 
   const counts: ConnectionCounts = {
-    donation:     0,
-    vote_yes:     0,
-    vote_no:      0,
-    vote_abstain: 0,
-    oversight:    0,
-    appointment:  0,
-    failed:       0,
+    donation:            0,
+    vote_yes:            0,
+    vote_no:             0,
+    vote_abstain:        0,
+    nomination_vote_yes: 0,
+    nomination_vote_no:  0,
+    oversight:           0,
+    appointment:         0,
+    failed:              0,
   };
 
   try {
@@ -559,6 +654,8 @@ export async function runConnectionsPipeline(): Promise<PipelineResult> {
       counts.vote_yes +
       counts.vote_no +
       counts.vote_abstain +
+      counts.nomination_vote_yes +
+      counts.nomination_vote_no +
       counts.oversight +
       counts.appointment;
 
@@ -574,9 +671,11 @@ export async function runConnectionsPipeline(): Promise<PipelineResult> {
     console.log("  ──────────────────────────────────────────────────");
     console.log(`  ${"Total connections created/updated:".padEnd(36)} ${total}`);
     console.log(`  ${"donation:".padEnd(36)} ${counts.donation}`);
-    console.log(`  ${"vote_yes:".padEnd(36)} ${counts.vote_yes}`);
-    console.log(`  ${"vote_no:".padEnd(36)} ${counts.vote_no}`);
+    console.log(`  ${"vote_yes (legislation):".padEnd(36)} ${counts.vote_yes}`);
+    console.log(`  ${"vote_no (legislation):".padEnd(36)} ${counts.vote_no}`);
     console.log(`  ${"vote_abstain:".padEnd(36)} ${counts.vote_abstain}`);
+    console.log(`  ${"nomination_vote_yes:".padEnd(36)} ${counts.nomination_vote_yes}`);
+    console.log(`  ${"nomination_vote_no:".padEnd(36)} ${counts.nomination_vote_no}`);
     console.log(`  ${"oversight:".padEnd(36)} ${counts.oversight}`);
     console.log(`  ${"appointment:".padEnd(36)} ${counts.appointment}`);
     console.log(`  ${"failed:".padEnd(36)} ${counts.failed}`);

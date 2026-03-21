@@ -60,7 +60,7 @@ All tables: **`created_at TIMESTAMPTZ DEFAULT now()`**, `updated_at` where mutab
 | `jurisdictions` | Hierarchical: global → country → state → county → city. Every entity belongs here. Global deployment is a config change, not a rebuild. |
 | `governing_bodies` | Any government entity anywhere — committee, legislature, court, agency |
 | `officials` | Any public official, any country, any level. `source_ids JSONB` holds IDs across source systems. |
-| `proposals` | Any legislative/regulatory proposal. `proposal_type` covers bill, regulation, executive_order, treaty, referendum |
+| `proposals` | Any legislative/regulatory proposal. `proposal_type` covers bill, regulation, executive_order, treaty, referendum. `vote_category` controls graph visibility (see below). |
 | `entity_connections` | Connection graph table. See correction below. |
 | `financial_relationships` | All money flows. `donor_type`, `industry`, `amount_cents` |
 | `financial_entities` | FEC donor entities (PAC, individual, corporation) |
@@ -119,6 +119,28 @@ metadata              JSONB — Phase 4 wallet data goes here:
 
 **Phase 2 `user_preferences` table** (not yet created) will hold:
 - `district_jurisdiction_id`, `zip_code`, notification settings, followed officials, saved positions
+
+---
+
+## proposals table — vote_category column
+
+Added in migration 0019. Controls how proposals appear in the graph and proposals page.
+
+| Value | Meaning | Graph behavior | Proposals page |
+|-------|---------|----------------|----------------|
+| `substantive` | Real legislation — bills with proper titles | Shown | Shown (if not a vote type) |
+| `procedural` | Parliamentary procedure — cloture, passage motions, etc. | **Hidden by default** | Never shown |
+| `nomination` | Judicial/cabinet/ambassador confirmation votes | Shown as `nomination_vote_yes` / `nomination_vote_no` edges | Never shown |
+| `regulation` | Federal regulations from regulations.gov | Shown | Shown |
+
+Default graph filter:
+  WHERE vote_category != 'procedural'
+  (unless ?include_procedural=true is passed)
+
+Auto-categorized on insert by Congress.gov pipeline:
+  - title IN (procedural list) → procedural
+  - title ILIKE 'On the Nomination%' etc. → nomination
+  - else → substantive
 
 ---
 

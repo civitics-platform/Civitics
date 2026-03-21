@@ -41,6 +41,7 @@ function mapNodeType(dbType: string, subType?: string): NodeType {
 function mapEdgeType(dbType: string): EdgeType {
   const valid: EdgeType[] = [
     "donation", "vote_yes", "vote_no", "vote_abstain",
+    "nomination_vote_yes", "nomination_vote_no",
     "appointment", "revolving_door", "oversight", "lobbying", "co_sponsorship",
   ];
   if (valid.includes(dbType as EdgeType)) return dbType as EdgeType;
@@ -54,12 +55,57 @@ function mapEdgeType(dbType: string): EdgeType {
   }
 }
 
+/**
+ * Remove connections to proposals whose vote_category = 'procedural'.
+ * Procedural votes (cloture, passage motions, etc.) clutter the graph
+ * without providing accountability insight. Hidden by default; researchers
+ * can opt in with ?include_procedural=true.
+ *
+ * Non-proposal connections (donations, oversight, etc.) are always kept.
+ */
+async function filterProceduralConnections(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  connections: ConnectionRow[],
+): Promise<ConnectionRow[]> {
+  const proposalIds = [
+    ...new Set(
+      connections
+        .filter((c) => c.to_type === "proposal")
+        .map((c) => c.to_id),
+    ),
+  ];
+
+  if (proposalIds.length === 0) return connections;
+
+  const { data } = await supabase
+    .from("proposals")
+    .select("id, vote_category")
+    .in("id", proposalIds);
+
+  const proceduralIds = new Set(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ((data ?? []) as unknown as { id: string; vote_category: string | null }[])
+      .filter((p) => p.vote_category === "procedural")
+      .map((p) => p.id),
+  );
+
+  if (proceduralIds.size === 0) return connections;
+
+  return connections.filter(
+    (c) => c.to_type !== "proposal" || !proceduralIds.has(c.to_id),
+  );
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const entityId = searchParams.get("entityId");
   // Server handles up to depth 2 (direct + one smart expansion).
   // Client-side BFS handles further depth filtering on the loaded data.
   const depth = Math.min(parseInt(searchParams.get("depth") ?? "1", 10), 2);
+  // Default: hide procedural votes (cloture, passage motions, etc.).
+  // Pass ?include_procedural=true to show all — for researchers/journalists.
+  const includeProcedural = searchParams.get("include_procedural") === "true";
 
   try {
     const supabase = createAdminClient();
@@ -129,6 +175,10 @@ export async function GET(request: Request) {
         connections = direct;
       }
 
+      if (!includeProcedural) {
+        connections = await filterProceduralConnections(supabase, connections);
+      }
+
       totalCount = connections.length;
 
     } else {
@@ -169,6 +219,10 @@ export async function GET(request: Request) {
         connMap.set(c.id, c);
       }
       connections = [...connMap.values()];
+
+      if (!includeProcedural) {
+        connections = await filterProceduralConnections(supabase, connections);
+      }
     }
 
     // ── Collect unique entity (type, id) pairs ─────────────────────────────

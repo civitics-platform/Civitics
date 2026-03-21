@@ -93,6 +93,9 @@ interface DiagnosticRequest {
   filters: string[];
   industry: string[];
   limit: number;
+  // Default: hide procedural votes (cloture, passage motions).
+  // Pass ?include_procedural=true to show all — for researchers/journalists.
+  includeProcedural: boolean;
 }
 
 // ── Entity resolution ──────────────────────────────────────────────────────────
@@ -259,9 +262,10 @@ async function buildForceData(
   donationTotal: number;
   donationWithAmount: number;
   orphanCount: number;
+  categoryBreakdown: Record<string, number>;
 }> {
   let queries = 0;
-  const { depth, filters, limit } = req;
+  const { depth, filters, limit, includeProcedural } = req;
 
   // Fetch direct connections
   let q = supabase
@@ -312,6 +316,29 @@ async function buildForceData(
     }
   }
 
+  // Filter out procedural proposal connections (default behavior).
+  // Procedural votes (cloture, passage motions) clutter the graph without
+  // adding accountability insight. Pass include_procedural=true to bypass.
+  if (!includeProcedural) {
+    const proposalIds = [...new Set(all.filter((c) => c.to_type === "proposal").map((c) => c.to_id))];
+    if (proposalIds.length > 0) {
+      const { data: propCats } = await supabase
+        .from("proposals")
+        .select("id, vote_category")
+        .in("id", proposalIds);
+      queries++;
+      const proceduralIds = new Set(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ((propCats ?? []) as unknown as { id: string; vote_category: string | null }[])
+          .filter((p) => p.vote_category === "procedural")
+          .map((p) => p.id),
+      );
+      if (proceduralIds.size > 0) {
+        all = all.filter((c) => c.to_type !== "proposal" || !proceduralIds.has(c.to_id));
+      }
+    }
+  }
+
   // Collect unique entities
   const entityMap = new Map<string, { type: string; id: string }>();
   for (const c of all) {
@@ -323,6 +350,7 @@ async function buildForceData(
   const connCount = new Map<string, number>();
   let donationTotal = 0;
   let donationWithAmount = 0;
+  const categoryBreakdown: Record<string, number> = {};
   for (const c of all) {
     connCount.set(c.from_id, (connCount.get(c.from_id) ?? 0) + 1);
     connCount.set(c.to_id, (connCount.get(c.to_id) ?? 0) + 1);
@@ -330,6 +358,7 @@ async function buildForceData(
       donationTotal++;
       if (c.amount_cents != null) donationWithAmount++;
     }
+    categoryBreakdown[c.connection_type] = (categoryBreakdown[c.connection_type] ?? 0) + 1;
   }
 
   // Orphan check: nodes with zero connections in this edge set
@@ -409,6 +438,7 @@ async function buildForceData(
     donationTotal,
     donationWithAmount,
     orphanCount,
+    categoryBreakdown,
   };
 }
 
@@ -695,6 +725,8 @@ function makeChecks(
     orphanCount: number;
     path?: string[];
     hasEntity2: boolean;
+    categoryBreakdown: Record<string, number>;
+    includeProcedural: boolean;
   } | null,
   chordStats: {
     totalFlowUsd: number;
@@ -766,7 +798,32 @@ function makeChecks(
       });
     }
 
-    // CHECK 7 — path exists (if two entities)
+    // CHECK 7 — vote category breakdown
+    {
+      const bd = forceStats.categoryBreakdown;
+      const substantive = bd["vote_yes"] ?? 0 + (bd["vote_no"] ?? 0);
+      const nomination  = (bd["nomination_vote_yes"] ?? 0) + (bd["nomination_vote_no"] ?? 0);
+      const procedural  = bd["procedural"] ?? 0; // always 0 unless include_procedural=true
+      const parts: string[] = [];
+      if ((bd["vote_yes"] ?? 0) + (bd["vote_no"] ?? 0) > 0)
+        parts.push(`substantive: ${(bd["vote_yes"] ?? 0) + (bd["vote_no"] ?? 0)}`);
+      if (nomination > 0)
+        parts.push(`nomination: ${nomination}`);
+      if ((bd["donation"] ?? 0) > 0)
+        parts.push(`donation: ${bd["donation"]}`);
+      if (procedural > 0)
+        parts.push(`procedural: ${procedural}`);
+      if (!forceStats.includeProcedural)
+        parts.push("procedural: hidden by default");
+      checks.push({
+        name: "vote_category_breakdown",
+        passed: true,
+        detail: parts.length > 0 ? parts.join(", ") : "no vote connections",
+      });
+      void substantive; // used in parts above
+    }
+
+    // CHECK 8 — path exists (if two entities)
     if (forceStats.hasEntity2) {
       checks.push({
         name: "path_exists",
@@ -832,6 +889,7 @@ async function handleDiagnostic(
     filters,
     industry,
     limit,
+    includeProcedural: params.get("include_procedural") === "true",
   };
 
   const supabase = createAdminClient();
@@ -976,6 +1034,8 @@ async function handleDiagnostic(
           orphanCount: forceResult.orphanCount,
           path: forceResult.path,
           hasEntity2: req.entityName2 !== null,
+          categoryBreakdown: forceResult.categoryBreakdown,
+          includeProcedural: req.includeProcedural,
         }
       : null,
     viz === "chord" && chordResult
@@ -997,6 +1057,7 @@ async function handleDiagnostic(
       entity_name: req.entityName,
       depth: req.depth,
       filters: req.filters,
+      include_procedural: req.includeProcedural,
       timestamp: new Date().toISOString(),
     },
 

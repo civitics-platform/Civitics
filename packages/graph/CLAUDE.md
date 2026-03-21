@@ -84,16 +84,22 @@ packages/graph/
 ## Edge Types and Visual Language
 
 ### Connection Types
-  donation          → green   #16a34a  solid
-  vote_yes          → blue    #2563eb  solid
-  vote_no           → red     #dc2626  solid
-  co_sponsor        → blue    #3b82f6  dashed
-  appointment       → purple  #7c3aed  dashed
-  revolving_door    → orange  #ea580c  solid
-  oversight         → gray    #6b7280  solid
-  investigated_by   → pink    #be185d  solid
-  lobbied_for       → amber   #f59e0b  dashed
-  formerly_employed → orange  #ea580c  dashed
+  donation             → green   #16a34a  solid
+  vote_yes             → blue    #2563eb  solid   (legislation votes only)
+  vote_no              → red     #dc2626  solid   (legislation votes only)
+  nomination_vote_yes  → violet  #8b5cf6  solid   (judicial/cabinet confirmation in favor)
+  nomination_vote_no   → pink    #db2777  solid   (judicial/cabinet confirmation against)
+  co_sponsor           → blue    #3b82f6  dashed
+  appointment          → purple  #7c3aed  dashed
+  revolving_door       → orange  #ea580c  solid
+  oversight            → gray    #6b7280  solid
+  investigated_by      → pink    #be185d  solid
+  lobbied_for          → amber   #f59e0b  dashed
+  formerly_employed    → orange  #ea580c  dashed
+
+  NOTE: nomination_vote_yes/no are VALID and DISTINCT from vote_yes/vote_no.
+  They are derived from proposals with vote_category='nomination'.
+  Show in graph filter pills as "Nomination Votes" — separate from "Legislation Votes".
 
 ### Edge Thickness
   Donation edges: proportional to log(amount)
@@ -129,7 +135,8 @@ packages/graph/
     filters: ['vote_yes', 'vote_no', 'co_sponsor', 'proposal']
     nodeSize: 'bills_sponsored'
     nodeColor: 'party_affiliation'
-    description: "Legislative patterns and alliances"
+    hide_procedural: true (default — cloture/passage votes hidden)
+    description: "Legislative patterns and alliances — real bills only"
 
   The Revolving Door:
     filters: ['revolving_door', 'formerly_employed', 'appointment']
@@ -155,9 +162,20 @@ packages/graph/
     nodeColor: 'party_affiliation'
     description: "Who works across the aisle"
 
+  Nominations:
+    filters: ['nomination_vote_yes', 'nomination_vote_no']
+    nodeSize: 'connection_count'
+    nodeColor: 'party_affiliation'
+    description: "Judicial and cabinet confirmation votes — who did this senator confirm?"
+
+  Full Record:
+    filters: ['all']
+    include_procedural: true
+    description: "Every connection type including procedural votes — for researchers and journalists"
+
   Full Picture:
     filters: ['all']
-    description: "Every connection type visible"
+    description: "Every connection type visible (procedural hidden)"
 
   Clean View:
     filters: ['all']
@@ -514,6 +532,18 @@ UI:
   visibility TEXT DEFAULT 'private'
   created_by UUID REFERENCES users(id)
   created_at TIMESTAMPTZ DEFAULT NOW()
+
+## Graph Filter Pills (connection type toggles)
+
+Standard filter pills shown in the UI (in order):
+  [✓] Legislation Votes   → filters: vote_yes, vote_no
+  [✓] Nomination Votes    → filters: nomination_vote_yes, nomination_vote_no
+  [✓] Oversight           → filter: oversight
+  [✓] Donations           → filter: donation
+  [ ] Procedural Votes    → hidden by default; shown only when include_procedural=true
+
+Procedural votes are always archived in the DB, never deleted.
+The filter pill is available to researchers via the Full Record preset.
 
 ## Smart Graph Expansion Rules
 

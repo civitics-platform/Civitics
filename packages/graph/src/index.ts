@@ -48,12 +48,14 @@ export type { GraphSidebarProps, PresetId } from "./GraphSidebar";
  *  - organization:    diamond, green border
  *
  * Edge types & visual encoding:
- *  - donation:        green, width proportional to dollar amount
- *  - vote_yes:        blue, fixed width
- *  - vote_no:         red, fixed width
- *  - appointment:     purple, dashed
- *  - revolving_door:  orange, fixed width
- *  - oversight:       gray, fixed width
+ *  - donation:             green, width proportional to dollar amount
+ *  - vote_yes:             blue, fixed width (legislation votes)
+ *  - vote_no:              red, fixed width (legislation votes)
+ *  - nomination_vote_yes:  violet — judicial/cabinet confirmation in favor
+ *  - nomination_vote_no:   pink   — judicial/cabinet confirmation against
+ *  - appointment:          purple, dashed
+ *  - revolving_door:       orange, fixed width
+ *  - oversight:            gray, fixed width
  */
 
 export type NodeType =
@@ -68,6 +70,8 @@ export type EdgeType =
   | "vote_yes"
   | "vote_no"
   | "vote_abstain"
+  | "nomination_vote_yes"  // confirmation vote in favor (shown distinct from legislation votes)
+  | "nomination_vote_no"   // confirmation vote against
   | "appointment"
   | "revolving_door"
   | "oversight"
@@ -117,15 +121,17 @@ export const PARTY_COLORS: Record<string, string> = {
 };
 
 export const EDGE_COLORS: Record<EdgeType, string> = {
-  donation:       "#22c55e",  // green
-  vote_yes:       "#3b82f6",  // blue
-  vote_no:        "#ef4444",  // red
-  vote_abstain:   "#94a3b8",  // gray
-  appointment:    "#a855f7",  // purple
-  revolving_door: "#f97316",  // orange
-  oversight:      "#94a3b8",  // gray
-  lobbying:       "#eab308",  // yellow
-  co_sponsorship: "#06b6d4",  // cyan
+  donation:            "#22c55e",  // green
+  vote_yes:            "#3b82f6",  // blue
+  vote_no:             "#ef4444",  // red
+  vote_abstain:        "#94a3b8",  // gray
+  nomination_vote_yes: "#8b5cf6",  // violet — distinct from legislation vote_yes
+  nomination_vote_no:  "#db2777",  // pink — distinct from legislation vote_no
+  appointment:         "#a855f7",  // purple
+  revolving_door:      "#f97316",  // orange
+  oversight:           "#94a3b8",  // gray
+  lobbying:            "#eab308",  // yellow
+  co_sponsorship:      "#06b6d4",  // cyan
 };
 
 /**

@@ -82,6 +82,14 @@
 - [x] Screenshot export — PNG 1×/2×/4× with non-removable watermark (URL + data sources + date)
 - [x] 5 of 8 preset views built — Follow the Money, Votes & Bills, Revolving Door, Full Picture, Clean View
   - Not yet built: Committee Power, Industry Capture, Co-Sponsor Network
+- [x] Proposal vote categorization — `vote_category` column on `proposals` (substantive/procedural/nomination/regulation)
+  - Migration `0019_proposal_vote_category.sql` applied; all existing proposals categorized
+  - Procedural votes (cloture, passage motions) hidden from graph by default; archived, not deleted
+- [x] Nomination votes as separate connection type — `nomination_vote_yes` / `nomination_vote_no` edges
+  - Connections pipeline derives these from proposals with `vote_category = 'nomination'`
+  - Shown as distinct visual element (violet/pink) vs. legislation votes (blue/red)
+- [x] Graph presets updated — Nominations preset ("Who did this senator confirm?"), Full Record preset (all including procedural)
+- [x] Graph API supports `?include_procedural=true` for researchers and journalists
 - [x] Ghost node empty state animation — shown when `entity_connections` table is empty
 - [x] Entity selector — search-as-you-type for officials, agencies, proposals; centers graph on selection
 - [x] Depth control — 1–5 hop selector; client-side BFS filter

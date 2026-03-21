@@ -7,7 +7,7 @@
  * GET /api/graph/entities?q=phrma
  *
  * Types: official | agency | financial | proposal
- * Returns up to 10 results with connection counts, has_donations, has_votes flags.
+ * Returns up to 20 results with connection counts, has_donations, has_votes flags.
  * No auth required. Rate limited to 20 requests/minute/IP.
  */
 
@@ -71,7 +71,7 @@ export async function GET(request: Request) {
   // Use existing fuzzy-search RPC (trigram + ILIKE across all entity tables)
   const { data, error } = await supabase.rpc("search_graph_entities", {
     q,
-    lim: 10,
+    lim: 20,
   });
 
   if (error) {

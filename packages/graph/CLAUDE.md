@@ -616,3 +616,54 @@ is the single most strategically important
 feature in this package. It turns every
 shared image into a user acquisition event.
 Build it before anything else.
+
+## Visualization Registry Pattern
+
+All visualization types are registered in `visualizations/registry.ts`.
+Adding a new visualization = add one object to VIZ_REGISTRY array. No other changes needed.
+
+`VizMode` type: `"force" | "treemap" | "chord" | "sunburst"`
+
+## Chord Diagram
+Civic question: "Which industries fund which political groups — and how much?"
+Groups: 9 donor industries + 5 recipient party/chamber groups
+Data: `/api/graph/chord` → financial_relationships joined with entity_tags
+Normalize mode: % of total raised (shows dependence, not just absolute dollars)
+Mobile fallback: horizontal bar chart when width < 600px
+
+## Sunburst
+Civic question: "What is the full scope of this official's network?"
+Data: `/api/graph/sunburst?entityId=...`
+Rings: center=official, ring1=connection types, ring2+=specific connections
+Click to zoom in, click center to zoom back out
+
+## Comparison Mode
+Max 2 entities (force graph only in Phase 1)
+Side-by-side layout when compareMode=true and compareEntity is set
+Shared connections highlighted gold (Phase 2+)
+Stats comparison table below (Phase 2+)
+
+## Path Finder
+BFS algorithm server-side via PostgreSQL recursive CTE (find_entity_path RPC)
+Max 4 hops
+POST /api/graph/pathfinder with { from_id, to_id, max_hops: 4 }
+Results highlighted gold on viz (Phase 2+)
+
+## AI Narrative
+Model: claude-haiku-4-5-20251001
+~$0.0003 per narrative
+POST /api/graph/narrative
+Always show disclaimer: "AI-generated summary. Always verify against source data."
+
+## Embed Mode
+/graph/embed/[code] — minimal chrome, watermark required
+Panel 6 "Embed this graph" button opens EmbedModal
+iframe code generated from share code
+
+## Annotations (Phase 2)
+Requires auth — graph_annotations table
+Toggle in Export panel
+
+## Saved Investigations (Phase 2)
+Requires auth — stored in users.metadata JSONB
+Max 20 per user in Phase 1

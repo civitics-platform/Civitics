@@ -3,8 +3,13 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { ForceGraph } from "@civitics/graph";
 import { TreemapGraph } from "@civitics/graph";
+import { ChordGraph } from "@civitics/graph";
+import { SunburstGraph } from "@civitics/graph";
+import { AiNarrative } from "@civitics/graph";
+import { EmbedModal } from "@civitics/graph";
 import type { GraphNode, GraphEdge, EdgeType, VisualConfig, EntitySearchResult } from "@civitics/graph";
-import { DEFAULT_VISUAL_CONFIG } from "@civitics/graph";
+import { DEFAULT_VISUAL_CONFIG, VIZ_REGISTRY } from "@civitics/graph";
+import type { VizMode } from "@civitics/graph";
 import { GraphSidebar, PRESETS, PRESET_ORDER } from "@civitics/graph";
 import type { PresetId } from "@civitics/graph";
 import { SharePanel } from "./SharePanel";
@@ -69,8 +74,8 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
   const [error, setError] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
 
-  // Visualization mode — force graph or treemap
-  const [viewMode, setViewMode] = useState<"force" | "treemap">("force");
+  // Visualization mode
+  const [viewMode, setViewMode] = useState<VizMode>("force");
 
   // Preset state
   const [activePreset, setActivePreset] = useState<PresetId>(
@@ -103,6 +108,18 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
   const [showShare, setShowShare] = useState(false);
   const [showScreenshot, setShowScreenshot] = useState(false);
 
+  // AI Narrative
+  const [showNarrative, setShowNarrative] = useState(false);
+
+  // Embed Modal
+  const [showEmbed, setShowEmbed] = useState(false);
+
+  // Compare mode
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareEntity, setCompareEntity] = useState<{ id: string; type: string; label: string } | null>(null);
+  const [compareNodes, setCompareNodes] = useState<GraphNode[]>([]);
+  const [compareEdges, setCompareEdges] = useState<GraphEdge[]>([]);
+
   const [expandingNodeId, setExpandingNodeId] = useState<string | null>(null);
 
   const svgRef = useRef<SVGSVGElement>(null);
@@ -133,6 +150,27 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [centerEntity, depth]);
+
+  // ── Load compare entity data ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (!compareEntity || !compareEntity.id) {
+      setCompareNodes([]);
+      setCompareEdges([]);
+      return;
+    }
+    const url = `/api/graph/connections?entityId=${encodeURIComponent(compareEntity.id)}&depth=${Math.min(depth, 2)}`;
+    fetch(url)
+      .then((r) => r.json())
+      .then((data: { nodes: GraphNode[]; edges: GraphEdge[]; count: number; error?: string }) => {
+        if (data.error) return;
+        setCompareNodes(data.nodes);
+        setCompareEdges(data.edges);
+      })
+      .catch(() => {
+        setCompareNodes([]);
+        setCompareEdges([]);
+      });
+  }, [compareEntity, depth]);
 
   // ── Expand a collapsed node ─────────────────────────────────────────────────
   const handleExpandNode = useCallback(async (node: GraphNode) => {
@@ -189,6 +227,15 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
       if (!entity.id) { setCenterEntity(null); return; }
       setCenterEntity(entity);
       setSelectedNode(null);
+    },
+    []
+  );
+
+  // ── Handle compare entity selection ─────────────────────────────────────────
+  const handleCompareEntitySelect = useCallback(
+    (entity: { id: string; type: string; label: string }) => {
+      if (!entity.id) { setCompareEntity(null); return; }
+      setCompareEntity(entity);
     },
     []
   );
@@ -258,6 +305,15 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
     ? allEdges.filter((e) => e.source === selectedNode.id || e.target === selectedNode.id)
     : [];
 
+  // Active viz registry entry for header title
+  const activeViz = VIZ_REGISTRY.find((v) => v.id === viewMode);
+
+  // Active filter names for AI narrative
+  const activeFilterNames = useMemo(() => {
+    if (!activeFilters) return [];
+    return activeFilters.map((f) => f.replace(/_/g, " "));
+  }, [activeFilters]);
+
   // Theme
   const bgClass =
     visualConfig.theme === "light" ? "bg-white text-gray-900"
@@ -274,7 +330,7 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
           <a href="/" className="text-gray-500 hover:text-white text-xs transition-colors shrink-0">← Civitics</a>
           <span className="text-gray-700">|</span>
           <h1 className="text-xs font-semibold tracking-wide shrink-0">
-            {viewMode === "treemap" ? "Officials by Donations — Treemap" : "Connection Graph"}
+            {activeViz?.label ?? "Connection Graph"}
           </h1>
           {!loading && viewMode === "force" && (
             <span className="text-xs text-gray-600 truncate">
@@ -359,84 +415,131 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
           onPresetChange={handlePresetChange}
           onShare={() => setShowShare(true)}
           onScreenshot={() => setShowScreenshot(true)}
+          onNarrative={() => setShowNarrative((v) => !v)}
+          onEmbed={() => setShowEmbed(true)}
+          compareMode={compareMode}
+          onCompareModeChange={setCompareMode}
+          compareEntity={compareEntity}
+          onCompareEntitySelect={handleCompareEntitySelect}
         />
 
         {/* Graph / Treemap area */}
         <div className="flex flex-1 overflow-hidden relative">
 
-          {/* ── Force graph view ─────────────────────────────────────────── */}
+          {/* ── Force graph view (or compare side-by-side) ───────────────── */}
           <div
-            className="flex-1 relative overflow-hidden transition-opacity duration-300"
+            className="absolute inset-0 transition-opacity duration-300"
             style={{ opacity: viewMode === "force" ? 1 : 0, pointerEvents: viewMode === "force" ? "auto" : "none" }}
-            id="graph-container"
           >
-            {loading && (
-              <div className="absolute inset-0 flex items-center justify-center z-10">
-                <div className="text-center">
-                  <div className="w-10 h-10 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin mx-auto mb-4" />
-                  <p className="text-gray-500 text-sm">Loading connections…</p>
-                </div>
-              </div>
-            )}
-
-            {!loading && error && (
-              <div className="absolute inset-0 flex items-center justify-center z-10">
-                <div className="text-center">
-                  <p className="text-red-400 text-sm">Failed to load: {error}</p>
-                  <button onClick={() => window.location.reload()} className="mt-3 text-xs text-indigo-400 hover:underline">Retry</button>
-                </div>
-              </div>
-            )}
-
-            {!loading && !error && allNodes.length === 0 && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
-                <GhostGraph className="w-full h-full absolute inset-0 opacity-30" />
-                <div className="relative z-10 text-center max-w-sm px-8 py-10 rounded-2xl bg-gray-950/80 backdrop-blur-sm border border-gray-800">
-                  <div className="w-10 h-10 mx-auto mb-4 rounded-full border border-gray-700 flex items-center justify-center">
-                    <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                  </div>
-                  <p className="text-gray-300 text-sm font-medium leading-relaxed">Connections are being mapped</p>
-                  <p className="text-gray-500 text-xs mt-2 leading-relaxed">
-                    Check back soon as we process donor, vote, and relationship data.
-                  </p>
-                  <div className="flex gap-3 mt-6 justify-center">
-                    <a href="/officials" className="px-4 py-2 text-xs font-medium rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors">View Officials →</a>
-                    <a href="/agencies" className="px-4 py-2 text-xs font-medium rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors">View Agencies →</a>
+            {compareMode && viewMode === "force" && compareEntity ? (
+              /* Side-by-side comparison */
+              <div className="flex h-full overflow-hidden">
+                <div className="flex-1 relative overflow-hidden border-r border-gray-800" id="graph-container">
+                  {loading && (
+                    <div className="absolute inset-0 flex items-center justify-center z-10">
+                      <div className="text-center">
+                        <div className="w-10 h-10 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin mx-auto mb-4" />
+                        <p className="text-gray-500 text-sm">Loading…</p>
+                      </div>
+                    </div>
+                  )}
+                  <ForceGraph
+                    ref={svgRef}
+                    nodes={filteredNodes}
+                    edges={filteredEdges}
+                    onNodeClick={handleNodeClick}
+                    visualConfig={visualConfig}
+                    className="w-full h-full"
+                  />
+                  <div className="absolute top-2 left-2 text-xs text-gray-400 bg-gray-900/80 px-2 py-1 rounded pointer-events-none">
+                    {centerEntity?.label ?? "Entity A"}
                   </div>
                 </div>
-              </div>
-            )}
-
-            {!loading && !error && allNodes.length > 0 && !centerEntity && (
-              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
-                <div className="bg-gray-900/80 backdrop-blur-sm border border-gray-700 rounded-lg px-4 py-2 text-center">
-                  <p className="text-xs text-gray-500">
-                    Top 10 most connected officials ·{" "}
-                    <span className="text-indigo-400">Select any entity to explore their network</span>
-                  </p>
+                <div className="flex-1 relative overflow-hidden">
+                  <ForceGraph
+                    nodes={compareNodes}
+                    edges={compareEdges}
+                    onNodeClick={handleNodeClick}
+                    visualConfig={visualConfig}
+                    className="w-full h-full"
+                  />
+                  <div className="absolute top-2 left-2 text-xs text-gray-400 bg-gray-900/80 px-2 py-1 rounded pointer-events-none">
+                    {compareEntity.label}
+                  </div>
                 </div>
               </div>
-            )}
+            ) : (
+              /* Single force graph */
+              <div className="relative w-full h-full" id="graph-container">
+                {loading && (
+                  <div className="absolute inset-0 flex items-center justify-center z-10">
+                    <div className="text-center">
+                      <div className="w-10 h-10 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin mx-auto mb-4" />
+                      <p className="text-gray-500 text-sm">Loading connections…</p>
+                    </div>
+                  </div>
+                )}
 
-            {!loading && !error && allNodes.length > 0 && filteredEdges.length === 0 && (
-              <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-                <div className="text-center">
-                  <p className="text-gray-500 text-sm">No connections match this filter.</p>
-                  <p className="text-gray-600 text-xs mt-1">Try a different preset in the sidebar.</p>
-                </div>
+                {!loading && error && (
+                  <div className="absolute inset-0 flex items-center justify-center z-10">
+                    <div className="text-center">
+                      <p className="text-red-400 text-sm">Failed to load: {error}</p>
+                      <button onClick={() => window.location.reload()} className="mt-3 text-xs text-indigo-400 hover:underline">Retry</button>
+                    </div>
+                  </div>
+                )}
+
+                {!loading && !error && allNodes.length === 0 && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
+                    <GhostGraph className="w-full h-full absolute inset-0 opacity-30" />
+                    <div className="relative z-10 text-center max-w-sm px-8 py-10 rounded-2xl bg-gray-950/80 backdrop-blur-sm border border-gray-800">
+                      <div className="w-10 h-10 mx-auto mb-4 rounded-full border border-gray-700 flex items-center justify-center">
+                        <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                      </div>
+                      <p className="text-gray-300 text-sm font-medium leading-relaxed">Connections are being mapped</p>
+                      <p className="text-gray-500 text-xs mt-2 leading-relaxed">
+                        Check back soon as we process donor, vote, and relationship data.
+                      </p>
+                      <div className="flex gap-3 mt-6 justify-center">
+                        <a href="/officials" className="px-4 py-2 text-xs font-medium rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors">View Officials →</a>
+                        <a href="/agencies" className="px-4 py-2 text-xs font-medium rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors">View Agencies →</a>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {!loading && !error && allNodes.length > 0 && !centerEntity && (
+                  <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
+                    <div className="bg-gray-900/80 backdrop-blur-sm border border-gray-700 rounded-lg px-4 py-2 text-center">
+                      <p className="text-xs text-gray-500">
+                        Top 10 most connected officials ·{" "}
+                        <span className="text-indigo-400">Select any entity to explore their network</span>
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {!loading && !error && allNodes.length > 0 && filteredEdges.length === 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+                    <div className="text-center">
+                      <p className="text-gray-500 text-sm">No connections match this filter.</p>
+                      <p className="text-gray-600 text-xs mt-1">Try a different preset in the sidebar.</p>
+                    </div>
+                  </div>
+                )}
+
+                <ForceGraph
+                  ref={svgRef}
+                  nodes={filteredNodes}
+                  edges={filteredEdges}
+                  onNodeClick={handleNodeClick}
+                  visualConfig={visualConfig}
+                  className="w-full h-full"
+                />
               </div>
             )}
-
-            <ForceGraph
-              ref={svgRef}
-              nodes={filteredNodes}
-              edges={filteredEdges}
-              onNodeClick={handleNodeClick}
-              visualConfig={visualConfig}
-              className="w-full h-full"
-            />
           </div>
 
           {/* ── Treemap view ─────────────────────────────────────────────── */}
@@ -445,6 +548,26 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
             style={{ opacity: viewMode === "treemap" ? 1 : 0, pointerEvents: viewMode === "treemap" ? "auto" : "none" }}
           >
             <TreemapGraph className="w-full h-full" />
+          </div>
+
+          {/* ── Chord view ───────────────────────────────────────────────── */}
+          <div
+            className="absolute inset-0 transition-opacity duration-300"
+            style={{ opacity: viewMode === "chord" ? 1 : 0, pointerEvents: viewMode === "chord" ? "auto" : "none" }}
+          >
+            <ChordGraph className="w-full h-full" />
+          </div>
+
+          {/* ── Sunburst view ────────────────────────────────────────────── */}
+          <div
+            className="absolute inset-0 transition-opacity duration-300"
+            style={{ opacity: viewMode === "sunburst" ? 1 : 0, pointerEvents: viewMode === "sunburst" ? "auto" : "none" }}
+          >
+            <SunburstGraph
+              className="w-full h-full"
+              entityId={centerEntity?.id}
+              entityLabel={centerEntity?.label}
+            />
           </div>
 
           {/* ── Selected node detail panel (right side, force only) ───────── */}
@@ -517,6 +640,15 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
             </aside>
           )}
 
+          {/* ── AI Narrative panel ───────────────────────────────────────── */}
+          <AiNarrative
+            vizType={viewMode}
+            entityNames={centerEntity ? [centerEntity.label] : []}
+            activeFilters={activeFilterNames}
+            isVisible={showNarrative}
+            onClose={() => setShowNarrative(false)}
+          />
+
           {/* Floating panels */}
           {showShare && (
             <div className="absolute top-4 right-4 z-20">
@@ -545,6 +677,14 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
           )}
         </div>
       </div>
+
+      {/* ── Embed Modal (full-screen overlay) ─────────────────────────────── */}
+      {showEmbed && (
+        <EmbedModal
+          shareCode={shareCode}
+          onClose={() => setShowEmbed(false)}
+        />
+      )}
     </div>
   );
 }

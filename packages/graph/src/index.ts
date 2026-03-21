@@ -4,6 +4,20 @@ export type { ForceGraphProps } from "./ForceGraph";
 export { TreemapGraph } from "./TreemapGraph";
 export type { TreemapGraphProps } from "./TreemapGraph";
 
+export { ChordGraph } from "./ChordGraph";
+export type { ChordGraphProps } from "./ChordGraph";
+export { SunburstGraph } from "./SunburstGraph";
+export type { SunburstGraphProps } from "./SunburstGraph";
+export { PathFinder } from "./PathFinder";
+export type { PathFinderProps } from "./PathFinder";
+export { AiNarrative } from "./AiNarrative";
+export type { AiNarrativeProps } from "./AiNarrative";
+export { EmbedModal } from "./EmbedModal";
+export type { EmbedModalProps } from "./EmbedModal";
+
+export { VIZ_REGISTRY, vizRegistry } from "./visualizations/registry";
+export type { VizMode, VizRegistryEntry } from "./visualizations/registry";
+
 export { EntitySelector } from "./EntitySelector";
 export type { EntitySelectorProps } from "./EntitySelector";
 export { DepthControl } from "./DepthControl";

@@ -339,7 +339,7 @@ async function deriveVoteConnections(
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       let q = db
         .from("votes")
-        .select("id, official_id, proposal_id, vote, voted_at, roll_call_number, chamber, session, source_ids")
+        .select("id, official_id, proposal_id, vote_cast, vote_date")
         .order("id")
         .limit(FETCH_SIZE);
       if (lastId) q = q.gt("id", lastId);
@@ -360,6 +360,10 @@ async function deriveVoteConnections(
     lastId = String(votes[votes.length - 1]["id"]);
     totalFetched += votes.length;
 
+    const rowsThisPage = votes.length;
+    const estimatedMB = (rowsThisPage * 500) / 1_000_000;
+    console.log(`    Page ${pageNum}: ${rowsThisPage} rows (~${estimatedMB.toFixed(2)}MB egress this page)`);
+
     // ── Build batch rows ──────────────────────────────────────────────────
     // Deduplicate by (from_id, to_id, connection_type) within the page.
     // The votes table can contain multiple rows for the same (official, proposal, vote)
@@ -367,20 +371,13 @@ async function deriveVoteConnections(
     // same conflict key more than once.
     const batchMap = new Map<string, Record<string, unknown>>();
     for (const v of votes) {
-      const connType = voteToConnectionType(String(v.vote ?? ""));
+      const connType = voteToConnectionType(String(v.vote_cast ?? ""));
       if (!connType) continue;
 
       const fromId = String(v.official_id);
       const toId   = String(v.proposal_id);
       const dedupeKey = `${fromId}|${toId}|${connType}`;
       if (batchMap.has(dedupeKey)) continue; // keep first occurrence
-
-      const sourceIds   = (v.source_ids as Record<string, string>) ?? {};
-      const rollCallKey =
-        sourceIds["roll_call"] ??
-        sourceIds["house_clerk_url"] ??
-        sourceIds["senate_lis_url"] ??
-        null;
 
       batchMap.set(dedupeKey, {
         from_type:       "official",
@@ -390,12 +387,8 @@ async function deriveVoteConnections(
         connection_type: connType,
         strength:        1.0,
         evidence: [{
-          source:        "congress_gov",
-          vote_date:     v.voted_at ?? null,
-          roll_call:     v.roll_call_number ?? null,
-          chamber:       v.chamber ?? null,
-          session:       v.session ?? null,
-          roll_call_key: rollCallKey,
+          source:    "congress_gov",
+          vote_date: v.vote_date ?? null,
         }],
       });
     }

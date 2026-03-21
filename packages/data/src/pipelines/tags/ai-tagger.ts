@@ -20,6 +20,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { createAdminClient } from "@civitics/db";
+import { costGate } from "@civitics/ai/cost-gate";
 import { startSync, completeSync, failSync } from "../sync-log";
 
 const AI_MODEL = "claude-haiku-4-5-20251001";
@@ -449,12 +450,10 @@ export async function runAiTagger(options?: {
   maxCostCents?: number;
   onlyNew?: boolean;
 }): Promise<{ tagsCreated: number; costCents: number }> {
-  const maxCostCents = options?.maxCostCents ?? DEFAULT_MAX_COST_CENTS;
   const onlyNew = options?.onlyNew ?? true;
 
   console.log("\n=== AI tagger ===");
-  console.log(`  Max cost: $${(maxCostCents / 100).toFixed(2)} | Only new: ${onlyNew}`);
-  console.log(`  Model: ${AI_MODEL}`);
+  console.log(`  Only new: ${onlyNew} | Model: ${AI_MODEL}`);
 
   const logId = await startSync("tag-ai");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -463,6 +462,60 @@ export async function runAiTagger(options?: {
   sessionCostCents = 0;
 
   try {
+    // Fetch a sample proposal to use for cost estimation
+    const { data: sampleProposals } = await db
+      .from("proposals")
+      .select("id, title, summary_plain, metadata")
+      .limit(1);
+
+    const sampleProposal = sampleProposals?.[0] ?? {
+      id: "sample",
+      title: "Sample Federal Proposal",
+      summary_plain: "Sample summary for cost estimation.",
+      metadata: { agency_id: "EPA" },
+    };
+
+    // Count untagged entities for estimate
+    const [untaggedProposalCount, untaggedOfficialCount] = await Promise.all([
+      db.from("proposals").select("id", { count: "exact", head: true }),
+      db.from("officials").select("id", { count: "exact", head: true }).eq("is_active", true),
+    ]);
+    const totalEntities =
+      (untaggedProposalCount.count ?? 0) + (untaggedOfficialCount.count ?? 0);
+
+    // Wire cost gate
+    const gate = await costGate.gate({
+      pipelineName: "ai_tagger",
+      entityCount:  Math.max(1, totalEntities),
+      model:        AI_MODEL,
+      sampleFn: async () => {
+        const agencyId = sampleProposal.metadata?.agency_id ?? "";
+        const summary = (sampleProposal.summary_plain ?? "").slice(0, 300);
+        const userMessage =
+          `Classify this federal proposal.\n\n` +
+          `Title: ${sampleProposal.title}\nAgency: ${agencyId}\nSummary: ${summary}\n\n` +
+          `Return JSON: {"topics":["topic1"],"confidence":0.8,"primary_topic":"topic1","affects_individuals":true,"technical_complexity":"low"}\n\n` +
+          `Topics must be from: ${VALID_TOPICS.join(", ")}`;
+
+        return anthropic.messages.create({
+          model:      AI_MODEL,
+          max_tokens: 200,
+          system:
+            "You are a government policy classifier. Classify proposals into topic categories. " +
+            "Respond ONLY with valid JSON. No explanation, no markdown, no code fences.",
+          messages: [{ role: "user", content: userMessage }],
+        });
+      },
+    });
+
+    if (!gate.approved) {
+      await completeSync(logId, { inserted: 0, updated: 0, failed: 0, estimatedMb: 0 });
+      return { tagsCreated: 0, costCents: 0 };
+    }
+
+    // Run the actual taggers — use per-run limit from cost gate config
+    const maxCostCents = gate.estimate.run_limit_usd * 100;
+
     const proposalTags = await runProposalAiTagger(db, maxCostCents, onlyNew);
     const officialTags = sessionCostCents < maxCostCents
       ? await runOfficialAiTagger(db, maxCostCents, onlyNew)
@@ -478,15 +531,15 @@ export async function runAiTagger(options?: {
     console.log(`  ${"Total tags:".padEnd(32)} ${totalTags}`);
     console.log(`  ${"Total cost:".padEnd(32)} $${(sessionCostCents / 100).toFixed(4)}`);
 
-    // Log AI cost to api_usage_logs for dashboard transparency
-    if (sessionCostCents > 0) {
-      await db.from("api_usage_logs").insert({
-        service:      "anthropic",
-        endpoint:     "entity_tagging",
-        model:        AI_MODEL,
-        tokens_used:  0, // approximate — already tracked per call
-        cost_cents:   sessionCostCents,
-      });
+    // Record actual costs via gate
+    if (gate.run_id) {
+      // sessionCostCents was accumulated via trackCost() which doesn't track tokens separately.
+      // We approximate token counts from cost using Haiku pricing: cost = (in*0.25 + out*1.25)/1M
+      // Assume 80/20 input/output split (typical for classification tasks)
+      const approxTotalTokens = Math.round((sessionCostCents / 100) * 1_000_000 / 0.45);
+      const approxInput  = Math.round(approxTotalTokens * 0.8);
+      const approxOutput = Math.round(approxTotalTokens * 0.2);
+      await costGate.complete(gate.run_id, approxInput, approxOutput, AI_MODEL);
     }
 
     await completeSync(logId, { inserted: totalTags, updated: 0, failed: 0, estimatedMb: 0 });

@@ -231,16 +231,66 @@ export async function runAllPipelines(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Nightly sync results type
+// ---------------------------------------------------------------------------
+
+export interface NightlyPipelineResult {
+  status: "complete" | "failed" | "skipped" | "not_scheduled";
+  rows_added?: number;
+  duration_ms?: number;
+  error?: string;
+}
+
+export interface NightlyAiResult {
+  status: "complete" | "failed" | "skipped";
+  entities?: number;
+  cost_usd?: number;
+  skip_reason?: string;
+}
+
+export interface NightlySyncResults {
+  started_at: Date;
+  completed_at?: Date;
+  duration_ms?: number;
+  is_weekly: boolean;
+  pipelines: {
+    regulations?: NightlyPipelineResult;
+    fec?: NightlyPipelineResult;
+    usaspending?: NightlyPipelineResult;
+    courtlistener?: NightlyPipelineResult;
+    openstates?: NightlyPipelineResult;
+    connections?: NightlyPipelineResult;
+  };
+  ai: {
+    tag_rules?: NightlyAiResult;
+    tag_ai?: NightlyAiResult;
+  };
+  total_ai_cost_usd: number;
+  errors: string[];
+}
+
+// ---------------------------------------------------------------------------
 // Nightly sync — used by Vercel cron and standalone scheduler
 // ---------------------------------------------------------------------------
 
-export async function runNightlySync(): Promise<void> {
+export async function runNightlySync(): Promise<NightlySyncResults> {
+  const startedAt = new Date();
   console.log("\n╔══════════════════════════════════════════╗");
   console.log("║          Nightly Sync Starting            ║");
   console.log("╚══════════════════════════════════════════╝");
-  console.log(`  Started: ${new Date().toISOString()}`);
+  console.log(`  Started: ${startedAt.toISOString()}`);
 
   const apiKey = process.env["REGULATIONS_API_KEY"];
+  const isWeekly = new Date().getDay() === 0; // Sunday
+
+  const results: NightlySyncResults = {
+    started_at: startedAt,
+    is_weekly: isWeekly,
+    pipelines: {},
+    ai: {},
+    total_ai_cost_usd: 0,
+    errors: [],
+  };
 
   // Seed jurisdictions (idempotent)
   const db = createAdminClient();
@@ -248,50 +298,170 @@ export async function runNightlySync(): Promise<void> {
   const { senateId } = await seedGoverningBodies(db, federalId);
 
   // 1. Daily data pipelines
-  if (apiKey) {
-    try { await runRegulationsPipeline(apiKey, federalId); }
-    catch (err) { console.error("[nightly] regulations failed:", err instanceof Error ? err.message : err); }
+  {
+    const t0 = Date.now();
+    if (apiKey) {
+      try {
+        const r = await runRegulationsPipeline(apiKey, federalId);
+        results.pipelines.regulations = { status: "complete", rows_added: r.inserted, duration_ms: Date.now() - t0 };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[nightly] regulations failed:", msg);
+        results.pipelines.regulations = { status: "failed", error: msg };
+        results.errors.push(`Regulations: ${msg}`);
+      }
+    } else {
+      results.pipelines.regulations = { status: "skipped", error: "REGULATIONS_API_KEY not set" };
+    }
   }
 
-  // Weekly pipelines (Sunday only)
-  const dayOfWeek = new Date().getDay();
-  if (dayOfWeek === 0) {
+  // 2. Weekly pipelines (Sunday only)
+  if (isWeekly) {
     const fecKey = process.env["FEC_API_KEY"];
     const clKey  = process.env["COURTLISTENER_API_KEY"];
     const osKey  = process.env["OPENSTATES_API_KEY"];
 
     if (fecKey) {
-      try { await runFecPipeline(fecKey); }
-      catch (err) { console.error("[nightly] fec failed:", err instanceof Error ? err.message : err); }
+      const t0 = Date.now();
+      try {
+        const r = await runFecPipeline(fecKey);
+        results.pipelines.fec = { status: "complete", rows_added: r.inserted, duration_ms: Date.now() - t0 };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[nightly] fec failed:", msg);
+        results.pipelines.fec = { status: "failed", error: msg };
+        results.errors.push(`FEC: ${msg}`);
+      }
+    } else {
+      results.pipelines.fec = { status: "skipped", error: "FEC_API_KEY not set" };
     }
 
-    try { await runUsaSpendingPipeline(federalId); }
-    catch (err) { console.error("[nightly] usaspending failed:", err instanceof Error ? err.message : err); }
+    {
+      const t0 = Date.now();
+      try {
+        const r = await runUsaSpendingPipeline(federalId);
+        results.pipelines.usaspending = { status: "complete", rows_added: r.inserted, duration_ms: Date.now() - t0 };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[nightly] usaspending failed:", msg);
+        results.pipelines.usaspending = { status: "failed", error: msg };
+        results.errors.push(`USASpending: ${msg}`);
+      }
+    }
 
     if (clKey) {
-      try { await runCourtListenerPipeline(clKey, federalId, senateId); }
-      catch (err) { console.error("[nightly] courtlistener failed:", err instanceof Error ? err.message : err); }
+      const t0 = Date.now();
+      try {
+        const r = await runCourtListenerPipeline(clKey, federalId, senateId);
+        results.pipelines.courtlistener = { status: "complete", rows_added: r.inserted, duration_ms: Date.now() - t0 };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[nightly] courtlistener failed:", msg);
+        results.pipelines.courtlistener = { status: "failed", error: msg };
+        results.errors.push(`CourtListener: ${msg}`);
+      }
+    } else {
+      results.pipelines.courtlistener = { status: "skipped", error: "COURTLISTENER_API_KEY not set" };
     }
 
     if (osKey) {
-      try { await runOpenStatesPipeline(osKey, stateIds); }
-      catch (err) { console.error("[nightly] openstates failed:", err instanceof Error ? err.message : err); }
+      const t0 = Date.now();
+      try {
+        const r = await runOpenStatesPipeline(osKey, stateIds);
+        results.pipelines.openstates = { status: "complete", rows_added: r.inserted, duration_ms: Date.now() - t0 };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[nightly] openstates failed:", msg);
+        results.pipelines.openstates = { status: "failed", error: msg };
+        results.errors.push(`OpenStates: ${msg}`);
+      }
+    } else {
+      results.pipelines.openstates = { status: "skipped", error: "OPENSTATES_API_KEY not set" };
     }
   }
 
-  // 2. Derive connections (delta only)
-  try { await runConnectionsDelta(); }
-  catch (err) { console.error("[nightly] connections-delta failed:", err instanceof Error ? err.message : err); }
+  // 3. Derive connections (delta only)
+  {
+    const t0 = Date.now();
+    try {
+      const r = await runConnectionsDelta();
+      results.pipelines.connections = { status: "complete", rows_added: r.inserted, duration_ms: Date.now() - t0 };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[nightly] connections-delta failed:", msg);
+      results.pipelines.connections = { status: "failed", error: msg };
+      results.errors.push(`Connections: ${msg}`);
+    }
+  }
 
-  // 3. Rule-based tags (all new/updated entities)
-  try { await runRuleBasedTagger(); }
-  catch (err) { console.error("[nightly] tag-rules failed:", err instanceof Error ? err.message : err); }
+  // 4. Rule-based tags (all new/updated entities)
+  try {
+    await runRuleBasedTagger();
+    results.ai.tag_rules = { status: "complete" };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[nightly] tag-rules failed:", msg);
+    results.ai.tag_rules = { status: "failed" };
+    results.errors.push(`Tag rules: ${msg}`);
+  }
 
-  // 4. AI tags (new entities only, $0.10 max per nightly run)
-  try { await runAiTagger({ maxCostCents: 10, onlyNew: true }); }
-  catch (err) { console.error("[nightly] tag-ai failed:", err instanceof Error ? err.message : err); }
+  // 5. AI tags (new entities only, $0.10 max per nightly run)
+  try {
+    const r = await runAiTagger({ maxCostCents: 10, onlyNew: true });
+    const costUsd = (r.costCents ?? 0) / 100;
+    results.ai.tag_ai = { status: "complete", entities: r.tagsCreated, cost_usd: costUsd };
+    results.total_ai_cost_usd += costUsd;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[nightly] tag-ai failed:", msg);
+    results.ai.tag_ai = { status: "failed" };
+    results.errors.push(`AI tagger: ${msg}`);
+  }
 
-  console.log(`\n  Nightly sync complete: ${new Date().toISOString()}`);
+  results.completed_at = new Date();
+  results.duration_ms = results.completed_at.getTime() - startedAt.getTime();
+
+  console.log(`\n  Nightly sync complete: ${results.completed_at.toISOString()}`);
+  console.log(`  Duration: ${(results.duration_ms / 1000).toFixed(1)}s`);
+  if (results.errors.length > 0) {
+    console.log(`  Errors (${results.errors.length}): ${results.errors.join("; ")}`);
+  }
+
+  // Record results to pipeline_state for dashboard
+  try {
+    const status = results.errors.length === 0 ? "complete" : "partial";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (db as any).from("pipeline_state").upsert(
+      {
+        key: "cron_last_run",
+        value: {
+          started_at:   startedAt.toISOString(),
+          completed_at: results.completed_at.toISOString(),
+          status,
+          results,
+        },
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "key" }
+    );
+
+    // Also write to data_sync_log
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (db as any).from("data_sync_log").insert({
+      pipeline_name: "nightly_cron",
+      status,
+      started_at:    startedAt.toISOString(),
+      completed_at:  results.completed_at.toISOString(),
+      rows_inserted: Object.values(results.pipelines).reduce(
+        (sum, p) => sum + (p?.rows_added ?? 0), 0
+      ),
+      metadata: results,
+    });
+  } catch (err) {
+    console.error("[nightly] failed to record results:", err instanceof Error ? err.message : err);
+  }
+
+  return results;
 }
 
 // ---------------------------------------------------------------------------

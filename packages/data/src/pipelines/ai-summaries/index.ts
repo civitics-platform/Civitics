@@ -22,6 +22,7 @@
 
 import { createAdminClient, agencyFullName } from "@civitics/db";
 import { createAiClient, MODELS } from "@civitics/ai";
+import { costGate } from "@civitics/ai/cost-gate";
 import { sleep } from "../utils";
 
 // ---------------------------------------------------------------------------
@@ -49,34 +50,8 @@ type OfficialRow = {
 };
 
 // ---------------------------------------------------------------------------
-// DB helpers (mirror client.ts internals — no re-export available)
+// DB helpers
 // ---------------------------------------------------------------------------
-
-const MONTHLY_SPEND_LIMIT_CENTS = 400; // $4.00
-
-async function getMonthlySpendCents(): Promise<number> {
-  try {
-    const db = createAdminClient();
-    const start = new Date();
-    start.setDate(1);
-    start.setHours(0, 0, 0, 0);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data } = await (db as any)
-      .from("api_usage_logs")
-      .select("cost_cents, input_tokens, output_tokens")
-      .eq("service", "anthropic")
-      .gte("created_at", start.toISOString());
-    // Prefer token-based cost when available; fall back to stored cost_cents
-    return data?.reduce((sum: number, r: { cost_cents: number; input_tokens: number | null; output_tokens: number | null }) => {
-      if (r.input_tokens != null && r.output_tokens != null) {
-        return sum + (r.input_tokens * 0.25 + r.output_tokens * 1.25) / 10_000;
-      }
-      return sum + (r.cost_cents ?? 0);
-    }, 0) ?? 0;
-  } catch {
-    return 0;
-  }
-}
 
 async function writeSummaryCache(
   db: ReturnType<typeof createAdminClient>,
@@ -169,7 +144,8 @@ async function fetchOpenProposals(db: ReturnType<typeof createAdminClient>): Pro
 
 async function generateProposalSummaries(
   proposals: ProposalRow[],
-  incremental: boolean
+  incremental: boolean,
+  onTokens?: (input: number, output: number) => void
 ): Promise<{ summarized: number; skipped: number; failed: number; costCents: number }> {
   const db = createAdminClient();
   const ai = createAiClient();
@@ -179,12 +155,6 @@ async function generateProposalSummaries(
   console.log(`   ${proposals.length} proposals need summaries${incremental ? " (incremental)" : ""}`);
 
   for (const proposal of proposals) {
-    // Re-check spend cap before each call
-    const spent = await getMonthlySpendCents();
-    if (spent + totalCostCents >= MONTHLY_SPEND_LIMIT_CENTS) {
-      console.log(`   ⚠ Monthly spend cap reached — stopping at ${summarized} proposals`);
-      break;
-    }
 
     try {
       // Skip if there isn't enough context beyond the title alone
@@ -230,6 +200,7 @@ async function generateProposalSummaries(
         logApiUsage(db, MODELS.haiku, inputTokens, outputTokens, costCents),
       ]);
 
+      onTokens?.(inputTokens, outputTokens);
       totalCostCents += costCents;
       summarized++;
 
@@ -328,7 +299,8 @@ async function fetchOfficials(db: ReturnType<typeof createAdminClient>): Promise
 
 async function generateOfficialSummaries(
   officials: OfficialRow[],
-  incremental: boolean
+  incremental: boolean,
+  onTokens?: (input: number, output: number) => void
 ): Promise<{ summarized: number; failed: number; costCents: number }> {
   const db = createAdminClient();
   const ai = createAiClient();
@@ -338,11 +310,6 @@ async function generateOfficialSummaries(
   console.log(`   ${officials.length} officials need profiles${incremental ? " (incremental)" : ""}`);
 
   for (const official of officials) {
-    const spent = await getMonthlySpendCents();
-    if (spent + totalCostCents >= MONTHLY_SPEND_LIMIT_CENTS) {
-      console.log(`   ⚠ Monthly spend cap reached — stopping at ${summarized} officials`);
-      break;
-    }
 
     try {
       const totalRaisedDollars = (official.total_raised / 100).toLocaleString("en-US", {
@@ -384,6 +351,7 @@ async function generateOfficialSummaries(
         logApiUsage(db, MODELS.haiku, inputTokens, outputTokens, costCents),
       ]);
 
+      onTokens?.(inputTokens, outputTokens);
       totalCostCents += costCents;
       summarized++;
 
@@ -416,9 +384,6 @@ async function reportResults(
   const totalCostCents = proposalStats.costCents + officialStats.costCents;
   const totalEntries = proposalStats.summarized + officialStats.summarized;
 
-  // Get fresh monthly total from DB
-  const monthlySpent = await getMonthlySpendCents();
-
   // Fetch 3 sample summaries
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const samplesRes = await (db as any)
@@ -436,8 +401,6 @@ async function reportResults(
   console.log(`   Officials failed:     ${officialStats.failed}`);
   console.log(`   Cache entries created: ${totalEntries}`);
   console.log(`   This run cost:        $${(totalCostCents / 100).toFixed(4)}`);
-  console.log(`   Monthly spend to date: $${(monthlySpent / 100).toFixed(4)} / $4.00`);
-  console.log(`   ✓ Cost stayed under $1.00: ${totalCostCents < 100 ? "YES" : "NO"}`);
 
   if (samplesRes.data?.length > 0) {
     console.log(`\n── Sample Outputs ────────────────────────────────────────`);
@@ -458,24 +421,91 @@ export async function runAiSummariesPipeline(incremental = false): Promise<void>
   console.log(`    Time: ${new Date().toISOString()}`);
 
   const db = createAdminClient();
+  const ai = createAiClient();
 
-  // Check spend cap before starting
-  const currentSpend = await getMonthlySpendCents();
-  console.log(`    Monthly spend so far: $${(currentSpend / 100).toFixed(4)} / $4.00`);
-  if (currentSpend >= MONTHLY_SPEND_LIMIT_CENTS) {
-    console.log("    ✗ Monthly spend cap already reached — aborting");
+  // Fetch entities first so we have something to sample
+  const proposals = await fetchOpenProposals(db);
+  const officials  = await fetchOfficials(db);
+  const totalEntities = proposals.length + officials.length;
+
+  if (totalEntities === 0) {
+    console.log("    ✓ Nothing to summarize — all entities are cached");
     return;
   }
 
+  // Build a sample prompt using the first proposal (representative of the batch)
+  const sampleProposal = proposals[0] ?? {
+    id: "sample",
+    title: "Sample Federal Proposal",
+    summary_plain: "This is a sample proposal for cost estimation purposes.",
+    type: "rule",
+    agency_name: "Federal Agency",
+    agency_acronym: "FA",
+  };
+
+  const gate = await costGate.gate({
+    pipelineName: "ai_summaries",
+    entityCount:  totalEntities,
+    model:        MODELS.haiku,
+    sampleFn: async () => {
+      const agencyLine = sampleProposal.agency_name
+        ? `${sampleProposal.agency_name}${sampleProposal.agency_acronym ? ` (${sampleProposal.agency_acronym})` : ""}`
+        : (sampleProposal.agency_acronym ?? "Federal Agency");
+
+      const userPrompt =
+        `Summarize this federal proposal in 2-3 sentences in plain language.\n` +
+        `Focus on: what is changing, who is affected, and why it matters.\n\n` +
+        `Agency: ${agencyLine}\n` +
+        `Title: ${sampleProposal.title}\n` +
+        `Summary: ${sampleProposal.summary_plain ?? "No summary provided"}\n\n` +
+        `Write as if explaining to someone with no policy background.`;
+
+      return ai.messages.create({
+        model:      MODELS.haiku,
+        max_tokens: 300,
+        system:
+          "You are a plain language expert helping ordinary citizens understand federal regulations. " +
+          "Write clear, jargon-free summaries that explain what a proposal means for real people. " +
+          "Be factual and neutral. Never editorialize. " +
+          "Write in plain prose only — no markdown, no headers, no bullet points, no bold text.",
+        messages: [{ role: "user", content: userPrompt }],
+      });
+    },
+  });
+
+  if (!gate.approved) return;
+
+  // Apply entity limit if the gate capped us due to budget
+  const proposalLimit = gate.entity_limit
+    ? Math.min(proposals.length, gate.entity_limit)
+    : proposals.length;
+  const officialLimit = gate.entity_limit
+    ? Math.max(0, gate.entity_limit - proposalLimit)
+    : officials.length;
+
+  // Track tokens across both steps
+  let totalInputTokens  = 0;
+  let totalOutputTokens = 0;
+
   // Step 1: Proposals
-  const proposals = await fetchOpenProposals(db);
-  const proposalStats = await generateProposalSummaries(proposals, incremental);
+  const proposalStats = await generateProposalSummaries(
+    proposals.slice(0, proposalLimit),
+    incremental,
+    (input, output) => { totalInputTokens += input; totalOutputTokens += output; }
+  );
 
   // Step 2: Officials
-  const officials = await fetchOfficials(db);
-  const officialStats = await generateOfficialSummaries(officials, incremental);
+  const officialStats = await generateOfficialSummaries(
+    officials.slice(0, officialLimit),
+    incremental,
+    (input, output) => { totalInputTokens += input; totalOutputTokens += output; }
+  );
 
-  // Step 3: Report
+  // Step 3: Report actual costs
+  if (gate.run_id) {
+    await costGate.complete(gate.run_id, totalInputTokens, totalOutputTokens, MODELS.haiku);
+  }
+
   await reportResults(proposalStats, officialStats, db);
 }
 

@@ -46,8 +46,18 @@ const nextConfig = {
   async headers() {
     return [
       {
-        source: "/(.*)",
+        // Static assets — allow CDN caching, they're content-hashed
+        source: "/_next/static/(.*)",
         headers: [
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
+      {
+        // All pages and API routes — no CDN caching (civic data changes frequently;
+        // also ensures Claude and other scrapers always get fresh content)
+        source: "/((?!_next/static).*)",
+        headers: [
+          { key: "Cache-Control", value: "no-store" },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },

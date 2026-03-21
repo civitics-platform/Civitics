@@ -3,7 +3,7 @@
 > This file tracks progress against the phased development plan defined in `CLAUDE.md`.
 > Update checkboxes as tasks complete. Phases are sequential; each unlocks the next.
 > Last audited: 2026-03-18 (verified against actual files, tables, and code — not guessed).
-> Last updated: 2026-03-19 — entity tagging system, connections auto-scheduler, nightly sync pipeline live.
+> Last updated: 2026-03-20 — live DB counts updated; officials 8,251 / financial_relationships 19,647 / entity_connections 27,852.
 
 ---
 
@@ -139,12 +139,13 @@
 - [x] `pipeline_state` table — tracks last connections run timestamp for delta detection
 - [ ] Custom storage domain
 
-### Database (as of 2026-03-18)
-- [x] `officials` — 1,983 rows
-- [x] `proposals` — 1,917 rows
-- [x] `votes` — 226,873 rows
+### Database (as of 2026-03-20)
+- [x] `officials` — 8,251 rows (federal Congress + 6,268 state legislators + 651 judges via OpenStates / CourtListener)
+- [x] `proposals` — 2,066 rows
+- [x] `votes` — 227,153 rows
 - [x] `spending_records` — 1,980 rows
-- [x] `entity_connections` — 2,212 rows
+- [x] `financial_relationships` — 19,647 rows (FEC bulk)
+- [x] `entity_connections` — 27,852 rows
 - [x] `financial_entities` — FEC donor categories seeded
 - [x] `graph_snapshots` — table exists, rows created on share
 - [x] `civic_comments` — table exists, no commenting UI yet

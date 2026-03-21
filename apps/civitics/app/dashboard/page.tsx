@@ -3,6 +3,10 @@ export const dynamic = "force-dynamic";
 import { createAdminClient } from "@civitics/db";
 import { DashboardAutoRefresh } from "./DashboardAutoRefresh";
 import { DashboardStatsSection } from "./DashboardStatsSection";
+import { PipelineOpsSection } from "./PipelineOpsSection";
+import { BudgetControlForm } from "./BudgetControlForm";
+import { cookies } from "next/headers";
+import { createServerClient } from "@civitics/db";
 
 export const metadata = { title: "Platform Dashboard" };
 
@@ -27,12 +31,18 @@ async function getAnthropicUsage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const anyDb = createAdminClient() as any;
   try {
-    const [today, month, daily7] = await Promise.all([
+    const [today, month, daily7, recentRuns, alertState] = await Promise.all([
       anyDb.from("api_usage_logs").select("cost_cents,input_tokens,output_tokens").eq("service", "anthropic").gte("created_at", todayStart.toISOString()),
       anyDb.from("api_usage_logs").select("model,cost_cents,input_tokens,output_tokens").eq("service", "anthropic").gte("created_at", monthStart.toISOString()),
       anyDb.from("api_usage_logs").select("cost_cents,created_at").eq("service", "anthropic").gte("created_at", new Date(now.getTime() - 7 * 86400_000).toISOString()),
+      anyDb.from("pipeline_cost_history")
+        .select("pipeline_name,run_at,entity_count,estimated_cost_usd,actual_cost_usd,variance_ratio,status")
+        .order("run_at", { ascending: false })
+        .limit(10),
+      anyDb.from("pipeline_state").select("value").eq("key", "cost_alert_latest").maybeSingle(),
     ]);
     type Row = { cost_cents: number; model?: string; created_at?: string; input_tokens?: number; output_tokens?: number };
+    type RunRow = { pipeline_name: string; run_at: string; entity_count: number; estimated_cost_usd: number; actual_cost_usd: number | null; variance_ratio: number | null; status: string };
     const todayRows: Row[] = today.data ?? [];
     const monthRows: Row[] = month.data ?? [];
     const daily7Rows: Row[] = daily7.data ?? [];
@@ -64,9 +74,11 @@ async function getAnthropicUsage() {
       monthCalls: monthRows.length,
       dailyCents7: dayBuckets,
       modelBreakdown,
+      recentRuns: (recentRuns.data ?? []) as RunRow[],
+      latestAlert: alertState.data?.value ?? null,
     };
   } catch {
-    return { monthCostDollars: 0, monthInputTokens: 0, monthOutputTokens: 0, todayCalls: 0, monthCalls: 0, dailyCents7: Array(7).fill(0), modelBreakdown: {} };
+    return { monthCostDollars: 0, monthInputTokens: 0, monthOutputTokens: 0, todayCalls: 0, monthCalls: 0, dailyCents7: Array(7).fill(0), modelBreakdown: {}, recentRuns: [], latestAlert: null };
   }
 }
 
@@ -435,39 +447,45 @@ function FreshnessRow({
 
 const PHASE1_TASKS = [
   // Data Pipelines
-  { label: "Congress.gov → officials + votes",         done: true  },
-  { label: "FEC bulk pipeline → financial_relationships", done: true },
-  { label: "USASpending.gov → spending_records",       done: true  },
-  { label: "Regulations.gov → proposals",              done: true  },
-  { label: "OpenStates → state legislators",           done: true  },
-  { label: "CourtListener → judges + rulings",         done: true  },
-  { label: "Entity connections pipeline",              done: true  },
+  { label: "Congress.gov → officials + votes",              done: true  },
+  { label: "FEC bulk pipeline → financial_relationships",   done: true  },
+  { label: "Financial entities pipeline",                   done: true  },
+  { label: "USASpending.gov → spending_records",            done: true  },
+  { label: "Regulations.gov → proposals + comment periods", done: true  },
+  { label: "OpenStates → state legislators",                done: true  },
+  { label: "CourtListener → judges + rulings",              done: true  },
+  { label: "Entity connections pipeline",                   done: true  },
+  { label: "Delta connections runner",                      done: true  },
+  { label: "Nightly sync + master orchestrator",            done: true  },
+  { label: "Sync log tracking (data_sync_log)",             done: true  },
   // Core Pages
-  { label: "Homepage wired to real data",              done: true  },
-  { label: "Officials list + detail page",             done: true  },
-  { label: "Agency list + detail page",                done: true  },
-  { label: "Proposals list + detail page",             done: false },
-  { label: "Search across all entities",               done: false },
-  { label: "Public accountability dashboard",          done: true  },
+  { label: "Homepage wired to real data",                   done: true  },
+  { label: "Officials list + detail page",                  done: true  },
+  { label: "Agency list + detail page",                     done: true  },
+  { label: "Proposals list + detail page",                  done: true  },
+  { label: "Search — officials, proposals, agencies",       done: true  },
+  { label: "Public accountability dashboard",               done: true  },
   // Graph
-  { label: "Connection graph with D3",                 done: true  },
-  { label: "Share codes + screenshot export",          done: true  },
-  { label: "Preset views + filter + customize",        done: true  },
-  // Infrastructure
-  { label: "Cloudflare R2 configured",                 done: true  },
-  { label: "Anthropic API connected",                  done: true  },
-  { label: "Mapbox + district finder",                 done: true  },
-  { label: "ai_summary_cache table",                   done: true  },
-  { label: "Vercel Analytics + Speed Insights",        done: true  },
+  { label: "Connection graph with D3 force simulation",     done: true  },
+  { label: "Share codes + screenshot export",               done: true  },
+  { label: "Preset views + filter + customize panel",       done: true  },
+  { label: "Smart expansion + depth control",               done: true  },
+  // Maps
+  { label: "Mapbox + district finder",                      done: true  },
   // AI
-  { label: "Plain language bill summaries",            done: false },
-  { label: "Basic credit system",                      done: false },
-  { label: "'What does this mean for me'",             done: false },
-  // Community & Auth
-  { label: "User auth via Supabase",                   done: false },
-  { label: "Community commenting",                     done: false },
-  { label: "Position tracking on proposals",           done: false },
-  { label: "Follow officials and agencies",            done: false },
+  { label: "Anthropic API + plain language summaries",      done: true  },
+  // Infrastructure
+  { label: "Cloudflare R2 storage configured",              done: true  },
+  { label: "Vercel cron + nightly sync schedule",           done: true  },
+  { label: "Entity tagging — rules + AI + UI + filters",    done: true  },
+  { label: "Self-hosted page view analytics",               done: true  },
+  { label: "Vercel Analytics + Speed Insights",             done: true  },
+  // Auth
+  { label: "User auth — magic link + OAuth",                done: true  },
+  // Remaining
+  { label: "AI narrative — Explain this graph",             done: false },
+  { label: "Credit system + personalized AI queries",       done: false },
+  { label: "Community — commenting, positions, follows",    done: false },
 ];
 
 // ---------------------------------------------------------------------------
@@ -477,6 +495,19 @@ const PHASE1_TASKS = [
 export default async function DashboardPage() {
   const fetchedAt = new Date();
   const period = `${fetchedAt.getFullYear()}-${String(fetchedAt.getMonth() + 1).padStart(2, "0")}`;
+
+  // Admin check — server-side; never exposed to client
+  let isAdmin = false;
+  try {
+    const adminEmail = process.env["ADMIN_EMAIL"];
+    if (adminEmail) {
+      const supabase = createServerClient(cookies());
+      const { data: { user } } = await supabase.auth.getUser();
+      isAdmin = user?.email === adminEmail;
+    }
+  } catch {
+    // Non-critical — default to false
+  }
 
   const [dbBytes, ai, svcUsage, r2Stats, siteActivity, pv, syncLog] = await Promise.all([
     getDatabaseSizeBytes(),
@@ -504,8 +535,8 @@ export default async function DashboardPage() {
   const DB_FREE_LIMIT = 500 * 1024 * 1024;        // 500 MB
   const BW_FREE_LIMIT = 5 * 1024 * 1024 * 1024;   // 5 GB
 
-  // Anthropic budget — $4.00 hard cap
-  const ANTHROPIC_BUDGET_DOLLARS = 4.00;
+  // Anthropic budget — $3.50 hard cap (matches cost-config.ts)
+  const ANTHROPIC_BUDGET_DOLLARS = 3.50;
   const aiRemainingDollars = Math.max(0, ANTHROPIC_BUDGET_DOLLARS - ai.monthCostDollars);
   const aiSpentPct = Math.min(100, Math.round((ai.monthCostDollars / ANTHROPIC_BUDGET_DOLLARS) * 100));
 
@@ -746,15 +777,27 @@ export default async function DashboardPage() {
                 name="Anthropic"
                 cost={formatCost(ai.monthCostDollars)}
                 level={aiLevel}
-                note="Hard cap: $4.00/month. Cost guard enforced server-side."
+                note="Hard cap: $3.50/month. Cost gate enforced before every pipeline run."
               >
+                {/* Alert banner */}
+                {ai.latestAlert && (ai.latestAlert.level === "warning" || ai.latestAlert.level === "urgent" || ai.latestAlert.level === "blocked") && (
+                  <div className={`rounded border px-3 py-2 text-xs ${
+                    ai.latestAlert.level === "blocked" ? "border-red-200 bg-red-50 text-red-700"
+                    : ai.latestAlert.level === "urgent" ? "border-orange-200 bg-orange-50 text-orange-700"
+                    : "border-yellow-200 bg-yellow-50 text-yellow-700"
+                  }`}>
+                    {ai.latestAlert.level === "blocked" ? "🚫" : ai.latestAlert.level === "urgent" ? "🚨" : "⚠️"}{" "}
+                    {ai.latestAlert.message}
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between text-xs text-gray-500">
                   <span>{ai.monthCalls.toLocaleString()} calls this month</span>
                   <span className="tabular-nums font-medium text-gray-700">
                     ${aiRemainingDollars.toFixed(2)} remaining
                   </span>
                 </div>
-                <BudgetBar label="Monthly budget ($4.00)" spentCents={Math.round(ai.monthCostDollars * 100)} budgetCents={400} />
+                <BudgetBar label="Monthly budget ($3.50)" spentCents={Math.round(ai.monthCostDollars * 100)} budgetCents={350} />
                 {ai.monthInputTokens > 0 || ai.monthOutputTokens > 0 ? (
                   <div className="space-y-0.5 pt-1">
                     <p className="text-[11px] text-gray-400 tabular-nums">
@@ -768,6 +811,44 @@ export default async function DashboardPage() {
                   </div>
                 ) : (
                   <p className="text-xs text-gray-400">No AI calls yet this month</p>
+                )}
+
+                {/* Pipeline run history */}
+                {ai.recentRuns.length > 0 && (
+                  <div className="pt-1">
+                    <p className="text-[11px] font-medium text-gray-500 mb-1">Recent pipeline runs</p>
+                    <div className="space-y-1">
+                      {ai.recentRuns.slice(0, 5).map((run, i) => {
+                        const variance = run.variance_ratio;
+                        const hasLargeVariance = variance !== null && variance > 1.5;
+                        const estStr = run.estimated_cost_usd != null ? `$${Number(run.estimated_cost_usd).toFixed(4)}` : "—";
+                        const actStr = run.actual_cost_usd != null ? `$${Number(run.actual_cost_usd).toFixed(4)}` : "—";
+                        const varStr = variance != null
+                          ? `${variance > 1 ? "+" : ""}${((variance - 1) * 100).toFixed(0)}%`
+                          : null;
+                        return (
+                          <div key={i} className="flex items-center justify-between text-[11px] tabular-nums">
+                            <span className="text-gray-600 truncate max-w-[120px]">{run.pipeline_name}</span>
+                            <span className="text-gray-400 mx-1">est {estStr}</span>
+                            <span className="text-gray-700">{actStr}</span>
+                            {varStr && (
+                              <span className={`ml-1 font-medium ${hasLargeVariance ? "text-orange-600" : "text-gray-400"}`}>
+                                {varStr}{hasLargeVariance ? " ⚠" : ""}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Admin-only: budget controls */}
+                {isAdmin && (
+                  <div className="pt-2 border-t border-gray-100 space-y-1.5">
+                    <p className="text-[11px] font-medium text-gray-500">Budget Settings (admin)</p>
+                    <BudgetControlForm />
+                  </div>
                 )}
               </ServiceCard>
 
@@ -862,7 +943,10 @@ export default async function DashboardPage() {
             </div>
           </section>
 
-          {/* ── 4. DEVELOPMENT PROGRESS ────────────────────────────────────── */}
+          {/* ── 4. PIPELINE OPERATIONS ─────────────────────────────────────── */}
+          <PipelineOpsSection isAdmin={isAdmin} />
+
+          {/* ── 5. DEVELOPMENT PROGRESS ─────────────────────────────────────── */}
           <section>
             <SectionHeader
               title="Development Progress"
@@ -899,7 +983,7 @@ export default async function DashboardPage() {
             </div>
           </section>
 
-          {/* ── 5. COMPUTE POOL ────────────────────────────────────────────── */}
+          {/* ── 6. COMPUTE POOL ────────────────────────────────────────────── */}
           <section>
             <SectionHeader
               title="Community Compute Pool"
@@ -925,7 +1009,7 @@ export default async function DashboardPage() {
             </div>
           </section>
 
-          {/* ── 6. TRANSPARENCY FOOTER ─────────────────────────────────────── */}
+          {/* ── 7. TRANSPARENCY FOOTER ─────────────────────────────────────── */}
           <section>
             <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-6">
               <h2 className="text-sm font-semibold text-indigo-900">Why this dashboard exists</h2>

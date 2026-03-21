@@ -4,7 +4,13 @@
   "private": true,
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "exports": { ".": "./src/index.ts", "./client": "./src/client.ts" },
+  "exports": {
+    ".":              "./src/index.ts",
+    "./client":       "./src/client.ts",
+    "./cost-config":  "./src/cost-config.ts",
+    "./cost-tracker": "./src/cost-tracker.ts",
+    "./cost-gate":    "./src/cost-gate.ts"
+  },
   "scripts": {
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",

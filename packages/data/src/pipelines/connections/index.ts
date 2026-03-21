@@ -5,13 +5,14 @@
  * Run after all data ingestion pipelines have populated the DB.
  *
  * Derives 4 connection types:
- *   donation       — financial_relationships → financial_entity (diamond node) → official
+ *   donation            — financial_relationships → financial_entity → official
  *   vote_yes/no/abstain — votes table → official → proposal
- *   oversight      — agencies.governing_body_id → governing_body → agency
- *   appointment    — officials with agency-leadership role titles → agency
+ *   nomination_vote_yes/no — votes on nomination proposals → official → proposal
+ *   oversight           — agencies.governing_body_id → governing_body → agency
+ *   appointment         — officials with agency-leadership role titles → agency
  *
- * Deduplication: upserts on (from_id, to_id, connection_type) unique constraint
- * added in migration 0004. Strength and evidence updated on conflict.
+ * All phases use batch upserts (500 rows/call) — never sequential per-row calls.
+ * Supabase free-tier statement timeout: ~8s. 500 rows × ~10ms = ~5s (safe margin).
  *
  * Run standalone:
  *   pnpm --filter @civitics/data data:connections
@@ -24,6 +25,16 @@ import {
   failSync,
   type PipelineResult,
 } from "../sync-log";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Rows fetched per PostgREST page (server cap is 1 000). */
+const FETCH_SIZE = 1000;
+
+/** Rows per upsert call — keeps each request well under the 8s timeout. */
+const UPSERT_SIZE = 500;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,9 +67,9 @@ function donationStrength(amountCents: number): number {
 
 /**
  * Map votes.vote value to connection_type.
- * Returns null for non-definitive votes.
+ * Returns null for non-definitive votes (paired_yes / paired_no).
  *
- * @param vote        The vote value (yes/no/abstain/etc.)
+ * @param vote         The vote value (yes/no/abstain/etc.)
  * @param voteCategory The proposal's vote_category (nomination → distinct edge types)
  */
 function voteToConnectionType(vote: string, voteCategory?: string | null): string | null {
@@ -69,7 +80,7 @@ function voteToConnectionType(vote: string, voteCategory?: string | null): strin
     case "abstain":
     case "present":
     case "not_voting": return "vote_abstain";
-    default:           return null; // paired_yes / paired_no — skip
+    default:           return null;
   }
 }
 
@@ -93,80 +104,65 @@ function isAgencyLeadershipRole(roleTitle: string): boolean {
   return LEADERSHIP_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
-// ---------------------------------------------------------------------------
-// Upsert entity_connection
-// Manual SELECT → INSERT/UPDATE — works regardless of whether migration 0004
-// has been applied. Once the unique constraint exists the pipeline will still
-// work correctly; it just does the dedup in application code.
-// ---------------------------------------------------------------------------
-
-async function upsertConnection(
+/**
+ * Batch-upsert rows into entity_connections using the unique triple constraint.
+ * Logs per-batch progress every `logEvery` batches.
+ */
+async function batchUpsertConnections(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   db: any,
-  params: {
-    fromType:       string;
-    fromId:         string;
-    toType:         string;
-    toId:           string;
-    connectionType: string;
-    strength:       number;
-    amountCents?:   number;
-    evidence:       Record<string, unknown>[];
-  }
-): Promise<"upserted" | "failed"> {
-  try {
-    const { data: existing, error: selErr } = await db
-      .from("entity_connections")
-      .select("id")
-      .eq("from_id", params.fromId)
-      .eq("to_id", params.toId)
-      .eq("connection_type", params.connectionType)
-      .maybeSingle();
+  rows: Record<string, unknown>[],
+  counts: ConnectionCounts,
+  label: string,
+  logEvery = 5,
+): Promise<void> {
+  const total    = rows.length;
+  let batchNum   = 0;
+  const MAX_RETRIES = 3;
 
-    if (selErr) {
-      console.error(`    upsertConnection select error [${params.connectionType}]:`, selErr.message);
-      return "failed";
+  for (let i = 0; i < total; i += UPSERT_SIZE) {
+    batchNum++;
+    const chunk = rows.slice(i, i + UPSERT_SIZE);
+
+    let error = null;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      const result = await db
+        .from("entity_connections")
+        .upsert(chunk, { onConflict: "from_id,to_id,connection_type" });
+      error = result.error;
+      if (!error) break;
+      // Don't retry non-timeout errors (e.g. constraint violations)
+      if (!error.message.includes("timeout")) break;
+      if (attempt < MAX_RETRIES) {
+        console.log(`    [${label}] batch ${batchNum} timeout, retrying (attempt ${attempt + 1})...`);
+      }
     }
 
-    if (existing) {
-      const { error: updErr } = await db
-        .from("entity_connections")
-        .update({
-          strength:     params.strength,
-          amount_cents: params.amountCents ?? null,
-          evidence:     params.evidence,
-          updated_at:   new Date().toISOString(),
-        })
-        .eq("id", existing.id);
-
-      if (updErr) {
-        console.error(`    upsertConnection update error [${params.connectionType}]:`, updErr.message);
-        return "failed";
-      }
+    if (error) {
+      console.error(`    [${label}] batch ${batchNum} error:`, error.message);
+      counts.failed += chunk.length;
     } else {
-      const { error: insErr } = await db
-        .from("entity_connections")
-        .insert({
-          from_type:       params.fromType,
-          from_id:         params.fromId,
-          to_type:         params.toType,
-          to_id:           params.toId,
-          connection_type: params.connectionType,
-          strength:        params.strength,
-          amount_cents:    params.amountCents ?? null,
-          evidence:        params.evidence,
-        });
-
-      if (insErr) {
-        console.error(`    upsertConnection insert error [${params.connectionType}]:`, insErr.message);
-        return "failed";
+      for (const row of chunk) {
+        const ct = row.connection_type as string;
+        if      (ct === "donation")             counts.donation++;
+        else if (ct === "vote_yes")             counts.vote_yes++;
+        else if (ct === "vote_no")              counts.vote_no++;
+        else if (ct === "nomination_vote_yes")  counts.nomination_vote_yes++;
+        else if (ct === "nomination_vote_no")   counts.nomination_vote_no++;
+        else if (ct === "vote_abstain")         counts.vote_abstain++;
+        else if (ct === "oversight")            counts.oversight++;
+        else if (ct === "appointment")          counts.appointment++;
+      }
+      if (batchNum % logEvery === 0 || i + UPSERT_SIZE >= total) {
+        const done = Math.min(i + UPSERT_SIZE, total);
+        console.log(
+          `    Batch ${batchNum}/${Math.ceil(total / UPSERT_SIZE)} ✓  (${done}/${total})`
+        );
       }
     }
 
-    return "upserted";
-  } catch (err) {
-    console.error("    upsertConnection threw:", err instanceof Error ? err.message : err);
-    return "failed";
+    // Throttle to avoid disk I/O spikes on Supabase free tier.
+    await new Promise((r) => setTimeout(r, 100));
   }
 }
 
@@ -181,7 +177,7 @@ async function deriveDonationConnections(
 ): Promise<void> {
   console.log("\n  [1/4] Donation connections...");
 
-  const PAGE_SIZE = 1000;
+  // ── Step 1: Load all financial_relationships (paginated) ─────────────────
   let page = 0;
   const rows: {
     official_id: string; donor_name: string; donor_type: string;
@@ -190,23 +186,16 @@ async function deriveDonationConnections(
   }[] = [];
 
   while (true) {
-    const from = page * PAGE_SIZE;
-    const to   = from + PAGE_SIZE - 1;
     const { data: batch, error } = await db
       .from("financial_relationships")
-      .select(
-        "official_id, donor_name, donor_type, amount_cents, cycle_year, source_url, fec_committee_id"
-      )
+      .select("official_id, donor_name, donor_type, amount_cents, cycle_year, source_url, fec_committee_id")
       .not("official_id", "is", null)
-      .range(from, to);
+      .range(page * FETCH_SIZE, page * FETCH_SIZE + FETCH_SIZE - 1);
 
-    if (error) {
-      console.error("    Error fetching financial_relationships:", error.message);
-      return;
-    }
+    if (error) { console.error("    Error fetching financial_relationships:", error.message); return; }
     if (!batch || batch.length === 0) break;
     rows.push(...batch);
-    if (batch.length < PAGE_SIZE) break;
+    if (batch.length < FETCH_SIZE) break;
     page++;
   }
 
@@ -216,23 +205,12 @@ async function deriveDonationConnections(
   }
   console.log(`    Loaded ${rows.length} financial_relationship records`);
 
-  // Aggregate by donor key (name+type) across all officials → financial_entity totals
-  const donorTotals = new Map<
-    string,
-    { name: string; type: string; totalCents: number; sourceUrl: string | null }
-  >();
-
-  // Aggregate by (donorKey, officialId) → connection totals
-  const donorOfficialPairs = new Map<
-    string,
-    {
-      donorKey:   string;
-      officialId: string;
-      totalCents: number;
-      cycles:     number[];
-      sourceUrl:  string | null;
-    }
-  >();
+  // ── Step 2: Aggregate in memory ──────────────────────────────────────────
+  const donorTotals = new Map<string, { name: string; type: string; totalCents: number }>();
+  const donorOfficialPairs = new Map<string, {
+    donorKey: string; officialId: string; totalCents: number;
+    cycles: number[]; sourceUrl: string | null;
+  }>();
 
   for (const row of rows) {
     const donorName  = String(row.donor_name ?? "").trim().toUpperCase();
@@ -241,114 +219,97 @@ async function deriveDonationConnections(
     const amtCents   = Number(row.amount_cents ?? 0);
     const cycle      = row.cycle_year ? Number(row.cycle_year) : null;
     const sourceUrl  = (row.source_url as string | null) ?? null;
+    const donorKey   = `${donorName}|${donorType}`;
+    const pairKey    = `${donorKey}|${officialId}`;
 
-    const donorKey = `${donorName}|${donorType}`;
-    const pairKey  = `${donorKey}|${officialId}`;
-
-    // Per-donor aggregate (for financial_entity.total_donated_cents)
     const dt = donorTotals.get(donorKey);
-    if (dt) {
-      dt.totalCents += amtCents;
-    } else {
-      donorTotals.set(donorKey, { name: donorName, type: donorType, totalCents: amtCents, sourceUrl });
-    }
+    if (dt) { dt.totalCents += amtCents; }
+    else     { donorTotals.set(donorKey, { name: donorName, type: donorType, totalCents: amtCents }); }
 
-    // Per-(donor, official) pair aggregate (for entity_connection)
     const pair = donorOfficialPairs.get(pairKey);
     if (pair) {
       pair.totalCents += amtCents;
       if (cycle !== null && !pair.cycles.includes(cycle)) pair.cycles.push(cycle);
     } else {
       donorOfficialPairs.set(pairKey, {
-        donorKey,
-        officialId,
-        totalCents: amtCents,
-        cycles: cycle !== null ? [cycle] : [],
-        sourceUrl,
+        donorKey, officialId, totalCents: amtCents,
+        cycles: cycle !== null ? [cycle] : [], sourceUrl,
       });
     }
   }
 
-  console.log(
-    `    ${donorTotals.size} unique donors, ${donorOfficialPairs.size} donor→official pairs`
-  );
+  console.log(`    ${donorTotals.size} unique donors, ${donorOfficialPairs.size} donor→official pairs`);
 
-  // Upsert financial_entities and collect their UUIDs
-  const donorEntityIds = new Map<string, string>();
+  // ── Step 3: Batch upsert financial_entities ──────────────────────────────
+  // Omit source_ids — DB default '{}' is used for new rows; existing rows preserve theirs.
+  const entityUpsertRows = [...donorTotals.values()].map((d) => ({
+    name:                d.name,
+    entity_type:         d.type,
+    total_donated_cents: d.totalCents,
+    updated_at:          new Date().toISOString(),
+  }));
 
-  for (const [donorKey, donor] of donorTotals) {
-    try {
-      const { data: existing } = await db
-        .from("financial_entities")
-        .select("id")
-        .eq("name", donor.name)
-        .eq("entity_type", donor.type)
-        .maybeSingle();
+  console.log(`    Upserting ${entityUpsertRows.length} financial entities...`);
+  for (let i = 0; i < entityUpsertRows.length; i += UPSERT_SIZE) {
+    const chunk = entityUpsertRows.slice(i, i + UPSERT_SIZE);
+    const { error } = await db
+      .from("financial_entities")
+      .upsert(chunk, { onConflict: "name,entity_type" });
 
-      if (existing) {
-        donorEntityIds.set(donorKey, existing.id as string);
-        await db
-          .from("financial_entities")
-          .update({ total_donated_cents: donor.totalCents, updated_at: new Date().toISOString() })
-          .eq("id", existing.id);
-      } else {
-        const { data: inserted, error: insertErr } = await db
-          .from("financial_entities")
-          .insert({
-            name:                 donor.name,
-            entity_type:          donor.type,
-            total_donated_cents:  donor.totalCents,
-            source_ids:           {},
-          })
-          .select("id")
-          .single();
-
-        if (insertErr) {
-          console.error(`    Could not insert financial_entity "${donor.name}":`, insertErr.message);
-          counts.failed++;
-          continue;
-        }
-        donorEntityIds.set(donorKey, inserted.id as string);
-      }
-    } catch (err) {
-      console.error("    Error upserting financial_entity:", err instanceof Error ? err.message : err);
-      counts.failed++;
+    if (error) {
+      console.error(`    financial_entities batch error:`, error.message);
+      counts.failed += chunk.length;
+    } else {
+      const done = Math.min(i + UPSERT_SIZE, entityUpsertRows.length);
+      const total = entityUpsertRows.length;
+      console.log(`    Batch ${Math.ceil((i + 1) / UPSERT_SIZE)}/${Math.ceil(total / UPSERT_SIZE)} ✓  (${done}/${total})`);
     }
   }
 
-  // Upsert entity_connections (financial_entity → official)
-  for (const [, pair] of donorOfficialPairs) {
-    const financialEntityId = donorEntityIds.get(pair.donorKey);
-    if (!financialEntityId) continue;
+  // ── Step 4: Fetch all entity IDs (paginated) ─────────────────────────────
+  const entityIdMap = new Map<string, string>(); // donorKey → UUID
+  let idPage = 0;
+  while (true) {
+    const { data: idBatch, error } = await db
+      .from("financial_entities")
+      .select("id, name, entity_type")
+      .range(idPage * FETCH_SIZE, idPage * FETCH_SIZE + FETCH_SIZE - 1);
 
-    const strength = donationStrength(pair.totalCents);
-    const evidence: Record<string, unknown>[] = [
-      {
+    if (error) { console.error("    Error fetching entity IDs:", error.message); break; }
+    if (!idBatch || idBatch.length === 0) break;
+    for (const e of idBatch) {
+      entityIdMap.set(`${String(e.name).toUpperCase().trim()}|${e.entity_type}`, String(e.id));
+    }
+    if (idBatch.length < FETCH_SIZE) break;
+    idPage++;
+  }
+  console.log(`    Loaded ${entityIdMap.size} entity IDs`);
+
+  // ── Step 5: Build connection rows ─────────────────────────────────────────
+  const connectionRows: Record<string, unknown>[] = [];
+  for (const [, pair] of donorOfficialPairs) {
+    const financialEntityId = entityIdMap.get(pair.donorKey);
+    if (!financialEntityId) continue;
+    connectionRows.push({
+      from_type:       "financial",
+      from_id:         financialEntityId,
+      to_type:         "official",
+      to_id:           pair.officialId,
+      connection_type: "donation",
+      strength:        donationStrength(pair.totalCents),
+      amount_cents:    pair.totalCents,
+      evidence: [{
         source:          "fec",
         amount_cents:    pair.totalCents,
         election_cycles: pair.cycles,
         url:             pair.sourceUrl ?? "https://www.fec.gov/data/",
-      },
-    ];
-
-    const result = await upsertConnection(db, {
-      fromType:       "financial",
-      fromId:         financialEntityId,
-      toType:         "official",
-      toId:           pair.officialId,
-      connectionType: "donation",
-      strength,
-      amountCents:    pair.totalCents,
-      evidence,
+      }],
     });
-
-    if (result === "failed") {
-      counts.failed++;
-    } else {
-      counts.donation++;
-    }
   }
 
+  // ── Step 6: Batch upsert connections ─────────────────────────────────────
+  console.log(`    Upserting ${connectionRows.length} donation connections...`);
+  await batchUpsertConnections(db, connectionRows, counts, "donation", 5);
   console.log(`    Created/updated: ${counts.donation} donation connections`);
 }
 
@@ -363,123 +324,98 @@ async function deriveVoteConnections(
 ): Promise<void> {
   console.log("\n  [2/4] Vote connections...");
 
-  // Load all proposal vote_categories upfront so we can emit
-  // nomination_vote_yes/no for confirmation votes.
-  console.log("    Fetching proposal vote_categories...");
-  const proposalCategoryMap = new Map<string, string | null>();
-  {
-    const PROP_PAGE = 1000;
-    let propPage = 0;
-    while (true) {
-      const from = propPage * PROP_PAGE;
-      const to   = from + PROP_PAGE - 1;
-      const { data: props, error: propErr } = await db
-        .from("proposals")
-        .select("id, vote_category")
-        .range(from, to);
-      if (propErr) {
-        console.error("    Warning: could not fetch proposal vote_categories:", propErr.message);
-        break;
-      }
-      if (!props || props.length === 0) break;
-      for (const p of props) proposalCategoryMap.set(String(p.id), p.vote_category ?? null);
-      if (props.length < PROP_PAGE) break;
-      propPage++;
-    }
-    console.log(`    Loaded ${proposalCategoryMap.size} proposal categories`);
-  }
-
-  // Supabase PostgREST caps responses at 1000 rows. Page through all votes,
-  // then batch-upsert using the unique constraint (from_id, to_id, connection_type).
-  const FETCH_SIZE  = 1000;
-  const UPSERT_SIZE = 500;
-  let page = 0;
+  // Cursor-based pagination — avoids the O(n) offset-scan that causes timeouts
+  // at high page numbers. Each page fetches rows WHERE id > lastId ORDER BY id.
+  const MAX_RETRIES = 3;
+  let lastId: string | null = null;
+  let pageNum = 0;
   let totalFetched = 0;
 
   while (true) {
-    const from = page * FETCH_SIZE;
-    const to   = from + FETCH_SIZE - 1;
+    pageNum++;
 
-    const { data: votes, error } = await db
-      .from("votes")
-      .select("official_id, proposal_id, vote, voted_at, roll_call_number, chamber, session, source_ids")
-      .range(from, to);
+    // ── Fetch page with retry ──────────────────────────────────────────────
+    let votes: Record<string, unknown>[] | null = null;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      let q = db
+        .from("votes")
+        .select("id, official_id, proposal_id, vote, voted_at, roll_call_number, chamber, session, source_ids")
+        .order("id")
+        .limit(FETCH_SIZE);
+      if (lastId) q = q.gt("id", lastId);
 
-    if (error) {
-      console.error("    Error fetching votes:", error.message);
-      return;
+      const { data, error } = await q;
+      if (!error) { votes = data; break; }
+      if (attempt < MAX_RETRIES) {
+        console.log(`    Fetch page ${pageNum} attempt ${attempt} failed (${error.message}), retrying...`);
+      } else {
+        console.error(`    Error fetching votes page ${pageNum} after ${MAX_RETRIES} attempts:`, error.message);
+      }
     }
+
     if (!votes || votes.length === 0) {
-      if (page === 0) console.log("    No votes found. Skipping.");
+      if (pageNum === 1) console.log("    No votes found. Skipping.");
       break;
     }
-
+    lastId = String(votes[votes.length - 1]["id"]);
     totalFetched += votes.length;
 
-    // Build batch rows for this page
-    const batch: Record<string, unknown>[] = [];
+    // ── Build batch rows ──────────────────────────────────────────────────
+    // Deduplicate by (from_id, to_id, connection_type) within the page.
+    // The votes table can contain multiple rows for the same (official, proposal, vote)
+    // from different roll call records; Postgres rejects a batch that contains the
+    // same conflict key more than once.
+    const batchMap = new Map<string, Record<string, unknown>>();
     for (const v of votes) {
-      const voteCategory = proposalCategoryMap.get(String(v.proposal_id)) ?? null;
-      const connType = voteToConnectionType(String(v.vote ?? ""), voteCategory);
+      const connType = voteToConnectionType(String(v.vote ?? ""));
       if (!connType) continue;
 
-      const sourceIds    = (v.source_ids as Record<string, string>) ?? {};
-      const rollCallKey  =
+      const fromId = String(v.official_id);
+      const toId   = String(v.proposal_id);
+      const dedupeKey = `${fromId}|${toId}|${connType}`;
+      if (batchMap.has(dedupeKey)) continue; // keep first occurrence
+
+      const sourceIds   = (v.source_ids as Record<string, string>) ?? {};
+      const rollCallKey =
         sourceIds["roll_call"] ??
         sourceIds["house_clerk_url"] ??
         sourceIds["senate_lis_url"] ??
         null;
 
-      batch.push({
+      batchMap.set(dedupeKey, {
         from_type:       "official",
-        from_id:         String(v.official_id),
+        from_id:         fromId,
         to_type:         "proposal",
-        to_id:           String(v.proposal_id),
+        to_id:           toId,
         connection_type: connType,
         strength:        1.0,
-        evidence: [
-          {
-            source:        "congress_gov",
-            vote_date:     v.voted_at ?? null,
-            roll_call:     v.roll_call_number ?? null,
-            chamber:       v.chamber ?? null,
-            session:       v.session ?? null,
-            roll_call_key: rollCallKey,
-          },
-        ],
+        evidence: [{
+          source:        "congress_gov",
+          vote_date:     v.voted_at ?? null,
+          roll_call:     v.roll_call_number ?? null,
+          chamber:       v.chamber ?? null,
+          session:       v.session ?? null,
+          roll_call_key: rollCallKey,
+        }],
       });
     }
 
-    // Upsert in sub-batches to avoid payload limits
-    for (let i = 0; i < batch.length; i += UPSERT_SIZE) {
-      const chunk = batch.slice(i, i + UPSERT_SIZE);
-      const { error: upsertErr } = await db
-        .from("entity_connections")
-        .upsert(chunk, { onConflict: "from_id,to_id,connection_type" });
+    const batch = [...batchMap.values()];
+    await batchUpsertConnections(db, batch, counts, `vote page ${pageNum}`, 999);
 
-      if (upsertErr) {
-        console.error(`    Upsert error (page ${page + 1}, chunk ${i / UPSERT_SIZE + 1}):`, upsertErr.message);
-        counts.failed += chunk.length;
-      } else {
-        for (const row of chunk) {
-          const ct = row.connection_type as string;
-          if (ct === "vote_yes")              counts.vote_yes++;
-          else if (ct === "vote_no")          counts.vote_no++;
-          else if (ct === "nomination_vote_yes") counts.nomination_vote_yes++;
-          else if (ct === "nomination_vote_no")  counts.nomination_vote_no++;
-          else                                counts.vote_abstain++;
-        }
-      }
-    }
-
-    if (page % 10 === 0) {
+    if (pageNum % 10 === 0) {
       console.log(
-        `    Fetched ${totalFetched} votes so far... (vote_yes: ${counts.vote_yes}, vote_no: ${counts.vote_no}, nom_yes: ${counts.nomination_vote_yes}, nom_no: ${counts.nomination_vote_no}, abstain: ${counts.vote_abstain})`
+        `    Fetched ${totalFetched} votes... ` +
+        `(yes: ${counts.vote_yes}, no: ${counts.vote_no}, ` +
+        `nom_yes: ${counts.nomination_vote_yes}, nom_no: ${counts.nomination_vote_no}, ` +
+        `abstain: ${counts.vote_abstain})`
       );
     }
 
     if (votes.length < FETCH_SIZE) break;
-    page++;
+
+    // Brief pause between pages to avoid IO spikes.
+    await new Promise((r) => setTimeout(r, 50));
   }
 
   console.log(
@@ -502,37 +438,27 @@ async function deriveOversightConnections(
 
   const { data: agencies, error } = await db
     .from("agencies")
-    .select("id, name, governing_body_id")
+    .select("id, governing_body_id")
     .not("governing_body_id", "is", null);
 
-  if (error) {
-    console.error("    Error fetching agencies:", error.message);
-    return;
-  }
+  if (error) { console.error("    Error fetching agencies:", error.message); return; }
   if (!agencies || agencies.length === 0) {
     console.log("    No agencies with governing_body_id. Skipping.");
     return;
   }
   console.log(`    Processing ${agencies.length} agency→governing_body relationships`);
 
-  for (const agency of agencies) {
-    const result = await upsertConnection(db, {
-      fromType:       "governing_body",
-      fromId:         String(agency.governing_body_id),
-      toType:         "agency",
-      toId:           String(agency.id),
-      connectionType: "oversight",
-      strength:       1.0,
-      evidence:       [{ source: "inferred", relationship: "oversight_body" }],
-    });
+  const batch = (agencies as { id: string; governing_body_id: string }[]).map((agency) => ({
+    from_type:       "governing_body",
+    from_id:         String(agency.governing_body_id),
+    to_type:         "agency",
+    to_id:           String(agency.id),
+    connection_type: "oversight",
+    strength:        1.0,
+    evidence:        [{ source: "inferred", relationship: "oversight_body" }],
+  }));
 
-    if (result === "failed") {
-      counts.failed++;
-    } else {
-      counts.oversight++;
-    }
-  }
-
+  await batchUpsertConnections(db, batch, counts, "oversight", 1);
   console.log(`    Created/updated: ${counts.oversight} oversight connections`);
 }
 
@@ -556,10 +482,7 @@ async function deriveAppointmentConnections(
     .eq("is_active", true)
     .not("governing_body_id", "is", null);
 
-  if (offErr) {
-    console.error("    Error fetching officials:", offErr.message);
-    return;
-  }
+  if (offErr) { console.error("    Error fetching officials:", offErr.message); return; }
 
   const leaders = (officials ?? []).filter(
     (o: { role_title: string | null }) => o.role_title && isAgencyLeadershipRole(o.role_title)
@@ -573,16 +496,12 @@ async function deriveAppointmentConnections(
   }
   console.log(`    Found ${leaders.length} officials with agency-leadership role titles`);
 
-  // Build map: governing_body_id → agencies overseen by that body
   const { data: agencies, error: agErr } = await db
     .from("agencies")
     .select("id, name, governing_body_id")
     .not("governing_body_id", "is", null);
 
-  if (agErr) {
-    console.error("    Error fetching agencies:", agErr.message);
-    return;
-  }
+  if (agErr) { console.error("    Error fetching agencies:", agErr.message); return; }
 
   const agenciesByGovBody = new Map<string, Array<{ id: string; name: string }>>();
   for (const ag of agencies ?? []) {
@@ -591,33 +510,27 @@ async function deriveAppointmentConnections(
     agenciesByGovBody.set(String(ag.governing_body_id), list);
   }
 
+  const batch: Record<string, unknown>[] = [];
   for (const official of leaders) {
     const linkedAgencies = agenciesByGovBody.get(String(official.governing_body_id)) ?? [];
     for (const agency of linkedAgencies) {
-      const result = await upsertConnection(db, {
-        fromType:       "official",
-        fromId:         String(official.id),
-        toType:         "agency",
-        toId:           agency.id,
-        connectionType: "appointment",
-        strength:       1.0,
-        evidence: [
-          {
-            source:      "inferred",
-            role_title:  official.role_title,
-            agency_name: agency.name,
-          },
-        ],
+      batch.push({
+        from_type:       "official",
+        from_id:         String(official.id),
+        to_type:         "agency",
+        to_id:           agency.id,
+        connection_type: "appointment",
+        strength:        1.0,
+        evidence: [{
+          source:      "inferred",
+          role_title:  official.role_title,
+          agency_name: agency.name,
+        }],
       });
-
-      if (result === "failed") {
-        counts.failed++;
-      } else {
-        counts.appointment++;
-      }
     }
   }
 
+  await batchUpsertConnections(db, batch, counts, "appointment", 1);
   console.log(`    Created/updated: ${counts.appointment} appointment connections`);
 }
 
@@ -680,7 +593,6 @@ export async function runConnectionsPipeline(): Promise<PipelineResult> {
     console.log(`  ${"appointment:".padEnd(36)} ${counts.appointment}`);
     console.log(`  ${"failed:".padEnd(36)} ${counts.failed}`);
 
-    // Sample connection for verification
     const { data: sample } = await db
       .from("entity_connections")
       .select("from_type, from_id, to_type, to_id, connection_type, strength")
@@ -693,8 +605,6 @@ export async function runConnectionsPipeline(): Promise<PipelineResult> {
       console.log(
         `    ${sample.from_type}(${String(sample.from_id).slice(0, 8)}…) → ${sample.connection_type} → ${sample.to_type}(${String(sample.to_id).slice(0, 8)}…)  [strength: ${sample.strength}]`
       );
-    } else {
-      console.log("\n  No connections in DB yet (run data ingestion pipelines first).");
     }
 
     await completeSync(logId, result);

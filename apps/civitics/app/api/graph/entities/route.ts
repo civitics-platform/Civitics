@@ -170,15 +170,28 @@ export async function GET(request: Request) {
       source_ids: Record<string, string> | null;
     };
 
+    // Valid US state abbreviations — used to validate FEC ID extraction.
+    const VALID_STATES = new Set([
+      "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
+      "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+      "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+      "VA","WA","WV","WI","WY",
+    ]);
+
     for (const o of (offData ?? []) as OffRow[]) {
       // Federal = has a congress_gov source ID
       if (o.source_ids?.["congress_gov"]) federalIds.add(o.id);
 
-      // State extraction: metadata.state → metadata.state_abbr → FEC candidate ID
-      const candId = o.source_ids?.["fec_candidate_id"] ?? o.source_ids?.["fec_id"] ?? "";
-      const stateFromFec = /^[SH][0-9][A-Z]{2}/.test(candId)
-        ? candId.substring(2, 4)
-        : undefined;
+      // State: metadata.state → metadata.state_abbr → fec_candidate_id only.
+      // fec_id is intentionally excluded — it's a committee/filing ID that can
+      // encode a different state than the official's actual state (e.g. Tammy
+      // Baldwin has fec_id="S0VA00070" but represents WI).
+      const candId = o.source_ids?.["fec_candidate_id"] ?? "";
+      let stateFromFec: string | undefined;
+      if (/^[SH][0-9][A-Z]{2}/.test(candId)) {
+        const code = candId.substring(2, 4);
+        stateFromFec = VALID_STATES.has(code) ? code : undefined;
+      }
 
       const state =
         o.metadata?.["state"] ||
@@ -190,20 +203,24 @@ export async function GET(request: Request) {
     }
   }
 
-  // Sort by relevance: exact match → starts-with → federal+connections →
-  // federal → state+connections → everything else.
+  // Sort by relevance:
+  //   0 exact full name  1 exact last name  2 starts-with
+  //   3 federal+connections  4 federal  5 has connections  6 else
   // Secondary: connection_count desc, name asc.
   const qLower = q.toLowerCase();
   results.sort((a, b) => {
     const priority = (r: (typeof results)[0]): number => {
       const name = r.name.toLowerCase();
       if (name === qLower) return 0;
-      if (name.startsWith(qLower)) return 1;
+      // Last word of name = query (e.g. "warren" matches "Elizabeth Warren")
+      const lastName = (r.name.split(" ").pop() ?? "").toLowerCase();
+      if (lastName === qLower) return 1;
+      if (name.startsWith(qLower)) return 2;
       const isFederal = r.type === "official" && federalIds.has(r.id);
-      if (isFederal && r.connection_count > 0) return 2;
-      if (isFederal) return 3;
-      if (r.connection_count > 0) return 4;
-      return 5;
+      if (isFederal && r.connection_count > 0) return 3;
+      if (isFederal) return 4;
+      if (r.connection_count > 0) return 5;
+      return 6;
     };
     const pa = priority(a);
     const pb = priority(b);

@@ -124,18 +124,22 @@ function aggregateSpending(rows: SpendingRow[]): SpendingGroup[] {
 // Uses NEXT_PUBLIC keys (available at Vercel build time).
 // createAdminClient() must NOT be used here — secret key is runtime-only.
 export async function generateStaticParams() {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
-  );
-  const { data } = await supabase
-    .from("agencies")
-    .select("id")
-    .eq("is_active", true)
-    .order("name")
-    .limit(50);
-
-  return (data ?? []).map((a) => ({ slug: a.id }));
+  try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
+    );
+    const { data } = await Promise.race([
+      supabase.from("agencies").select("id").eq("is_active", true).order("name").limit(50),
+      new Promise<{ data: null; error: Error }>((resolve) =>
+        setTimeout(() => resolve({ data: null, error: new Error("timeout") }), 5000)
+      ),
+    ]);
+    return (data ?? []).map((a) => ({ slug: a.id }));
+  } catch (error) {
+    console.warn("generateStaticParams failed, falling back to empty:", error);
+    return [];
+  }
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {

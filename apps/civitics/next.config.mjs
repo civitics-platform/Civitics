@@ -26,6 +26,7 @@ try {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  staticPageGenerationTimeout: 30,
   transpilePackages: [
     "@civitics/ui",
     "@civitics/db",

@@ -185,6 +185,28 @@ Key remaining Phase 1 tasks:
 
 ---
 
+## generateStaticParams Rules
+
+```
+ALWAYS use try/catch — return [] on any error
+ALWAYS wrap the query in Promise.race with a 5s timeout
+ALWAYS limit to 50 rows max
+ALWAYS use NEXT_PUBLIC keys only (never createAdminClient)
+NEVER let a build fail due to DB unavailability
+
+Timeout pattern:
+  const { data } = await Promise.race([
+    supabase.from("table").select("col").limit(50),
+    new Promise<{ data: null; error: Error }>((resolve) =>
+      setTimeout(() => resolve({ data: null, error: new Error("timeout") }), 5000)
+    ),
+  ]);
+
+If DB is unavailable: build succeeds with [] → pages render on-demand (ISR)
+```
+
+---
+
 ## What Not To Do
 
 - Do not store precise user coordinates — always coarsen to district level

@@ -210,17 +210,31 @@ function yearsBetween(a: Date, b: Date): number {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function upsertWithRetry(db: any, tag: TagInsert, maxRetries = 3): Promise<boolean> {
+  for (let i = 0; i < maxRetries; i++) {
+    const { error } = await db.from("entity_tags").upsert(tag, {
+      onConflict: "entity_type,entity_id,tag,tag_category",
+    });
+    if (!error) return true;
+    if (i < maxRetries - 1) {
+      // Exponential backoff: 500ms, 1000ms, 2000ms — schema cache errors resolve with a short wait
+      const wait = 500 * Math.pow(2, i);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  return false;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function upsertTags(db: any, tags: TagInsert[]): Promise<number> {
   if (tags.length === 0) return 0;
   let upserted = 0;
   for (const tag of tags) {
-    const { error } = await db.from("entity_tags").upsert(tag, {
-      onConflict: "entity_type,entity_id,tag,tag_category",
-    });
-    if (error) {
-      console.error(`    Tag upsert error [${tag.entity_type}/${tag.tag}]:`, error.message);
-    } else {
+    const ok = await upsertWithRetry(db, tag);
+    if (ok) {
       upserted++;
+    } else {
+      console.error(`    Tag upsert failed after retries [${tag.entity_type}/${tag.tag}]`);
     }
   }
   return upserted;
@@ -651,10 +665,10 @@ async function tagFinancialEntities(db: any): Promise<number> {
 async function tagPreVoteConnections(db: any): Promise<number> {
   console.log("\n  [4/4] Tagging pre-vote timing connections...");
 
-  // Fetch financial relationships with created_at as proxy for donation timing
+  // Fetch financial relationships — use contribution_date (not created_at) for donation timing
   const { data: relationships, error: relErr } = await db
     .from("financial_relationships")
-    .select("official_id, donor_name, created_at");
+    .select("official_id, donor_name, contribution_date");
 
   if (relErr) {
     console.error("    Error fetching financial_relationships:", relErr.message);
@@ -674,9 +688,9 @@ async function tagPreVoteConnections(db: any): Promise<number> {
   // Build donation index: official_id → [{donorName, date}]
   const donationsByOfficial = new Map<string, Array<{ donorName: string; date: Date }>>();
   for (const r of relationships ?? []) {
-    if (!r.official_id || !r.created_at) continue;
+    if (!r.official_id || !r.contribution_date) continue;
     const list = donationsByOfficial.get(r.official_id) ?? [];
-    list.push({ donorName: r.donor_name, date: new Date(r.created_at) });
+    list.push({ donorName: r.donor_name, date: new Date(r.contribution_date) });
     donationsByOfficial.set(r.official_id, list);
   }
 

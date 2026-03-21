@@ -475,13 +475,30 @@ export async function runAiTagger(options?: {
       metadata: { agency_id: "EPA" },
     };
 
-    // Count untagged entities for estimate
-    const [untaggedProposalCount, untaggedOfficialCount] = await Promise.all([
-      db.from("proposals").select("id", { count: "exact", head: true }),
-      db.from("officials").select("id", { count: "exact", head: true }).eq("is_active", true),
-    ]);
-    const totalEntities =
-      (untaggedProposalCount.count ?? 0) + (untaggedOfficialCount.count ?? 0);
+    // Count entities that ACTUALLY need processing — apply onlyNew filter FIRST
+    // so costGate estimate reflects 1,321 untagged rather than 10,108 total.
+    let totalEntities: number;
+    if (onlyNew) {
+      const [allProposalsRes, taggedProposalRes, allOfficialsRes, taggedOfficialRes] = await Promise.all([
+        db.from("proposals").select("id").limit(2000),
+        db.from("entity_tags").select("entity_id")
+          .eq("entity_type", "proposal").eq("generated_by", "ai").eq("tag_category", "topic"),
+        db.from("officials").select("id").eq("is_active", true),
+        db.from("entity_tags").select("entity_id")
+          .eq("entity_type", "official").eq("generated_by", "ai").eq("tag_category", "topic"),
+      ]);
+      const taggedProposals = new Set((taggedProposalRes.data ?? []).map((r: { entity_id: string }) => r.entity_id));
+      const taggedOfficials = new Set((taggedOfficialRes.data ?? []).map((r: { entity_id: string }) => r.entity_id));
+      const untaggedProposals = (allProposalsRes.data ?? []).filter((p: { id: string }) => !taggedProposals.has(p.id)).length;
+      const untaggedOfficials = (allOfficialsRes.data ?? []).filter((o: { id: string }) => !taggedOfficials.has(o.id)).length;
+      totalEntities = untaggedProposals + untaggedOfficials;
+    } else {
+      const [proposalRes, officialRes] = await Promise.all([
+        db.from("proposals").select("id", { count: "exact", head: true }),
+        db.from("officials").select("id", { count: "exact", head: true }).eq("is_active", true),
+      ]);
+      totalEntities = (proposalRes.count ?? 0) + (officialRes.count ?? 0);
+    }
 
     // Wire cost gate
     const gate = await costGate.gate({

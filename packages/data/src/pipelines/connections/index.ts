@@ -203,35 +203,59 @@ async function batchUpsertConnections(
 async function deriveDonationConnections(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   db: any,
-  counts: ConnectionCounts
-): Promise<void> {
+  counts: ConnectionCounts,
+  startFromRelationshipId: string | null = null,
+): Promise<{ lastRelationshipId: string | null; totalProcessed: number }> {
   console.log("\n  [1/4] Donation connections...");
 
-  // ── Step 1: Load all financial_relationships (paginated) ─────────────────
-  let page = 0;
+  // ── Step 1: Load financial_relationships (cursor-based, delta-aware) ──────
+  // If startFromRelationshipId is set, only fetch rows with id > that value.
+  // If no new rows exist the loop exits immediately — ~0MB egress on idle nights.
+  // When new rows ARE found, we still aggregate all rows for correctness (donor
+  // totals span multiple rows across cycles). For the typical FEC weekly update
+  // the full table is small enough (~20K rows) that a full pass is fine.
+  let lastId: string | null = startFromRelationshipId;
   const rows: {
-    official_id: string; donor_name: string; donor_type: string;
+    id: string; official_id: string; donor_name: string; donor_type: string;
     amount_cents: number; cycle_year: number | null;
     source_url: string | null; fec_committee_id: string | null;
   }[] = [];
 
-  while (true) {
-    const { data: batch, error } = await db
+  // First, check if there are any new rows at all (fast path for idle nights)
+  if (startFromRelationshipId) {
+    const { count } = await db
       .from("financial_relationships")
-      .select("official_id, donor_name, donor_type, amount_cents, cycle_year, source_url, fec_committee_id")
+      .select("*", { count: "exact", head: true })
       .not("official_id", "is", null)
-      .range(page * FETCH_SIZE, page * FETCH_SIZE + FETCH_SIZE - 1);
+      .gt("id", startFromRelationshipId);
+    if (!count) {
+      console.log("    Delta mode: no new financial_relationships — skipping.");
+      return { lastRelationshipId: startFromRelationshipId, totalProcessed: 0 };
+    }
+    console.log(`    Delta mode: ${count} new rows since last run — full aggregation pass.`);
+    lastId = null; // do full pass to keep aggregated totals correct
+  }
 
-    if (error) { console.error("    Error fetching financial_relationships:", error.message); return; }
+  while (true) {
+    let q = db
+      .from("financial_relationships")
+      .select("id, official_id, donor_name, donor_type, amount_cents, cycle_year, source_url, fec_committee_id")
+      .not("official_id", "is", null)
+      .order("id")
+      .limit(FETCH_SIZE);
+    if (lastId) q = q.gt("id", lastId);
+
+    const { data: batch, error } = await q;
+    if (error) { console.error("    Error fetching financial_relationships:", error.message); return { lastRelationshipId: null, totalProcessed: 0 }; }
     if (!batch || batch.length === 0) break;
     rows.push(...batch);
+    lastId = String(batch[batch.length - 1]["id"]);
     if (batch.length < FETCH_SIZE) break;
-    page++;
   }
 
   if (rows.length === 0) {
     console.log("    No financial_relationships found. Skipping.");
-    return;
+    return { lastRelationshipId: null, totalProcessed: 0 };
   }
   console.log(`    Loaded ${rows.length} financial_relationship records`);
 
@@ -341,6 +365,8 @@ async function deriveDonationConnections(
   console.log(`    Upserting ${connectionRows.length} donation connections...`);
   await batchUpsertConnections(db, connectionRows, counts, "donation", 5);
   console.log(`    Created/updated: ${counts.donation} donation connections`);
+
+  return { lastRelationshipId: lastId, totalProcessed: rows.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -594,9 +620,32 @@ export async function runConnectionsPipeline(): Promise<PipelineResult> {
   };
 
   try {
-    await deriveDonationConnections(db, counts);
+    // Read donation delta state
+    const { data: donationStateRow } = await db
+      .from("pipeline_state")
+      .select("value")
+      .eq("key", "donations_last_run")
+      .maybeSingle();
+    const resumeRelationshipId: string | null =
+      ((donationStateRow?.value as Record<string, unknown>)?.last_relationship_id as string) ?? null;
 
-    // Read delta state to enable cursor-based resume across runs
+    const { lastRelationshipId: finalRelationshipId, totalProcessed: totalRelationshipsProcessed } =
+      await deriveDonationConnections(db, counts, resumeRelationshipId);
+
+    // Persist donation delta state immediately after phase completes
+    await db.from("pipeline_state").upsert(
+      {
+        key: "donations_last_run",
+        value: {
+          last_run: new Date().toISOString(),
+          last_relationship_id: finalRelationshipId,
+          total_processed: totalRelationshipsProcessed,
+        },
+      },
+      { onConflict: "key" },
+    );
+
+    // Read vote delta state
     const { data: stateRow } = await db
       .from("pipeline_state")
       .select("value")

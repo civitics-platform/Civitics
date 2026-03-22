@@ -88,6 +88,9 @@ function ForceGraph(
 ) {
   const svgRef = useRef<SVGSVGElement>(null);
   const simRef = useRef<d3.Simulation<OldGraphNode, SimLink> | null>(null);
+  const linkSelRef = useRef<d3.Selection<SVGLineElement, SimLink, SVGGElement, unknown> | null>(null);
+  const connectionSettingsRef = useRef(connectionSettings);
+  connectionSettingsRef.current = connectionSettings;
 
   React.useImperativeHandle(forwardedRef, () => svgRef.current!, []);
 
@@ -162,13 +165,13 @@ function ForceGraph(
 
     // ── edge color/opacity/width from connectionSettings ───────────────────
     const edgeColor = (d: SimLink): string =>
-      connectionSettings?.[d.type]?.color ?? EDGE_COLORS[d.type] ?? "#94a3b8";
+      connectionSettingsRef.current?.[d.type]?.color ?? EDGE_COLORS[d.type] ?? "#94a3b8";
 
     const edgeOpacity = (d: SimLink): number =>
-      connectionSettings?.[d.type]?.opacity ?? (visualConfig?.edgeOpacity ?? 0.55);
+      connectionSettingsRef.current?.[d.type]?.opacity ?? (visualConfig?.edgeOpacity ?? 0.55);
 
     const edgeStrokeWidth = (d: SimLink): number => {
-      const thickness = connectionSettings?.[d.type]?.thickness ?? 0.5;
+      const thickness = connectionSettingsRef.current?.[d.type]?.thickness ?? 0.5;
       if (visualConfig?.edgeThicknessEncoding === "uniform") return thickness * 3;
       if (visualConfig?.edgeThicknessEncoding === "strength_proportional") {
         return Math.max(0.5, d.strength * 3 * thickness * 2);
@@ -191,6 +194,9 @@ function ForceGraph(
       .attr("stroke-opacity", edgeOpacity)
       .attr("stroke-dasharray", (d) => (d.type === "appointment" ? "6,3" : null))
       .attr("marker-end", (d) => `url(#arrow-${d.type})`);
+
+    // Store link selection so style-only effect can update it without restarting simulation
+    linkSelRef.current = link;
 
     // ── edge labels (shown on hover) ───────────────────────────────────────
     const edgeLabelGroup = g.append("g").attr("class", "edge-labels").attr("opacity", 0);
@@ -236,7 +242,7 @@ function ForceGraph(
       const colors = NODE_COLORS[d.type] ?? NODE_COLORS.official!;
       const stroke =
         d.type === "official" && d.party
-          ? (PARTY_COLORS[d.party] ?? colors.stroke)
+          ? (PARTY_COLORS[d.party.toLowerCase()] ?? colors.stroke)
           : colors.stroke;
 
       if (d.type === "official") {
@@ -459,7 +465,29 @@ function ForceGraph(
 
     simRef.current = sim;
     return () => { sim.stop(); };
-  }, [nodes, edges, handleClick, onNodeClick, visualConfig, connectionSettings]);
+  }, [nodes, edges, handleClick, onNodeClick, visualConfig]);
+
+  // ── Style-only effect: update edge styles when connectionSettings changes ──
+  // This updates colors/opacity/thickness WITHOUT restarting the simulation.
+  useEffect(() => {
+    const link = linkSelRef.current;
+    if (!link) return;
+    const settings = connectionSettings;
+    link
+      .attr("stroke", (d: SimLink) =>
+        settings?.[d.type]?.color ?? EDGE_COLORS[d.type] ?? "#94a3b8"
+      )
+      .attr("stroke-opacity", (d: SimLink) =>
+        settings?.[d.type]?.opacity ?? 0.55
+      )
+      .attr("stroke-width", (d: SimLink) => {
+        const thickness = settings?.[d.type]?.thickness ?? 0.5;
+        if (d.type === "donation" && d.amountCents) {
+          return Math.max(1, Math.log10(d.amountCents / 100_000) + 3) * (thickness * 2);
+        }
+        return thickness * 4;
+      });
+  }, [connectionSettings]);
 
   // ── NodeActions for popup ──────────────────────────────────────────────────
   const nodeActions: NodeActions = {

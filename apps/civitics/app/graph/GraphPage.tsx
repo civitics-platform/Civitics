@@ -215,6 +215,9 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
       edges = edges.filter((e) => allowed.has(e.type));
     }
 
+    // Filter by new-arch connection enabled state
+    edges = edges.filter((e) => view.connections[e.type]?.enabled !== false);
+
     if (minStrength > 0) {
       edges = edges.filter((e) => e.strength >= minStrength);
     }
@@ -237,7 +240,7 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
     }
 
     return edges;
-  }, [allEdges, activeFilters, minStrength, centerEntity, allNodes, depth, industryFilter]);
+  }, [allEdges, activeFilters, minStrength, centerEntity, allNodes, depth, industryFilter, view.connections]);
 
   const visibleNodeIds = new Set<string>();
   filteredEdges.forEach((e) => { visibleNodeIds.add(e.source); visibleNodeIds.add(e.target); });
@@ -314,7 +317,7 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
-    <div className={`flex flex-col h-screen overflow-hidden ${bgClass}`}>
+    <div className={`flex flex-col h-screen ${bgClass}`}>
 
       {/* ── GraphHeader ─────────────────────────────────────────────────────── */}
       <GraphHeader

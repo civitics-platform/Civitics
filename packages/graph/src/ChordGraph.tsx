@@ -68,6 +68,12 @@ function draw(
 
   const chords = chord(squareMatrix);
 
+  console.log('[ChordGraph] groups:', allGroups.length);
+  console.log('[ChordGraph] square matrix:', squareMatrix);
+  console.log('[ChordGraph] chords:', chords);
+  console.log('[ChordGraph] chords.groups:', chords.groups);
+  console.log('[ChordGraph] SVG dims:', width, 'x', height, 'outerR:', outerR);
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const arc = d3.arc<d3.ChordGroup>()
     .innerRadius(innerR)
@@ -159,13 +165,26 @@ function draw(
     });
 }
 
+// ── Chart data stored in state so the draw effect runs after SVG mounts ────────
+
+interface ChartData {
+  square: number[][];
+  allGroups: DynamicGroup[];
+}
+
 export function ChordGraph({ className = "", svgRef: externalSvgRef }: ChordGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const internalSvgRef = useRef<SVGSVGElement>(null);
   const svgRef = externalSvgRef ?? internalSvgRef;
-  const [status, setStatus] = useState<"loading" | "empty" | "error" | "ok">("loading");
-  const [tooltip, setTooltip] = useState<Tooltip>(null);
 
+  const [status,    setStatus]    = useState<"loading" | "empty" | "error" | "ok">("loading");
+  const [chartData, setChartData] = useState<ChartData | null>(null);
+  const [tooltip,   setTooltip]   = useState<Tooltip>(null);
+
+  // ── Effect 1: Fetch + compute ─────────────────────────────────────────────
+  // Stores computed data in state, then sets status → "ok".
+  // The SVG element is NOT mounted until the re-render triggered by setStatus("ok"),
+  // so we never call draw() here — that happens in Effect 2.
   useEffect(() => {
     let cancelled = false;
 
@@ -174,48 +193,58 @@ export function ChordGraph({ className = "", svgRef: externalSvgRef }: ChordGrap
       try {
         const res = await fetch("/api/graph/chord");
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        // API returns { chord: { groups, recipients, matrix, ... } }
         const json = await res.json() as {
-          groups?: { id: string; label: string; icon: string }[];
-          recipients?: { id: string; label: string }[];
-          matrix?: number[][];
+          chord?: {
+            groups?:     { id: string; label: string; icon: string; total_usd: number; pac_count: number }[];
+            recipients?: { id: string; label: string; total_received_usd: number; official_count: number }[];
+            matrix?:     number[][];
+            top_flows?:  unknown[];
+            total_flow_usd?: number;
+          };
           error?: string;
         };
 
-        // Diagnostic: log API shape to confirm groups/recipients/matrix structure.
-        // Remove once chord is confirmed working in production.
-        console.log('[ChordGraph] data:', json);
+        console.log('[ChordGraph] raw API response:', json);
 
         if (cancelled) return;
 
-        // API returns { groups, recipients, matrix } — not { data }
-        if (json.error || !json.groups?.length || !json.matrix?.length) {
+        const chord = json.chord;
+
+        if (json.error || !chord?.groups?.length || !chord?.matrix?.length) {
+          console.log('[ChordGraph] empty state — chord:', chord);
           setStatus("empty");
           return;
         }
 
-        const groups = json.groups;
-        const recipients = json.recipients ?? [];
-        const rawMatrix = json.matrix;
+        const groups     = chord.groups;
+        const recipients = chord.recipients ?? [];
+        const rawMatrix  = chord.matrix;
+
+        console.log('[ChordGraph] groups:', groups.length, groups.map(g => g.id));
+        console.log('[ChordGraph] recipients:', recipients.length, recipients.map(r => r.id));
+        console.log('[ChordGraph] matrix before expansion:', rawMatrix);
 
         // Build dynamic group metadata for all arcs (industries first, then parties)
         const allGroups: DynamicGroup[] = [
           ...groups.map((g, i) => ({
             label: g.label,
-            icon: g.icon ?? "🏢",
+            icon:  g.icon ?? "🏢",
             color: INDUSTRY_COLORS[i % INDUSTRY_COLORS.length] ?? "#94a3b8",
-            kind: "donor" as const,
+            kind:  "donor" as const,
           })),
           ...recipients.map((r) => ({
             label: r.label,
-            icon: "",
+            icon:  "",
             color: PARTY_COLORS[r.id] ?? "#6b7280",
-            kind: "recipient" as const,
+            kind:  "recipient" as const,
           })),
         ];
 
-        // Expand 13×4 (industry × party) matrix to NxN square for d3.chord().
-        // Industries flow TO parties; parties don't flow to each other.
-        // Make symmetric so the chord renders arcs on both sides.
+        // Expand M×P (industry × party) matrix to NxN square for d3.chord().
+        // Industries flow TO parties; parties mirror back to industries (symmetric).
+        // d3.chord() requires a square matrix.
         const N = groups.length + recipients.length;
         const square: number[][] = Array.from({ length: N }, () => Array(N).fill(0) as number[]);
         rawMatrix.forEach((row, i) => {
@@ -228,39 +257,55 @@ export function ChordGraph({ className = "", svgRef: externalSvgRef }: ChordGrap
           });
         });
 
-        setStatus("ok");
-        const container = containerRef.current;
-        const svgEl = svgRef.current;
-        if (!container || !svgEl) return;
-        const { width, height } = container.getBoundingClientRect();
-        draw(svgEl, container, square, allGroups, width || 600, height || 500, setTooltip);
-      } catch {
+        console.log('[ChordGraph] square after expansion:', square);
+
+        if (!cancelled) {
+          setChartData({ square, allGroups });
+          setStatus("ok");
+        }
+      } catch (err) {
+        console.error('[ChordGraph] fetch error:', err);
         if (!cancelled) setStatus("error");
       }
     }
 
-    load();
+    void load();
     return () => { cancelled = true; };
-  }, [svgRef]);
+  }, []);
 
-  // Resize: just update SVG dimensions (re-fetch would flash the viz)
+  // ── Effect 2: Draw ────────────────────────────────────────────────────────
+  // Runs after the re-render that mounts the SVG (status === "ok").
+  // svgRef.current is guaranteed to be populated by this point.
   useEffect(() => {
-    if (status !== "ok") return;
+    if (status !== "ok" || !chartData) return;
+    const container = containerRef.current;
+    const svgEl     = svgRef.current;
+    if (!container || !svgEl) {
+      console.warn('[ChordGraph] draw skipped — container or svgEl missing', { container, svgEl });
+      return;
+    }
+    const { width, height } = container.getBoundingClientRect();
+    draw(svgEl, container, chartData.square, chartData.allGroups, width || 600, height || 500, setTooltip);
+  }, [status, chartData, svgRef]);
+
+  // ── Resize observer: redraw at new dimensions ─────────────────────────────
+  useEffect(() => {
+    if (status !== "ok" || !chartData) return;
     const container = containerRef.current;
     if (!container) return;
 
     const obs = new ResizeObserver((entries) => {
       const entry = entries[0];
-      if (!entry) return;
+      if (!entry || !svgRef.current) return;
       const { width, height } = entry.contentRect;
-      if (svgRef.current) {
-        d3.select(svgRef.current).attr("width", width).attr("height", height);
+      if (width > 0 && height > 0) {
+        draw(svgRef.current, container, chartData.square, chartData.allGroups, width, height, setTooltip);
       }
     });
 
     obs.observe(container);
     return () => obs.disconnect();
-  }, [status, svgRef]);
+  }, [status, chartData, svgRef]);
 
   return (
     <div ref={containerRef} className={`relative w-full h-full flex items-center justify-center ${className}`}>

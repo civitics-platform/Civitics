@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 import { createAdminClient } from "@civitics/db";
 import { PageHeader } from "@civitics/ui";
@@ -116,6 +117,23 @@ export default async function DashboardPage() {
             { label: "Transparency" },
           ]}
         />
+
+        {/* FIX 2: The Receipt */}
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 mb-8">
+          <p className="text-base font-semibold text-amber-900 mb-2">
+            This page is our receipt.
+          </p>
+          <p className="text-sm text-amber-800 leading-relaxed">
+            Every dollar spent building Civitics is tracked here. Every API call logged. Every cost
+            visible. We hold ourselves to the same standard of transparency we demand from
+            government.
+          </p>
+          <p className="text-sm text-amber-800 leading-relaxed mt-2">
+            The platform earns no revenue from surveillance advertising. Official comment submission
+            is always free. Blockchain is invisible.
+          </p>
+        </div>
+
         <DashboardClient
           openProposals={openProposals}
           activity={activity}

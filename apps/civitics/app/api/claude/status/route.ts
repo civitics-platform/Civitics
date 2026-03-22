@@ -97,8 +97,8 @@ export async function GET(request: Request) {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
-  // ── All 7 sections run in parallel ───────────────────────────────────────
-  const [version, database, connectionTypes, pipelines, aiCosts, quality, selfTests] =
+  // ── All 9 sections run in parallel ───────────────────────────────────────
+  const [version, database, connectionTypes, pipelines, aiCosts, quality, selfTests, chordSection, activitySection] =
     await Promise.all([
       // ── 1. Platform version ──────────────────────────────────────────────
       section(async () => {
@@ -484,6 +484,78 @@ export async function GET(request: Request) {
           },
         ];
       }),
+      // ── 8. Chord top flows ───────────────────────────────────────────────
+      section(async () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const anyDb = db as any;
+        const { data, error } = await anyDb.rpc("chord_industry_flows");
+        if (error) throw new Error(error.message ?? "chord RPC error");
+
+        type FlowRow = {
+          industry: string;
+          party_chamber: string;
+          total_cents: number;
+        };
+        const rows = (data ?? []) as FlowRow[];
+        const lbl = (s: string) =>
+          s.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+
+        const flowMatrix = new Map<string, Map<string, number>>();
+        let totalFlow = 0;
+        for (const row of rows) {
+          const usd = Number(row.total_cents) / 100;
+          totalFlow += usd;
+          if (row.industry === "untagged") continue;
+          if (!flowMatrix.has(row.industry)) flowMatrix.set(row.industry, new Map());
+          const pm = flowMatrix.get(row.industry)!;
+          pm.set(row.party_chamber, (pm.get(row.party_chamber) ?? 0) + usd);
+        }
+
+        const topFlows: Array<{ from: string; to: string; amount_usd: number }> = [];
+        for (const [ind, pm] of flowMatrix)
+          for (const [party, usd] of pm)
+            topFlows.push({ from: lbl(ind), to: party, amount_usd: Math.round(usd) });
+        topFlows.sort((a, b) => b.amount_usd - a.amount_usd);
+
+        return {
+          top_flows: topFlows.slice(0, 10),
+          total_flow_usd: Math.round(totalFlow),
+        };
+      }),
+
+      // ── 9. Activity: top pages last 24 h ────────────────────────────────
+      section(async () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const anyDb = db as any;
+        const [countRes, pathRes] = await Promise.all([
+          anyDb
+            .from("page_views")
+            .select("*", { count: "exact", head: true })
+            .gt("viewed_at", yesterday)
+            .eq("is_bot", false),
+          anyDb
+            .from("page_views")
+            .select("path")
+            .gt("viewed_at", yesterday)
+            .eq("is_bot", false)
+            .not("path", "in", `("/","/dashboard")`)
+            .limit(500),
+        ]);
+
+        const counts: Record<string, number> = {};
+        for (const r of (pathRes.data ?? []) as { path: string }[]) {
+          counts[r.path] = (counts[r.path] ?? 0) + 1;
+        }
+        const topPages = Object.entries(counts)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 8)
+          .map(([path, views]) => ({ path, views }));
+
+        return {
+          page_views_24h: countRes.count ?? 0,
+          top_pages: topPages,
+        };
+      }),
     ]);
 
   const query_time_ms = Date.now() - t0;
@@ -501,6 +573,8 @@ export async function GET(request: Request) {
       ai_costs: aiCosts,
       quality,
       self_tests: selfTests,
+      chord: chordSection,
+      activity: activitySection,
     },
     { headers: { "Cache-Control": "no-store" } },
   );

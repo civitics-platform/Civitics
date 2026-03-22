@@ -51,6 +51,16 @@ export type SelfTest = {
   detail: string;
 };
 
+export type ChordSectionData = {
+  top_flows: Array<{ from: string; to: string; amount_usd: number }>;
+  total_flow_usd: number;
+};
+
+export type ActivitySectionData = {
+  page_views_24h: number;
+  top_pages: Array<{ path: string; views: number }>;
+};
+
 export type StatusData = {
   meta: { query_time_ms: number; timestamp: string };
   version: { commit_sha: string; env: string; latest_sync_at: string | null; latest_pipeline: string | null } | PartialError;
@@ -59,6 +69,8 @@ export type StatusData = {
   ai_costs: AiCosts | PartialError;
   quality: QualityData | PartialError;
   self_tests: SelfTest[] | PartialError;
+  chord?: ChordSectionData | PartialError;
+  activity?: ActivitySectionData | PartialError;
 };
 
 export type ChordFlow = {
@@ -82,22 +94,16 @@ export function useDashboardData() {
 
   const fetchData = useCallback(async () => {
     try {
-      // Primary: platform status
       const res = await fetch("/api/claude/status");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const status = (await res.json()) as StatusData;
 
-      // Secondary: chord flows for connection highlights (graceful)
-      let chordFlows: ChordFlow[] = [];
-      try {
-        const chordRes = await fetch("/api/claude/snapshot?viz=chord");
-        if (chordRes.ok) {
-          const chordJson = await chordRes.json() as { top_flows?: ChordFlow[] };
-          chordFlows = chordJson.top_flows ?? [];
-        }
-      } catch {
-        // chord endpoint may not exist yet — silent fail
-      }
+      // Read chord flows from status — no separate fetch needed
+      const chordData =
+        status.chord && typeof status.chord === "object" && !("partial" in status.chord)
+          ? (status.chord as ChordSectionData)
+          : null;
+      const chordFlows: ChordFlow[] = chordData?.top_flows ?? [];
 
       setData({ status, chordFlows });
       setError(null);

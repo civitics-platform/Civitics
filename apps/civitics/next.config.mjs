@@ -64,6 +64,15 @@ const nextConfig = {
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
         ],
       },
+      {
+        // Dashboard — extra Vercel CDN cache-busting headers (FIX 8)
+        source: "/dashboard",
+        headers: [
+          { key: "Cache-Control", value: "no-store, no-cache, must-revalidate, proxy-revalidate" },
+          { key: "CDN-Cache-Control", value: "no-store" },
+          { key: "Vercel-CDN-Cache-Control", value: "no-store" },
+        ],
+      },
     ];
   },
 };

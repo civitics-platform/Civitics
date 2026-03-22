@@ -13,7 +13,6 @@ import {
   ConnectionHighlight,
   ActivityItem,
   AlertBanner,
-  Sparkline,
   StatusBadge,
   formatRelativeTime,
   formatNumber,
@@ -22,6 +21,7 @@ import {
   useDashboardData,
   isPartial,
   type PipelineRun,
+  type ActivitySectionData,
 } from "./useDashboardData";
 
 // ── Types from server ─────────────────────────────────────────────────────────
@@ -77,6 +77,40 @@ const SELF_TEST_LABELS: Record<string, string> = {
   connections_pipeline_healthy: "Connections pipeline healthy",
 };
 
+// ── Phase / task data (FIX 4) ────────────────────────────────────────────────
+
+const PHASES = [
+  { name: "Phase 0", label: "Foundation", pct: 100, done: true },
+  { name: "Phase 1", label: "Civic Core", pct: 88, done: false },
+  { name: "Phase 2", label: "Community", pct: 0, done: false },
+  { name: "Phase 3", label: "Economy", pct: 0, done: false },
+  { name: "Phase 4", label: "Blockchain", pct: 0, done: false },
+  { name: "Phase 5", label: "Candidates", pct: 0, done: false },
+];
+
+const PHASE1_TASKS: Array<{ label: string; done: boolean }> = [
+  { label: "Entity connections pipeline", done: true },
+  { label: "AI cost management system", done: true },
+  { label: "Entity tagging system", done: true },
+  { label: "Plain language summaries", done: true },
+  { label: "Graph visualization studio (Force, Chord, Treemap, Sunburst, Comparison)", done: true },
+  { label: "Nightly auto-sync pipeline", done: true },
+  { label: "Vote categorization", done: true },
+  { label: "Nomination vote tracking", done: true },
+  { label: "Claude diagnostic API", done: true },
+  { label: "packages/ui component library", done: true },
+  { label: "Dashboard redesign", done: true },
+  { label: "Search across all entities", done: false },
+  { label: "Basic credit system", done: false },
+  { label: "'What does this mean for me'", done: false },
+  { label: "User auth via Supabase", done: false },
+  { label: "Community commenting", done: false },
+  { label: "Position tracking", done: false },
+  { label: "Follow officials/agencies", done: false },
+  { label: "500 beta users", done: false },
+  { label: "Grant applications submitted", done: false },
+];
+
 // ── Pipeline freshness helper ────────────────────────────────────────────────
 
 function pipelineFreshness(completedAt: string | null | undefined): "ok" | "warning" | "error" {
@@ -104,6 +138,22 @@ function pathLabel(path: string): string {
   if (path.startsWith("/proposals/")) return "Proposal";
   if (path.startsWith("/agencies/")) return "Agency";
   return path;
+}
+
+// ── Platform cost helpers (FIX 3) ────────────────────────────────────────────
+
+function costStatusDot(pct: number): string {
+  if (pct >= 95) return "🔴";
+  if (pct >= 80) return "🟠";
+  if (pct >= 60) return "🟡";
+  return "🟢";
+}
+
+function costBarColor(pct: number): string {
+  if (pct >= 95) return "bg-red-500";
+  if (pct >= 80) return "bg-orange-500";
+  if (pct >= 60) return "bg-amber-500";
+  return "bg-green-500";
 }
 
 // ── Sections ─────────────────────────────────────────────────────────────────
@@ -281,7 +331,6 @@ function PipelinesSection({
     const run = latestByPipeline.get(name);
     if (run) pipelineRows.push(run);
     else {
-      // Show as "never seen"
       pipelineRows.push({
         pipeline: name,
         status: "pending",
@@ -532,7 +581,13 @@ function ConnectionHighlightsSection({
   );
 }
 
-function ActivitySection({ activity, totalViews }: { activity: ActivityRow[]; totalViews: number }) {
+function ActivitySection({
+  activity,
+  totalViews,
+}: {
+  activity: ActivityRow[];
+  totalViews: number;
+}) {
   return (
     <SectionCard>
       <SectionHeader
@@ -560,21 +615,249 @@ function ActivitySection({ activity, totalViews }: { activity: ActivityRow[]; to
   );
 }
 
+// ── FIX 3: Platform Costs ─────────────────────────────────────────────────────
+
+function PlatformCostsSection({
+  aiCosts,
+  version,
+}: {
+  aiCosts: NonNullable<ReturnType<typeof useDashboardData>["data"]>["status"]["ai_costs"];
+  version: NonNullable<ReturnType<typeof useDashboardData>["data"]>["status"]["version"];
+}) {
+  const costs = isPartial(aiCosts) ? null : aiCosts;
+  const ver = isPartial(version) ? null : version;
+  const anthropicCost = costs?.monthly_spent_usd ?? 0;
+  const anthropicPct = costs?.budget_used_pct ?? 0;
+  const totalMonthly = anthropicCost;
+
+  const commitSha = ver?.commit_sha ?? "local";
+  const shortSha = commitSha === "local" ? "local" : commitSha.slice(0, 7);
+
+  const services: Array<{
+    name: string;
+    status: string;
+    pct: number;
+    cost: number;
+    details: string[];
+    note?: string;
+  }> = [
+    {
+      name: "Supabase",
+      status: "Healthy",
+      pct: 0,
+      cost: 0,
+      details: ["DB: 141.5 MB / 500 MB (28%)", "Egress: 3.5 / 5 GB (70%)"],
+      note: "Upgrade to Pro ($25/mo) when DB hits 400 MB",
+    },
+    {
+      name: "Anthropic",
+      status: "Healthy",
+      pct: anthropicPct,
+      cost: anthropicCost,
+      details: [`$${anthropicCost.toFixed(2)} / $3.50 budget (${anthropicPct.toFixed(0)}%)`],
+      note: "Hard cap: $3.50/month. Cost guard enforced server-side.",
+    },
+    {
+      name: "Cloudflare R2",
+      status: "Healthy",
+      pct: 0,
+      cost: 0,
+      details: ["Storage: 0 KB / 10 GB (0%)"],
+      note: "Egress always free",
+    },
+    {
+      name: "Mapbox",
+      status: "Healthy",
+      pct: 0,
+      cost: 0,
+      details: ["Map loads: 8 / 50,000 (0%)"],
+    },
+    {
+      name: "Vercel",
+      status: "Healthy",
+      pct: 0,
+      cost: 0,
+      details: ["Plan: Hobby", "Deploy: READY", `Commit: ${shortSha}`],
+    },
+    {
+      name: "Resend",
+      status: "Pending (Phase 2)",
+      pct: 0,
+      cost: 0,
+      details: [],
+      note: "Email integration pending Phase 2",
+    },
+  ];
+
+  return (
+    <SectionCard>
+      <SectionHeader
+        icon="💸"
+        title="Monthly Spend Tracker"
+        description="Every cost is public record"
+      />
+      <div className="mt-4 space-y-3">
+        {services.map((svc) => (
+          <div key={svc.name} className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">{costStatusDot(svc.pct)}</span>
+                <span className="text-sm font-medium text-gray-900">{svc.name}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-500">{svc.status}</span>
+                <span className="text-sm font-semibold text-gray-900 tabular-nums">
+                  ${svc.cost.toFixed(2)}/mo
+                </span>
+              </div>
+            </div>
+            {svc.details.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5">
+                {svc.details.map((d) => (
+                  <span key={d} className="text-xs text-gray-600">{d}</span>
+                ))}
+              </div>
+            )}
+            {svc.pct > 0 && (
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
+                <div
+                  className={`h-full rounded-full ${costBarColor(svc.pct)}`}
+                  style={{ width: `${Math.min(100, svc.pct)}%` }}
+                />
+              </div>
+            )}
+            {svc.note && (
+              <p className="mt-1.5 text-xs italic text-gray-500">{svc.note}</p>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 border-t border-gray-100 pt-4">
+        <div className="flex items-baseline justify-between">
+          <span className="text-sm font-semibold text-gray-900">Total</span>
+          <span className="text-lg font-bold text-gray-900">${totalMonthly.toFixed(2)}/month</span>
+        </div>
+        <p className="mt-1 text-xs text-gray-500">
+          Running a civic accountability platform tracking $1.75B in donations costs less than a
+          streaming subscription.
+        </p>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-3 text-xs text-gray-500">
+        <span><span className="text-green-500">●</span> 0–60% healthy</span>
+        <span><span className="text-amber-500">●</span> 60–80% watch</span>
+        <span><span className="text-orange-500">●</span> 80–95% plan upgrade</span>
+        <span><span className="text-red-500">●</span> 95%+ urgent</span>
+      </div>
+    </SectionCard>
+  );
+}
+
+// ── FIX 4: Development Progress ───────────────────────────────────────────────
+
+function DevelopmentProgressSection() {
+  return (
+    <SectionCard>
+      <SectionHeader icon="🚀" title="Development Progress" description="Phase 1 of 5" />
+      <div className="mt-4 space-y-3">
+        {PHASES.map((phase) => (
+          <div key={phase.name}>
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-900">
+                {phase.name} — {phase.label}
+                {phase.done && <span className="ml-2 text-green-600">✓</span>}
+              </span>
+              <span className="tabular-nums text-sm text-gray-600">{phase.pct}%</span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+              <div
+                className={`h-full rounded-full transition-all duration-200 ${
+                  phase.done ? "bg-green-500" : phase.pct > 0 ? "bg-blue-500" : "bg-gray-200"
+                }`}
+                style={{ width: `${phase.pct}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-6 border-t border-gray-100 pt-4">
+        <p className="mb-2 text-xs font-semibold text-gray-700">Phase 1 Tasks</p>
+        <ul className="space-y-1">
+          {PHASE1_TASKS.map((task) => (
+            <li key={task.label} className="flex items-start gap-2">
+              <span
+                className={`mt-0.5 shrink-0 text-xs ${
+                  task.done ? "text-green-600" : "text-gray-400"
+                }`}
+              >
+                {task.done ? "✓" : "○"}
+              </span>
+              <span
+                className={`text-xs ${task.done ? "text-gray-700" : "text-gray-500"}`}
+              >
+                {task.label}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </SectionCard>
+  );
+}
+
+// ── FIX 5: Community Compute Pool ─────────────────────────────────────────────
+
+function CommunityComputeSection() {
+  return (
+    <SectionCard>
+      <SectionHeader
+        icon="⛏"
+        title="Community Compute Pool"
+        description="Phase 4 — launches with blockchain integration on Optimism"
+      />
+      <div className="mt-4 grid grid-cols-2 gap-4">
+        <div className="rounded-lg bg-gray-50 p-4 text-center">
+          <p className="text-2xl font-bold text-gray-900">$0</p>
+          <p className="mt-1 text-xs text-gray-500">Community donations</p>
+        </div>
+        <div className="rounded-lg bg-gray-50 p-4 text-center">
+          <p className="text-2xl font-bold text-gray-900">$0</p>
+          <p className="mt-1 text-xs text-gray-500">API costs covered</p>
+        </div>
+      </div>
+      <p className="mt-4 text-sm leading-relaxed text-gray-600">
+        Every dollar donated and every dollar spent will be tracked on-chain and visible here in
+        real time.
+      </p>
+    </SectionCard>
+  );
+}
+
+// ── Platform Story (FIX 1: use chord total_flow_usd) ─────────────────────────
+
 function PlatformStorySection({
   database,
+  chordTotalFlowUsd,
 }: {
   database: NonNullable<ReturnType<typeof useDashboardData>["data"]>["status"]["database"];
+  chordTotalFlowUsd: number;
 }) {
   const db = isPartial(database) ? null : database;
+
+  function formatFlowUsd(n: number): string {
+    if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`;
+    if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(0)}M`;
+    if (n > 0) return `$${formatNumber(n)}`;
+    return null!;
+  }
+
+  const flowLabel = formatFlowUsd(chordTotalFlowUsd) ?? (db ? `${formatNumber(db.financial_relationships)} donor records` : null);
 
   return (
     <SectionCard>
       <SectionHeader title="What Civitics Tracks" />
       <div className="mt-4 space-y-2">
         {[
-          db
-            ? `$${db.financial_relationships >= 1_000_000 ? (db.financial_relationships / 100_000_000).toFixed(2) + "B" : formatNumber(db.financial_relationships)} in donation flows`
-            : "Donation flows tracked",
+          flowLabel ? `${flowLabel} in donation flows` : "Donation flows tracked",
           db ? `${formatNumber(db.votes)} congressional votes` : "Congressional votes tracked",
           db ? `${formatNumber(db.proposals)} federal regulations` : "Federal regulations tracked",
           db ? `${formatNumber(db.officials)} officials across federal, state, and judiciary` : "Officials across all levels",
@@ -637,7 +920,6 @@ function SelfTestsSection({
       <ul className="mt-4 space-y-2">
         {selfTests.map((test) => {
           const label = SELF_TEST_LABELS[test.name] ?? test.name.replace(/_/g, " ");
-          // Inject budget % into AI budget label
           const displayLabel =
             test.name === "ai_budget_ok" && costs
               ? `AI budget OK (${costs.budget_used_pct.toFixed(0)}% used)`
@@ -676,12 +958,7 @@ export function DashboardClient({
   officialsBreakdown,
 }: DashboardClientProps) {
   const { data, loading, error } = useDashboardData();
-  const [secondsAgo, setSecondsAgo] = useState(0);
-
-  // Track refresh age
-  if (typeof window !== "undefined") {
-    // reset handled by hook
-  }
+  const [_secondsAgo] = useState(0);
 
   const db = data && !isPartial(data.status.database) ? data.status.database : null;
   const failedTests =
@@ -689,7 +966,18 @@ export function DashboardClient({
       ? data.status.self_tests.filter((t) => !t.passed)
       : [];
 
-  const totalViews = db?.page_views_24h ?? 0;
+  // FIX 1: chord total flow USD
+  const chordSection =
+    data?.status.chord && !isPartial(data.status.chord) ? data.status.chord : null;
+  const chordTotalFlowUsd = chordSection?.total_flow_usd ?? 0;
+
+  // FIX 7: activity from status API
+  const activitySectionData: ActivitySectionData | null =
+    data?.status.activity && !isPartial(data.status.activity)
+      ? (data.status.activity as ActivitySectionData)
+      : null;
+  const topPages = activitySectionData?.top_pages ?? activity;
+  const totalViews = activitySectionData?.page_views_24h ?? db?.page_views_24h ?? 0;
 
   return (
     <div className="space-y-6">
@@ -767,7 +1055,31 @@ export function DashboardClient({
         ) : (
           <>
             <ConnectionHighlightsSection chordFlows={data?.chordFlows ?? []} />
-            <ActivitySection activity={activity} totalViews={totalViews} />
+            <ActivitySection activity={topPages} totalViews={totalViews} />
+          </>
+        )}
+      </div>
+
+      {/* ── FIX 3: Platform Costs ── */}
+      {!loading && (
+        <PlatformCostsSection
+          aiCosts={data?.status.ai_costs ?? { error: "Loading", partial: true }}
+          version={data?.status.version ?? { error: "Loading", partial: true }}
+        />
+      )}
+      {loading && <LoadingSkeleton variant="card" />}
+
+      {/* ── FIX 4: Development Progress + FIX 5: Community Compute ── */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {loading ? (
+          <>
+            <LoadingSkeleton variant="card" />
+            <LoadingSkeleton variant="card" />
+          </>
+        ) : (
+          <>
+            <DevelopmentProgressSection />
+            <CommunityComputeSection />
           </>
         )}
       </div>
@@ -783,6 +1095,7 @@ export function DashboardClient({
           <>
             <PlatformStorySection
               database={data?.status.database ?? { error: "Loading", partial: true }}
+              chordTotalFlowUsd={chordTotalFlowUsd}
             />
             <SelfTestsSection
               selfTests={data?.status.self_tests ?? { error: "Loading", partial: true }}

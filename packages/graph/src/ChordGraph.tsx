@@ -196,13 +196,11 @@ export function ChordGraph({ className = "", svgRef: externalSvgRef }: ChordGrap
 
         // API returns { chord: { groups, recipients, matrix, ... } }
         const json = await res.json() as {
-          chord?: {
-            groups?:     { id: string; label: string; icon: string; total_usd: number; pac_count: number }[];
-            recipients?: { id: string; label: string; total_received_usd: number; official_count: number }[];
-            matrix?:     number[][];
-            top_flows?:  unknown[];
-            total_flow_usd?: number;
-          };
+          groups?:     { id: string; label: string; icon: string; total_usd: number; pac_count: number }[];
+          recipients?: { id: string; label: string; total_received_usd: number; official_count: number }[];
+          matrix?:     number[][];
+          top_flows?:  unknown[];
+          total_flow_usd?: number;
           error?: string;
         };
 
@@ -210,20 +208,18 @@ export function ChordGraph({ className = "", svgRef: externalSvgRef }: ChordGrap
 
         if (cancelled) return;
 
-        const chord = json.chord;
-
-        if (json.error || !chord?.groups?.length || !chord?.matrix?.length) {
-          console.log('[ChordGraph] empty state — chord:', chord);
+        if (json.error || !json.groups?.length || !json.matrix?.length) {
+          console.log('[ChordGraph] setting empty because:', { groups: json.groups, matrix: json.matrix, rawJson: json });
           setStatus("empty");
           return;
         }
 
-        const groups     = chord.groups;
-        const recipients = chord.recipients ?? [];
-        const rawMatrix  = chord.matrix;
+        const groups     = json.groups;
+        const recipients = json.recipients ?? [];
+        const rawMatrix  = json.matrix;
 
-        console.log('[ChordGraph] groups:', groups.length, groups.map(g => g.id));
-        console.log('[ChordGraph] recipients:', recipients.length, recipients.map(r => r.id));
+        console.log('[ChordGraph] groups:', groups.length, groups.map((g: { id: string }) => g.id));
+        console.log('[ChordGraph] recipients:', recipients.length, recipients.map((r: { id: string }) => r.id));
         console.log('[ChordGraph] matrix before expansion:', rawMatrix);
 
         // Build dynamic group metadata for all arcs (industries first, then parties)

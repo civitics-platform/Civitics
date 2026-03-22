@@ -137,6 +137,16 @@ export function useGraphView(initialView?: Partial<GraphView>) {
         } as GraphView['connections'],
       })),
 
+    /** Replace the full settings object for a connection type. Used by ConnectionStyleRow. */
+    setConnection: (type: string, settings: GraphView['connections'][string]) =>
+      setView(v => markDirty({
+        ...v,
+        connections: {
+          ...v.connections,
+          [type]: settings,
+        } as GraphView['connections'],
+      })),
+
     // ── Layer 3: Style ──────────────────────────────────────────────────────
 
     // NOTE: do NOT call markDirty here.

@@ -19,6 +19,24 @@ export type { TooltipProps, TooltipState } from "./components/Tooltip";
 export { NodePopup } from "./components/NodePopup";
 export type { NodePopupProps } from "./components/NodePopup";
 
+// G2 — new panel architecture
+export { TreeNode, TreeSection } from "./components/TreeNode";
+export type { TreeNodeProps, TreeNodeAction, TreeNodeVariant, TreeSectionProps } from "./components/TreeNode";
+export { EntitySearchInput } from "./components/EntitySearchInput";
+export type { EntitySearchInputProps } from "./components/EntitySearchInput";
+export { EntityBrowse } from "./components/EntityBrowse";
+export type { EntityBrowseProps } from "./components/EntityBrowse";
+export { ConnectionStyleRow } from "./components/ConnectionStyleRow";
+export type { ConnectionStyleRowProps, ConnectionTypeSettings } from "./components/ConnectionStyleRow";
+export { FocusTree } from "./components/FocusTree";
+export type { FocusTreeProps } from "./components/FocusTree";
+export { ConnectionsTree } from "./components/ConnectionsTree";
+export type { ConnectionsTreeProps } from "./components/ConnectionsTree";
+export { DataExplorerPanel } from "./components/DataExplorerPanel";
+export type { DataExplorerPanelProps } from "./components/DataExplorerPanel";
+export { GraphConfigPanel } from "./components/GraphConfigPanel";
+export type { GraphConfigPanelProps } from "./components/GraphConfigPanel";
+
 // New types (Stage 1)
 export type { GraphView, GraphViewPreset, VizType, GraphNode as GraphNodeV2, GraphEdge as GraphEdgeV2, FocusEntity, FocusOperation, UpdateCategory } from "./types";
 export { MAX_FOCUS_ENTITIES } from "./types";

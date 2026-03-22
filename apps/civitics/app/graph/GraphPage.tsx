@@ -14,7 +14,7 @@ import type { VizMode } from "@civitics/graph";
 import { PRESETS } from "@civitics/graph";
 import type { PresetId } from "@civitics/graph";
 // New architecture
-import { useGraphView, GraphHeader, SettingsPanel } from "@civitics/graph";
+import { useGraphView, GraphHeader, SettingsPanel, DataExplorerPanel, GraphConfigPanel } from "@civitics/graph";
 import type { VizType } from "@civitics/graph";
 import { SharePanel }      from "./SharePanel";
 import { ScreenshotPanel } from "./ScreenshotPanel";
@@ -114,6 +114,10 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
   // New architecture state
   const graphHooks = useGraphView();
   const { view }   = graphHooks;
+
+  // Panel collapse state
+  const [leftCollapsed,  setLeftCollapsed]  = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(true); // starts collapsed
 
   // Backward-compat shim: derive single entity ID/name from new entities array
   // Used until ForceGraph and other viz components are fully migrated in G3
@@ -264,6 +268,18 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredNodes.length]);
 
+  // ── Panel keyboard shortcuts: [ = left, ] = right ────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Skip when typing in an input/textarea
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === '[') setLeftCollapsed(p => !p);
+      if (e.key === ']') setRightCollapsed(p => !p);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   // ── Header handlers — keep old + new arch in sync ────────────────────────────
   function handleHeaderVizChange(vizType: VizType) {
     graphHooks.setVizType(vizType);
@@ -283,6 +299,21 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
       graphHooks.clearFocus();
       setCenterEntity(null);
     }
+  }
+
+  function handleSavePreset() {
+    if (typeof window === 'undefined') return;
+    const name = window.prompt('Name this preset:');
+    if (!name?.trim()) return;
+    // Saved to localStorage — user presets will be loaded in G3
+    try {
+      const existing = JSON.parse(localStorage.getItem('civitics_presets') ?? '[]');
+      const newPreset = {
+        ...view,
+        meta: { name: name.trim(), isPreset: true, presetId: `user-${Date.now()}`, isDirty: false },
+      };
+      localStorage.setItem('civitics_presets', JSON.stringify([...existing, newPreset]));
+    } catch { /* localStorage unavailable */ }
   }
 
   function handleFullscreen() {
@@ -363,8 +394,19 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
         );
       })()}
 
-      {/* ── Main canvas area (full width now — no sidebar) ──────────────────── */}
-      <div className="flex flex-1 overflow-hidden relative">
+      {/* ── Three-column body ────────────────────────────────────────────────── */}
+      <div className="flex flex-1 overflow-hidden">
+
+        {/* LEFT — Data Explorer */}
+        <DataExplorerPanel
+          view={view}
+          hooks={graphHooks}
+          collapsed={leftCollapsed}
+          onCollapse={() => setLeftCollapsed(p => !p)}
+        />
+
+        {/* CANVAS — flex-1 */}
+        <div className="flex-1 overflow-hidden relative">
 
         {/* ── Force graph ───────────────────────────────────────────────────── */}
         <div
@@ -500,7 +542,7 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
           />
         </div>
 
-        {/* ── SettingsPanel (bottom-left, floats over canvas) ───────────────── */}
+        {/* ── SettingsPanel (bottom-left, floats over canvas) — keep for G3 ── */}
         <SettingsPanel
           hooks={graphHooks}
           onShare={() => setShowShare(true)}
@@ -549,6 +591,17 @@ export function GraphPage({ initialCode, initialState }: GraphPageProps = {}) {
             />
           </div>
         )}
+
+        </div>{/* end CANVAS */}
+
+        {/* RIGHT — Graph Config */}
+        <GraphConfigPanel
+          view={view}
+          hooks={graphHooks}
+          collapsed={rightCollapsed}
+          onCollapse={() => setRightCollapsed(p => !p)}
+          onSavePreset={handleSavePreset}
+        />
 
       </div>
 

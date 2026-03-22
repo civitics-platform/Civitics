@@ -15,18 +15,23 @@ investigate, simple enough for anyone, and deep enough for experts.
 ## The Three-Layer Model
 
 Every graph state is a `GraphView`. This is the single source of truth
-for all state — what entity is focused, which connections are visible,
+for all state — what entities are focused, which connections are visible,
 and how they are rendered.
 
 ```ts
 interface GraphView {
   // LAYER 1 — FOCUS
-  // Who/what is this graph about
+  // A SET of entities to explore.
+  // Not one — a collection.
+  // The graph shows all of them
+  // plus their connections,
+  // with shared connections
+  // becoming visually prominent.
   focus: {
-    entityId: string | null
-    entityName: string | null
-    scope: 'all' | 'federal' | 'state' | 'senate' | 'house'
+    entities: FocusEntity[]
     depth: 1 | 2 | 3
+    scope: 'all' | 'federal'
+      | 'state' | 'senate' | 'house'
     includeProcedural: boolean
   }
 
@@ -70,13 +75,69 @@ interface GraphView {
 }
 ```
 
+### FocusEntity Interface
+
+```ts
+interface FocusEntity {
+  id: string
+  name: string
+  type: 'official' | 'agency'
+    | 'proposal' | 'financial'
+  role?: string
+  party?: string
+  photoUrl?: string
+
+  // Per-entity overrides
+  depth?: 1 | 2 | 3
+    // overrides global depth
+    // for this entity only
+  highlight?: boolean
+    // render as larger node
+    // default: true for all
+    // focused entities
+  pinned?: boolean
+    // lock position in simulation
+  color?: string
+    // custom highlight ring color
+}
+```
+
+### Focus Operations (useGraphView)
+
+```ts
+// Focus operations
+addEntity(entity: FocusEntity)
+  // Fetch connections for entity
+  // Merge into existing graph
+  // Show loading ring on new node
+  // Does NOT clear existing focus
+
+removeEntity(id: string)
+  // Remove node from graph
+  // Remove orphaned edges
+  // Keep edges shared with
+  //   other focused entities
+
+updateEntity(
+  id: string,
+  options: Partial<FocusEntity>
+)
+  // Update per-entity options
+  // If depth changes: re-fetch
+  // Otherwise: visual update only
+
+clearFocus()
+  // Remove all entities
+  // Empty graph state
+```
+
 ### The Critical Rule: Viz Switching Is Style-Only
 
 Switching viz type sets `style.vizType` only.
 
 `focus` and `connections` **NEVER change** on viz switch.
 
-The user's entity, depth, scope, and connection filters persist when they
+The user's entities, depth, scope, and connection filters persist when they
 switch from Force → Chord → Treemap → Sunburst. The user's context is
 sacred — never throw it away on a UI mode change.
 
@@ -99,29 +160,56 @@ sacred — never throw it away on a UI mode change.
 
 ```
 packages/graph/src/
-  types.ts                  ← GraphView, VizDefinition, NodeActions,
-                               VizType, all shared interfaces
-  registry.ts               ← VIZ_REGISTRY
-  connections.ts            ← CONNECTION_TYPE_REGISTRY
-  presets.ts                ← built-in presets as GraphView objects
+  types.ts            ← add FocusEntity,
+                         FocusOperations
+  registry.ts         ← VIZ_REGISTRY
+  connections.ts      ← CONNECTION_TYPE_REGISTRY
+  presets.ts          ← built-in presets
+
+  hooks/
+    useGraphView.ts   ← GraphView state
+                         add/remove entity ops
+    useEntitySearch.ts ← NEW: debounced
+                         entity search hook
+    useGraphData.ts   ← NEW: fetch + merge
+                         graph data for
+                         focus entity set
 
   components/
-    GraphHeader.tsx         ← fixed header bar: viz dropdown, search,
-                               share button, screenshot button
-    SettingsPanel.tsx       ← draggable panel: 3 collapsible sections
-    FocusSection.tsx        ← Layer 1 settings (entity, depth, scope)
-    ConnectionsSection.tsx  ← Layer 2 settings (per-type toggles)
-    StyleSection.tsx        ← Layer 3 settings (dynamic per active viz)
-    NodePopup.tsx           ← click popup (shared across all viz types)
-    Tooltip.tsx             ← hover tooltip (shared across all viz types)
+    -- Panels (NEW architecture):
+    DataExplorerPanel.tsx  ← left panel
+    GraphConfigPanel.tsx   ← right panel
+    TreeNode.tsx           ← core primitive
+
+    -- Panel sections (NEW):
+    FocusTree.tsx          ← focus section
+    ConnectionsTree.tsx    ← connections section
+    EntitySearchInput.tsx  ← search + results
+    EntityBrowse.tsx       ← browse by category
+    ConnectionStyleRow.tsx ← per-type styling
+
+    -- Shared (existing, keep):
+    GraphHeader.tsx     ← top bar
+    NodePopup.tsx       ← click popup
+    Tooltip.tsx         ← hover tooltip
+
+    -- OLD (to be removed):
+    SettingsPanel.tsx   ← REPLACE with
+                          DataExplorerPanel
+                          + GraphConfigPanel
+    FocusSection.tsx    ← REPLACE with
+                          FocusTree
+    ConnectionsSection.tsx ← REPLACE with
+                          ConnectionsTree
+    StyleSection.tsx    ← REPLACE with
+                          GraphConfigPanel
 
   visualizations/
-    registry.ts             ← VIZ_REGISTRY (already exists)
-    ForceGraph.tsx
+    ForceGraph.tsx      ← update to accept
+                          entities[] not entityId
     ChordGraph.tsx
     TreemapGraph.tsx
     SunburstGraph.tsx
-    (future viz files here)
 ```
 
 **Current state (as of March 2026):** Components still live flat in `src/`.
@@ -330,7 +418,7 @@ interface VizDefinition {
   component: React.ComponentType<VizProps>
 
   // Does this viz require a focused entity?
-  // true  = needs focus.entityId (force, sunburst)
+  // true  = needs focus.entities (force, sunburst)
   // false = works globally without one (chord, treemap)
   requiresEntity: boolean
 
@@ -416,6 +504,174 @@ If view is a loaded preset and `meta.isDirty = true`:
 ```
 [💾 Save changes]     [↗ Share]
 ```
+
+---
+
+## Panel Layout
+
+The graph uses a three-column
+layout: left panel, canvas,
+right panel.
+```
+┌──────────┬──────────────────┬─────────┐
+│  DATA    │                  │ GRAPH   │
+│ EXPLORER │   GRAPH CANVAS   │ CONFIG  │
+│          │                  │         │
+│ 260px    │   flex-1         │ 220px   │
+│ LEFT     │                  │ RIGHT   │
+└──────────┴──────────────────┴─────────┘
+```
+
+### Left Panel — Data Explorer
+File: `components/DataExplorerPanel.tsx`
+Width: 260px, collapsible to 40px icon strip
+Purpose: WHAT data is on the graph
+
+Contains two main tree sections:
+
+**FOCUS tree:**
+- Active entities list
+  (each with per-entity options)
+- Search to add entities
+- Browse by category
+
+**CONNECTIONS tree:**
+- Active connection types
+  (each with style controls)
+- Available types to add
+
+### Right Panel — Graph Config
+File: `components/GraphConfigPanel.tsx`
+Width: 220px, collapsible to 40px icon strip
+Purpose: HOW the graph looks and behaves
+
+Contains:
+- Viz type dropdown
+- Presets
+- Type-specific settings
+  (changes per active viz type)
+- Display settings
+  (labels, node size, animation)
+
+### Canvas
+Takes all remaining horizontal space.
+Tooltips, node popups, and the
+watermark float inside the canvas.
+
+### Collapse Behavior
+Both panels collapse to a 40px
+icon strip showing section icons.
+Keyboard: [ to toggle left panel
+           ] to toggle right panel
+Mobile: both panels become
+  bottom drawers, canvas is full screen
+
+### Real-Time Wiring (CRITICAL)
+Every panel control MUST drive
+the graph in real time.
+No "Apply" buttons. No "Refresh".
+Every change is immediate.
+
+Three categories of updates:
+
+**Category A — Visual only (< 16ms):**
+No simulation restart. Update
+SVG styles directly via D3 select.
+  - Connection color
+  - Connection opacity
+  - Connection thickness
+  - Label visibility
+  - Node highlight colors
+
+**Category B — Simulation restart (~200ms):**
+Data already loaded. Restart
+simulation with new parameters.
+  - Physics: charge, distance, gravity
+  - Layout mode change
+  - Node size encoding change
+  - Add/remove connection TYPE
+
+**Category C — Re-fetch (~500-1000ms):**
+New data needed from API.
+Show loading state on affected
+nodes only — not full graph reload.
+  - Add entity to focus
+  - Remove entity from focus
+  - Depth change for entity
+  - Scope filter change
+
+**Rule:** Never reload the full
+graph when a partial update
+will do. Merge new data into
+existing graph state.
+
+---
+
+## TreeNode — The Core UI Primitive
+
+Both panels are built entirely
+from one recursive component:
+`components/TreeNode.tsx`
+
+Every row in both panels is a
+TreeNode. This ensures complete
+visual consistency across the
+entire panel UI.
+```ts
+interface TreeNodeProps {
+  // Content
+  label: string | ReactNode
+  icon?: string | ReactNode
+  count?: number        // badge
+
+  // Expand/collapse
+  defaultExpanded?: boolean
+  expanded?: boolean    // controlled
+  onExpandChange?: (v: boolean)
+    => void
+  collapsible?: boolean // default true
+
+  // State indicators
+  active?: boolean      // has content
+  loading?: boolean     // fetching
+  dirty?: boolean       // modified
+
+  // Right side actions
+  // Appear on hover
+  actions?: Array<{
+    icon: string
+    label: string        // tooltip
+    onClick: () => void
+  }>
+
+  // Appearance
+  depth?: number         // auto-set
+  variant?: 'section'   // bold header
+    | 'item'             // normal row
+    | 'entity'           // with avatar
+    | 'connection'       // color dot
+
+  children?: ReactNode
+}
+```
+
+### Visual Rules
+- Indent: `depth * 12px` padding-left
+- Max depth: 4 (redesign if exceeded)
+- `variant="section"`: font-semibold,
+  slightly larger, separator above
+- `variant="entity"`: shows party
+  color ring around avatar
+- `variant="connection"`: shows
+  colored dot from CONNECTION_TYPE_REGISTRY
+- Actions: hidden by default,
+  appear on row hover
+- Count badge: gray pill, right of label
+
+### Never build custom panel rows.
+If you need a new panel element,
+it's a TreeNode with appropriate
+variant and children.
 
 ---
 
@@ -676,6 +932,62 @@ Opacity = connection strength (0.3 minimum). Weak connections fade.
 
 ---
 
+## Multi-Entity Focus Behavior
+
+When multiple entities are focused:
+
+**Node rendering:**
+- All focused entities render
+  as larger nodes (1.5× default size)
+- Each gets a colored highlight ring
+  (blue for Democrat, red for
+  Republican, purple for Independent)
+- Focused nodes are pinned to
+  a loose center cluster —
+  they stay roughly central
+  but simulation still moves them
+
+**Edge rendering:**
+- Edges SHARED between two or
+  more focused entities render
+  thicker and more opaque
+  — these are the "entanglement" edges
+  — most analytically interesting
+- Edges unique to one entity
+  render at normal weight
+
+**Example:**
+  Focus: Warren + Cruz
+
+  Shared donor → both get
+  thick amber edge → visually pops
+
+  "INDIVIDUAL CONTRIBUTORS gave
+   money to BOTH Warren AND Cruz"
+  → This is a civic insight
+  → The graph makes it obvious
+
+**Loading behavior:**
+  When adding entity N to focus:
+  - Existing graph stays visible
+  - New entity node appears with
+    loading spinner ring
+  - Connections load and merge in
+  - Spinner disappears
+  - Simulation gently re-settles
+
+  Never blank the graph to load.
+  Always merge incrementally.
+
+**MAX_FOCUS_ENTITIES = 5**
+  Beyond 5 the graph becomes
+  unreadable. Show a warning
+  at 4 and block at 5.
+  "Maximum 5 entities in focus.
+   Remove one to add another."
+
+---
+
 ## Smart Graph Expansion Rules
 
 `MAX_AUTO_EXPAND = 50` — if a neighbor has 50+ connections, it is
@@ -880,6 +1192,33 @@ Show a persistent hint: "Select any official to explore their full network."
 
 ✗ Don't store full document text in graph state —
   store IDs and fetch on demand
+
+✗ Don't use focus.entityId —
+  it no longer exists.
+  Always use focus.entities[]
+  and addEntity/removeEntity ops
+
+✗ Don't build custom panel rows —
+  always use TreeNode component
+
+✗ Don't restart the simulation
+  for Category A visual changes —
+  update SVG styles directly
+
+✗ Don't reload the full graph
+  when adding one entity —
+  merge new data into existing
+  graph state
+
+✗ Don't show "Apply" or
+  "Refresh" buttons anywhere
+  in the panels — all changes
+  are real-time and immediate
+
+✗ Don't collapse both panels
+  at the same time by default —
+  left panel starts open,
+  right panel starts collapsed
 ```
 
 ---

@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { createServerClient, agencyFullName } from "@civitics/db";
 import { AgenciesList } from "./components/AgenciesList";
 import { PageViewTracker } from "../components/PageViewTracker";
+import { PageHeader } from "@civitics/ui";
 
 export const metadata = { title: "Agencies" };
 
@@ -70,9 +71,19 @@ export default async function AgenciesPage() {
   });
 
   return (
-    <>
+    <div className="min-h-screen bg-gray-50">
       <PageViewTracker entityType="agency_list" />
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <PageHeader
+          title="Agencies"
+          description="Federal agencies, their active rulemaking, and open comment periods."
+          breadcrumb={[
+            { label: "Civitics", href: "/" },
+            { label: "Agencies" },
+          ]}
+        />
+      </div>
       <AgenciesList agencies={agencies} />
-    </>
+    </div>
   );
 }

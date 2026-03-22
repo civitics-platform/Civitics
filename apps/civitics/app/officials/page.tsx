@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@civitics/db";
 import { OfficialsList } from "./components/OfficialsList";
 import { PageViewTracker } from "../components/PageViewTracker";
+import { PageHeader } from "@civitics/ui";
 import type { EntityTag } from "../components/tags/EntityTags";
 
 export const metadata = { title: "Officials" };
@@ -87,12 +88,22 @@ export default async function OfficialsPage({
   }
 
   return (
-    <>
+    <div className="min-h-screen bg-gray-50">
       <PageViewTracker entityType="official_list" />
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <PageHeader
+          title="Officials"
+          description="Every elected and appointed official — votes, donors, and promises on record."
+          breadcrumb={[
+            { label: "Civitics", href: "/" },
+            { label: "Officials" },
+          ]}
+        />
+      </div>
       <OfficialsList
         officials={officials}
         defaultSelectedId={searchParams.selected}
       />
-    </>
+    </div>
   );
 }

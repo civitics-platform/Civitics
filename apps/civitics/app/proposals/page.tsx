@@ -6,6 +6,7 @@ import { ProposalCard, type ProposalCardData } from "./components/ProposalCard";
 import { AGENCY_FULL_NAMES } from "./components/agencyNames";
 import type { EntityTag } from "../components/tags/EntityTags";
 import { PageViewTracker } from "../components/PageViewTracker";
+import { PageHeader } from "@civitics/ui";
 
 const PAGE_SIZE = 20;
 
@@ -233,20 +234,16 @@ export default async function ProposalsPage({
       <PageViewTracker entityType="proposal_list" />
       {/* ─── Header ────────────────────────────────────────────────────────── */}
       <div className="border-b border-gray-200 bg-white">
-        <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-          <div className="max-w-2xl">
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
-              <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
-              {totalCount.toLocaleString()} proposals · All public record
-            </div>
-            <h1 className="text-3xl font-bold tracking-tight text-gray-900">
-              Proposals &amp; Open Comment Periods
-            </h1>
-            <p className="mt-3 text-base text-gray-600 leading-relaxed">
-              Bills, regulations, and rules from Congress and federal agencies.
-              Submit official comments for free — no account required.
-            </p>
-          </div>
+        <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+          <PageHeader
+            title="Proposals"
+            description="Bills, regulations, and rules open for public comment."
+            breadcrumb={[
+              { label: "Civitics", href: "/" },
+              { label: "Proposals" },
+            ]}
+            badge={`${totalCount.toLocaleString()} total`}
+          />
         </div>
       </div>
 

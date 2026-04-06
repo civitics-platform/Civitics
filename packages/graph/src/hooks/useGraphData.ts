@@ -43,9 +43,23 @@ export function useGraphData(
   // Track which nodes belong to each group (groupId → Set of connected node IDs)
   const groupNodeIds = useRef(new Map<string, Set<string>>());
 
-  // When focus.entities changes: fetch data for new entities, remove data for removed entities
+  // Track the last includeProcedural value so we can detect changes and force a re-fetch
+  const prevIncludeProceduralRef = useRef(focus.includeProcedural);
+
+  // When focus.entities or includeProcedural changes: fetch data for new entities,
+  // remove data for removed entities, and re-fetch all when the procedural filter toggles.
   useEffect(() => {
     const currentIds = new Set(focus.entities.map(e => e.id));
+
+    // If the procedural filter changed, clear all cached fetches so every entity
+    // gets re-fetched with the updated ?include_procedural param.
+    if (prevIncludeProceduralRef.current !== focus.includeProcedural) {
+      prevIncludeProceduralRef.current = focus.includeProcedural;
+      fetchedIds.current.clear();
+      groupNodeIds.current.clear();
+      setNodes([]);
+      setEdges([]);
+    }
 
     // Find newly added entities (groups are resolved separately; only fetch FocusEntity items here)
     const toFetch = focus.entities.filter(
@@ -104,7 +118,7 @@ export function useGraphData(
       fetchedIds.current.clear();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focus.entities]);
+  }, [focus.entities, focus.includeProcedural]);
 
   async function fetchEntities(entities: FocusEntity[]) {
     setLoading(true);
@@ -115,6 +129,7 @@ export function useGraphData(
           entityId: entity.id,
           depth: String(entity.depth ?? focus.depth),
           viz: 'force',
+          include_procedural: String(focus.includeProcedural),
         });
 
         const res = await fetch(`/api/graph/connections?` + params);

@@ -37,10 +37,12 @@ export function AlignmentPanel({ initialIssues, onAlignmentChange }: AlignmentPa
   }
 
   const topIssues = [...issues]
-    .sort((a, b) => b.importance - a.importance)
+    .sort((a, b) => b.importance - a.importance || a.id.localeCompare(b.id))
     .slice(0, 3);
 
-  const sortedIssues = [...issues].sort((a, b) => b.importance - a.importance);
+  const sortedIssues = [...issues].sort(
+    (a, b) => b.importance - a.importance || a.id.localeCompare(b.id)
+  );
 
   return (
     <div className="border-t border-gray-800 mt-2 pt-2">

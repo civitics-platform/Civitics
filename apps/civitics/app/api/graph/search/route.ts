@@ -1,5 +1,5 @@
 import { createAdminClient } from "@civitics/db";
-import { supabaseUnavailable, unavailableResponse } from "@/lib/supabase-check";
+import { supabaseUnavailable, unavailableResponse, withDbTimeout } from "@/lib/supabase-check";
 
 export const dynamic = "force-dynamic";
 
@@ -21,10 +21,12 @@ export async function GET(req: Request) {
 
   // Single RPC call: fuzzy (trigram + ILIKE) across officials, agencies,
   // proposals, and financial_entities. Fetch 20 per type so ranking has room.
-  const { data, error } = await supabase.rpc("search_graph_entities", {
-    q,
-    lim: 20,
-  });
+  const { data, error } = await withDbTimeout(
+    supabase.rpc("search_graph_entities", {
+      q,
+      lim: 20,
+    })
+  );
 
   if (error) {
     console.error("[graph/search] RPC error:", error.message);

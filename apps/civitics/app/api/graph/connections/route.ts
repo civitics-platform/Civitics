@@ -1,7 +1,7 @@
 export const revalidate = 60; // Graph connections cached 1 minute at edge
 
 import { createAdminClient } from "@civitics/db";
-import { supabaseUnavailable, unavailableResponse } from "@/lib/supabase-check";
+import { supabaseUnavailable, unavailableResponse, withDbTimeout } from "@/lib/supabase-check";
 import type { Database } from "@civitics/db";
 import type { GraphEdgeV2 as GraphEdge, GraphNodeV2 as GraphNode, EdgeType, NodeTypeV2 as NodeType } from "@civitics/graph";
 
@@ -132,23 +132,29 @@ export async function GET(request: Request) {
       const OVERSIGHT_TYPES = ["oversight", "appointment", "co_sponsorship"] as const;
 
       const [donationsRes, votesRes, oversightRes] = await Promise.all([
-        supabase
-          .from("entity_connections")
-          .select("*")
-          .eq("connection_type", "donation")
-          .or(`from_id.eq.${entityId},to_id.eq.${entityId}`),
-        supabase
-          .from("entity_connections")
-          .select("*")
-          .in("connection_type", VOTE_TYPES)
-          .or(`from_id.eq.${entityId},to_id.eq.${entityId}`)
-          .order("occurred_at", { ascending: false, nullsFirst: false })
-          .limit(50),
-        supabase
-          .from("entity_connections")
-          .select("*")
-          .in("connection_type", OVERSIGHT_TYPES)
-          .or(`from_id.eq.${entityId},to_id.eq.${entityId}`),
+        withDbTimeout(
+          supabase
+            .from("entity_connections")
+            .select("*")
+            .eq("connection_type", "donation")
+            .or(`from_id.eq.${entityId},to_id.eq.${entityId}`)
+        ),
+        withDbTimeout(
+          supabase
+            .from("entity_connections")
+            .select("*")
+            .in("connection_type", VOTE_TYPES)
+            .or(`from_id.eq.${entityId},to_id.eq.${entityId}`)
+            .order("occurred_at", { ascending: false, nullsFirst: false })
+            .limit(50)
+        ),
+        withDbTimeout(
+          supabase
+            .from("entity_connections")
+            .select("*")
+            .in("connection_type", OVERSIGHT_TYPES)
+            .or(`from_id.eq.${entityId},to_id.eq.${entityId}`)
+        ),
       ]);
 
       if (donationsRes.error) throw donationsRes.error;
@@ -214,21 +220,42 @@ export async function GET(request: Request) {
 
     } else {
       // ── Default view: top 10 most connected officials ──────────────────
-      const { data: allForCount, error: countErr } = await supabase
-        .from("entity_connections")
-        .select("from_id, from_type, to_id, to_type");
+      // Use a HEAD request for the total count (no rows transferred), then
+      // two small targeted queries (officials only, capped at 3 000 each)
+      // to find the top 10 by connection frequency.
+      // Previously fetched all 143 k rows client-side — ~100× egress reduction.
+      const { count, error: countErr } = await withDbTimeout(
+        supabase
+          .from("entity_connections")
+          .select("*", { count: "exact", head: true })
+      );
 
       if (countErr) throw countErr;
-      totalCount = allForCount?.length ?? 0;
+      totalCount = count ?? 0;
 
-      if (!allForCount || allForCount.length === 0) {
+      if (totalCount === 0) {
         return Response.json({ nodes: [], edges: [], count: 0 });
       }
 
+      const [fromRes, toRes] = await Promise.all([
+        supabase
+          .from("entity_connections")
+          .select("from_id")
+          .eq("from_type", "official")
+          .limit(3000),
+        supabase
+          .from("entity_connections")
+          .select("to_id")
+          .eq("to_type", "official")
+          .limit(3000),
+      ]);
+
       const officialCounts = new Map<string, number>();
-      for (const c of allForCount) {
-        if (c.from_type === "official") officialCounts.set(c.from_id, (officialCounts.get(c.from_id) ?? 0) + 1);
-        if (c.to_type === "official") officialCounts.set(c.to_id, (officialCounts.get(c.to_id) ?? 0) + 1);
+      for (const r of fromRes.data ?? []) {
+        officialCounts.set(r.from_id, (officialCounts.get(r.from_id) ?? 0) + 1);
+      }
+      for (const r of toRes.data ?? []) {
+        officialCounts.set(r.to_id, (officialCounts.get(r.to_id) ?? 0) + 1);
       }
 
       const top10Ids = [...officialCounts.entries()]
@@ -240,13 +267,13 @@ export async function GET(request: Request) {
         return Response.json({ nodes: [], edges: [], count: totalCount });
       }
 
-      const [fromRes, toRes] = await Promise.all([
+      const [expandFromRes, expandToRes] = await Promise.all([
         supabase.from("entity_connections").select("*").in("from_id", top10Ids),
         supabase.from("entity_connections").select("*").in("to_id", top10Ids),
       ]);
 
       const connMap = new Map<string, ConnectionRow>();
-      for (const c of [...(fromRes.data ?? []), ...(toRes.data ?? [])]) {
+      for (const c of [...(expandFromRes.data ?? []), ...(expandToRes.data ?? [])]) {
         connMap.set(c.id, c);
       }
       connections = [...connMap.values()];

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Stats = {
   counts: {
@@ -45,8 +45,13 @@ export function DashboardStatsSection() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [secondsAgo, setSecondsAgo] = useState(0);
   const [error, setError] = useState(false);
+  // Stop polling after 3 consecutive failures — avoids burning Vercel CPU
+  // when Supabase is down or paused. User can reload the page to retry.
+  const [stopped, setStopped] = useState(false);
+  const consecutiveErrors = useRef(0);
 
   async function fetchStats() {
+    if (consecutiveErrors.current >= 3) return;
     try {
       const res = await fetch("/api/dashboard/stats", { cache: "no-store" });
       if (!res.ok) throw new Error("fetch failed");
@@ -54,14 +59,19 @@ export function DashboardStatsSection() {
       setStats(data);
       setSecondsAgo(0);
       setError(false);
+      setStopped(false);
+      consecutiveErrors.current = 0;
     } catch {
+      consecutiveErrors.current += 1;
       setError(true);
+      if (consecutiveErrors.current >= 3) setStopped(true);
     }
   }
 
   useEffect(() => {
     fetchStats();
-    const refresher = setInterval(fetchStats, 60_000);
+    // 5-minute refresh interval (was 60s — too frequent for count queries on large tables)
+    const refresher = setInterval(fetchStats, 300_000);
     const counter = setInterval(() => setSecondsAgo((s) => s + 1), 1000);
     return () => {
       clearInterval(refresher);
@@ -113,9 +123,11 @@ export function DashboardStatsSection() {
       </div>
 
       <p className="mt-2 text-xs text-gray-400">
-        {error
+        {stopped
+          ? "Could not load live counts — reload the page to retry"
+          : error
           ? "Could not load live counts — retrying…"
-          : `Live counts · updated ${freshnessLabel} · refreshes every 60s`}
+          : `Live counts · updated ${freshnessLabel} · refreshes every 5m`}
       </p>
     </div>
   );

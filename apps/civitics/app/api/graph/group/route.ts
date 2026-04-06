@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@civitics/db";
-import { supabaseUnavailable, unavailableResponse } from "@/lib/supabase-check";
+import { supabaseUnavailable, unavailableResponse, withDbTimeout } from "@/lib/supabase-check";
 import type { GraphEdgeV2 as GraphEdge, GraphNodeV2 as GraphNode, NodeTypeV2 as NodeType } from "@civitics/graph";
 
 // Local extensions — group route adds metadata and id fields not in base types
@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
     if (state)
       memberQuery = memberQuery.filter("metadata->>state", "eq", state);
 
-    const { count: memberCount, data: memberData } = await memberQuery.limit(1000);
+    const { count: memberCount, data: memberData } = await withDbTimeout(memberQuery.limit(1000));
 
     const memberIds = (memberData ?? []).map((m) => m.id);
 
@@ -69,7 +69,8 @@ export async function GET(req: NextRequest) {
         .select("donor_name, amount_cents, metadata")
         .in("official_id", batch)
         .not("donor_name", "ilike", "%PAC/Committee%")
-        .order("amount_cents", { ascending: false });
+        .order("amount_cents", { ascending: false })
+        .limit(550); // 535 House + Senate members max
       if (batchData) allDonationRows.push(...batchData);
     }
     const donationData = allDonationRows;
@@ -161,12 +162,15 @@ export async function GET(req: NextRequest) {
   // Which officials received the most money from PACs in this industry?
 
   if (entityType === "pac") {
-    const { data: pacData } = await supabase
-      .from("financial_relationships")
-      .select("official_id, amount_cents")
-      .eq("donor_type", "pac")
-      .filter("metadata->>sector", "eq", industry ?? "")
-      .not("donor_name", "ilike", "%PAC/Committee%");
+    const { data: pacData } = await withDbTimeout(
+      supabase
+        .from("financial_relationships")
+        .select("official_id, amount_cents")
+        .eq("donor_type", "pac")
+        .filter("metadata->>sector", "eq", industry ?? "")
+        .not("donor_name", "ilike", "%PAC/Committee%")
+        .limit(5000)
+    );
 
     const officialMap = new Map<string, {
       officialId: string;

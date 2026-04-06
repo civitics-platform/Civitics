@@ -12,7 +12,7 @@
  */
 
 import { createAdminClient } from "@civitics/db";
-import { supabaseUnavailable, unavailableResponse } from "@/lib/supabase-check";
+import { supabaseUnavailable, unavailableResponse, withDbTimeout } from "@/lib/supabase-check";
 
 export const dynamic = "force-dynamic";
 
@@ -71,10 +71,12 @@ export async function GET(request: Request) {
   const supabase = createAdminClient();
 
   // Use existing fuzzy-search RPC (trigram + ILIKE across all entity tables)
-  const { data, error } = await supabase.rpc("search_graph_entities", {
-    q,
-    lim: 20,
-  });
+  const { data, error } = await withDbTimeout(
+    supabase.rpc("search_graph_entities", {
+      q,
+      lim: 20,
+    })
+  );
 
   if (error) {
     console.error("[graph/entities]", error.message);

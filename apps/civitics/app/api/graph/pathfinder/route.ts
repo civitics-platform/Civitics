@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { createAdminClient } from "@civitics/db";
-import { supabaseUnavailable, unavailableResponse } from "@/lib/supabase-check";
+import { supabaseUnavailable, unavailableResponse, withDbTimeout } from "@/lib/supabase-check";
 
 export const dynamic = "force-dynamic";
 
@@ -22,11 +22,13 @@ export async function POST(req: NextRequest) {
 
     // BFS via recursive CTE
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc("find_entity_path", {
-      p_from_id: from_id,
-      p_to_id: to_id,
-      p_max_hops: Math.min(max_hops, 4),
-    });
+    const { data, error } = await withDbTimeout(
+      (supabase as any).rpc("find_entity_path", {
+        p_from_id: from_id,
+        p_to_id: to_id,
+        p_max_hops: Math.min(max_hops, 4),
+      })
+    );
 
     if (error) {
       // If RPC doesn't exist yet, return graceful empty response

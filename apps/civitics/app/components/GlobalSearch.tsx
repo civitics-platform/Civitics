@@ -8,12 +8,18 @@
  * - Cmd/Ctrl+K global shortcut (nav variant only)
  * - Arrow key navigation + Enter to select + Esc to close
  * - Click outside to close
- * - Groups results by: Officials, Proposals, Agencies
+ * - Groups results by: Officials, Proposals, Agencies, Donors & PACs
  * - "View all results" navigates to /search?q=...
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SearchResults, SearchOfficial, SearchProposal, SearchAgency } from "../api/search/route";
+import type {
+  SearchResults,
+  SearchOfficial,
+  SearchProposal,
+  SearchAgency,
+  SearchFinancialEntity,
+} from "../api/search/route";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -38,26 +44,37 @@ function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase();
 }
 
+function formatDollarsShort(cents: number | null): string {
+  if (cents == null) return "";
+  const dollars = cents / 100;
+  if (dollars >= 1_000_000) return `$${(dollars / 1_000_000).toFixed(1)}M`;
+  if (dollars >= 1_000) return `$${(dollars / 1_000).toFixed(0)}K`;
+  return `$${dollars.toFixed(0)}`;
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 type FlatResult =
-  | { kind: "official"; data: SearchOfficial }
-  | { kind: "proposal"; data: SearchProposal }
-  | { kind: "agency";   data: SearchAgency };
+  | { kind: "official";  data: SearchOfficial }
+  | { kind: "proposal";  data: SearchProposal }
+  | { kind: "agency";    data: SearchAgency }
+  | { kind: "financial"; data: SearchFinancialEntity };
 
 function flattenResults(results: SearchResults): FlatResult[] {
   const flat: FlatResult[] = [];
-  for (const o of results.officials.slice(0, 3)) flat.push({ kind: "official", data: o });
-  for (const p of results.proposals.slice(0, 3)) flat.push({ kind: "proposal", data: p });
-  for (const a of results.agencies.slice(0, 2))  flat.push({ kind: "agency",   data: a });
+  for (const o of results.officials.slice(0, 3))          flat.push({ kind: "official",  data: o });
+  for (const p of results.proposals.slice(0, 3))          flat.push({ kind: "proposal",  data: p });
+  for (const a of results.agencies.slice(0, 2))           flat.push({ kind: "agency",    data: a });
+  for (const f of results.financial_entities.slice(0, 2)) flat.push({ kind: "financial", data: f });
   return flat;
 }
 
 function hrefFor(r: FlatResult): string {
-  if (r.kind === "official") return `/officials/${r.data.id}`;
-  if (r.kind === "proposal") return `/proposals/${r.data.id}`;
+  if (r.kind === "official")  return `/officials/${r.data.id}`;
+  if (r.kind === "proposal")  return `/proposals/${r.data.id}`;
+  if (r.kind === "financial") return `/donors/${r.data.id}`;
   return `/agencies/${r.data.id}`;
 }
 
@@ -121,6 +138,32 @@ function AgencyResult({ a, selected }: { a: SearchAgency; selected: boolean }) {
   );
 }
 
+function FinancialEntityResult({ f, selected }: { f: SearchFinancialEntity; selected: boolean }) {
+  return (
+    <div className={`flex items-center gap-3 px-4 py-2.5 transition-colors ${selected ? "bg-indigo-50" : "hover:bg-gray-50"}`}>
+      {/* Dollar-sign icon instead of photo/acronym */}
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-gray-200 bg-green-50 text-green-600">
+        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-gray-900">{f.name}</p>
+        <p className="truncate text-xs text-gray-400">
+          {f.entity_type.replace(/_/g, " ")}
+          {f.industry ? ` · ${f.industry}` : ""}
+        </p>
+      </div>
+      {f.total_amount_cents != null && (
+        <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
+          {formatDollarsShort(f.total_amount_cents)}
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -134,15 +177,15 @@ export function GlobalSearch({
   variant = "nav",
   placeholder = "Search officials, proposals, agencies…",
 }: Props) {
-  const [query, setQuery]           = useState("");
-  const [results, setResults]       = useState<SearchResults | null>(null);
-  const [loading, setLoading]       = useState(false);
-  const [open, setOpen]             = useState(false);
+  const [query, setQuery]             = useState("");
+  const [results, setResults]         = useState<SearchResults | null>(null);
+  const [loading, setLoading]         = useState(false);
+  const [open, setOpen]               = useState(false);
   const [selectedIdx, setSelectedIdx] = useState(-1);
 
-  const inputRef    = useRef<HTMLInputElement>(null);
+  const inputRef     = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debounceRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Flat result list for keyboard nav
   const flatResults = results ? flattenResults(results) : [];
@@ -228,6 +271,11 @@ export function GlobalSearch({
     ? "w-full rounded-lg border border-gray-300 bg-white px-5 py-3.5 text-base text-gray-900 placeholder-gray-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
     : "w-full rounded-full border border-gray-300 bg-white pl-8 pr-3 py-1.5 text-sm text-gray-500 placeholder-gray-400 shadow-sm hover:border-gray-400 hover:shadow focus:border-indigo-400 focus:text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-400/20 cursor-text transition-shadow";
 
+  // Offset indexes for keyboard nav per section
+  const offProposal  = results?.officials.slice(0, 3).length ?? 0;
+  const offAgency    = offProposal + (results?.proposals.slice(0, 3).length ?? 0);
+  const offFinancial = offAgency   + (results?.agencies.slice(0, 2).length ?? 0);
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div ref={containerRef} className={`relative ${isHero ? "w-full max-w-xl" : "w-48 lg:w-64"}`}>
@@ -270,14 +318,11 @@ export function GlobalSearch({
               <p className="border-b border-gray-100 bg-gray-50 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-gray-400">
                 Officials
               </p>
-              {results.officials.slice(0, 3).map((o, i) => {
-                const flatIdx = i;
-                return (
-                  <a key={o.id} href={`/officials/${o.id}`} onClick={() => setOpen(false)}>
-                    <OfficialResult o={o} selected={selectedIdx === flatIdx} />
-                  </a>
-                );
-              })}
+              {results.officials.slice(0, 3).map((o, i) => (
+                <a key={o.id} href={`/officials/${o.id}`} onClick={() => setOpen(false)}>
+                  <OfficialResult o={o} selected={selectedIdx === i} />
+                </a>
+              ))}
             </div>
           )}
 
@@ -287,14 +332,11 @@ export function GlobalSearch({
               <p className="border-b border-gray-100 bg-gray-50 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-gray-400">
                 Proposals
               </p>
-              {results.proposals.slice(0, 3).map((p, i) => {
-                const flatIdx = results.officials.length + i;
-                return (
-                  <a key={p.id} href={`/proposals/${p.id}`} onClick={() => setOpen(false)}>
-                    <ProposalResult p={p} selected={selectedIdx === flatIdx} />
-                  </a>
-                );
-              })}
+              {results.proposals.slice(0, 3).map((p, i) => (
+                <a key={p.id} href={`/proposals/${p.id}`} onClick={() => setOpen(false)}>
+                  <ProposalResult p={p} selected={selectedIdx === offProposal + i} />
+                </a>
+              ))}
             </div>
           )}
 
@@ -304,14 +346,25 @@ export function GlobalSearch({
               <p className="border-b border-gray-100 bg-gray-50 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-gray-400">
                 Agencies
               </p>
-              {results.agencies.slice(0, 2).map((a, i) => {
-                const flatIdx = results.officials.length + results.proposals.length + i;
-                return (
-                  <a key={a.id} href={`/agencies/${a.id}`} onClick={() => setOpen(false)}>
-                    <AgencyResult a={a} selected={selectedIdx === flatIdx} />
-                  </a>
-                );
-              })}
+              {results.agencies.slice(0, 2).map((a, i) => (
+                <a key={a.id} href={`/agencies/${a.id}`} onClick={() => setOpen(false)}>
+                  <AgencyResult a={a} selected={selectedIdx === offAgency + i} />
+                </a>
+              ))}
+            </div>
+          )}
+
+          {/* Donors & PACs */}
+          {results.financial_entities.length > 0 && (
+            <div className="border-t border-gray-100">
+              <p className="border-b border-gray-100 bg-gray-50 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+                Donors & PACs
+              </p>
+              {results.financial_entities.slice(0, 2).map((f, i) => (
+                <a key={f.id} href={`/donors/${f.id}`} onClick={() => setOpen(false)}>
+                  <FinancialEntityResult f={f} selected={selectedIdx === offFinancial + i} />
+                </a>
+              ))}
             </div>
           )}
 

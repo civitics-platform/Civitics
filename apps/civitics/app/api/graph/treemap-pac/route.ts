@@ -1,5 +1,5 @@
 import { createAdminClient } from "@civitics/db";
-import { supabaseUnavailable, unavailableResponse } from "@/lib/supabase-check";
+import { supabaseUnavailable, unavailableResponse, withDbTimeout } from "@/lib/supabase-check";
 
 export const dynamic = "force-dynamic";
 
@@ -34,12 +34,14 @@ export async function GET(request: Request) {
   // ── Sector mode ──────────────────────────────────────────────────────────────
 
   if (groupBy === "sector") {
-    const { data, error } = await supabase
-      .from("financial_relationships")
-      .select("donor_name, amount_cents, metadata")
-      .in("donor_type", ["pac", "party_committee"])
-      .not("metadata->>sector", "is", null)
-      .neq("metadata->>sector", "Other");
+    const { data, error } = await withDbTimeout(
+      supabase
+        .from("financial_relationships")
+        .select("donor_name, amount_cents, metadata")
+        .in("donor_type", ["pac", "party_committee"])
+        .not("metadata->>sector", "is", null)
+        .neq("metadata->>sector", "Other")
+    );
 
     if (error) {
       console.error("[treemap-pac/sector] query error:", error.message);
@@ -93,7 +95,9 @@ export async function GET(request: Request) {
   // ── Party mode ───────────────────────────────────────────────────────────────
 
   // donor_type filter is enforced inside the RPC function
-  const { data, error } = await supabase.rpc("get_pac_donations_by_party");
+  const { data, error } = await withDbTimeout(
+    supabase.rpc("get_pac_donations_by_party")
+  );
 
   if (error) {
     console.error("[treemap-pac/party] rpc error:", error.message);

@@ -123,7 +123,7 @@ export function TreeNode({
 
       {/* Row */}
       <div
-        className="group flex items-center gap-1.5 px-2 py-1.5 cursor-pointer hover:bg-gray-50 transition-colors select-none"
+        className={`group flex items-center gap-1.5 px-2 py-1.5 cursor-pointer transition-colors select-none ${active ? 'bg-indigo-100 hover:bg-indigo-200 border-l-2 border-indigo-500' : 'hover:bg-gray-50 border-l-2 border-transparent'}`}
         style={{ paddingLeft: `${8 + depth * 12}px` }}
         onClick={handleRowClick}
       >
@@ -174,7 +174,7 @@ export function TreeNode({
             isSection
               ? 'font-semibold text-gray-900 uppercase tracking-wide'
               : 'font-normal text-gray-700',
-            active ? 'text-indigo-700 font-medium' : '',
+            active ? 'text-indigo-700 font-semibold' : '',
           ].join(' ')}
         >
           {label}

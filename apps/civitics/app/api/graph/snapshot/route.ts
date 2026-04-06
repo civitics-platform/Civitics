@@ -19,7 +19,7 @@
 
 import { createAdminClient } from "@civitics/db";
 import type { Json } from "@civitics/db";
-import { supabaseUnavailable, unavailableResponse } from "@/lib/supabase-check";
+import { supabaseUnavailable, unavailableResponse, withDbTimeout } from "@/lib/supabase-check";
 
 export const dynamic = "force-dynamic";
 // revalidate = 60 is overridden by force-dynamic; Cache-Control header is set manually.
@@ -126,10 +126,10 @@ async function resolveEntityByName(
   supabase: AdminClient,
   name: string,
 ): Promise<{ entity: ResolvedEntity | null; queries: number }> {
-  const { data, error } = await supabase.rpc("search_graph_entities", {
+  const { data, error } = await withDbTimeout(supabase.rpc("search_graph_entities", {
     q: name,
     lim: 1,
-  });
+  }));
   let queries = 1;
   if (error || !data?.length) return { entity: null, queries };
 
@@ -279,7 +279,7 @@ async function buildForceData(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   if (filters.length > 0) q = (q as any).in("connection_type", filters);
 
-  const { data: direct } = await q;
+  const { data: direct } = await withDbTimeout(q);
   queries++;
   let all = (direct ?? []) as ConnectionRow[];
 
@@ -292,16 +292,20 @@ async function buildForceData(
     ].slice(0, 20);
 
     const [fRes, tRes] = await Promise.all([
-      supabase
-        .from("entity_connections")
-        .select("id, from_id, from_type, to_id, to_type, connection_type, strength, amount_cents")
-        .in("from_id", neighborIds)
-        .limit(Math.ceil(limit / 2)),
-      supabase
-        .from("entity_connections")
-        .select("id, from_id, from_type, to_id, to_type, connection_type, strength, amount_cents")
-        .in("to_id", neighborIds)
-        .limit(Math.ceil(limit / 2)),
+      withDbTimeout(
+        supabase
+          .from("entity_connections")
+          .select("id, from_id, from_type, to_id, to_type, connection_type, strength, amount_cents")
+          .in("from_id", neighborIds)
+          .limit(Math.ceil(limit / 2))
+      ),
+      withDbTimeout(
+        supabase
+          .from("entity_connections")
+          .select("id, from_id, from_type, to_id, to_type, connection_type, strength, amount_cents")
+          .in("to_id", neighborIds)
+          .limit(Math.ceil(limit / 2))
+      ),
     ]);
     queries += 2;
 
@@ -323,10 +327,12 @@ async function buildForceData(
   if (!includeProcedural) {
     const proposalIds = [...new Set(all.filter((c) => c.to_type === "proposal").map((c) => c.to_id))];
     if (proposalIds.length > 0) {
-      const { data: propCats } = await supabase
-        .from("proposals")
-        .select("id, vote_category")
-        .in("id", proposalIds);
+      const { data: propCats } = await withDbTimeout(
+        supabase
+          .from("proposals")
+          .select("id, vote_category")
+          .in("id", proposalIds)
+      );
       queries++;
       const proceduralIds = new Set(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -413,11 +419,11 @@ async function buildForceData(
   if (resolvedId && resolvedId2) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: pathData } = await (supabase as any).rpc("find_entity_path", {
+      const { data: pathData } = await withDbTimeout((supabase as any).rpc("find_entity_path", {
         p_from_id: resolvedId,
         p_to_id: resolvedId2,
         p_max_hops: 4,
-      });
+      }));
       queries++;
       if (Array.isArray(pathData) && pathData.length > 0) {
         path = (pathData as { entity_id: string }[]).map(
@@ -510,7 +516,7 @@ async function buildChordData(
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any).rpc("chord_industry_flows");
+  const { data, error } = await withDbTimeout((supabase as any).rpc("chord_industry_flows"));
   const queries = 1;
 
   if (error || !data) {
@@ -621,9 +627,9 @@ async function buildTreemapData(
   max_value_entity: string;
   queries: number;
 }> {
-  const { data, error } = await supabase.rpc("treemap_officials_by_donations", {
+  const { data, error } = await withDbTimeout(supabase.rpc("treemap_officials_by_donations", {
     lim: Math.min(limit, 200),
-  });
+  }));
 
   if (error || !data) {
     return {
@@ -1254,11 +1260,13 @@ export async function GET(request: Request) {
   try {
     const supabase = createAdminClient();
 
-    const { data, error } = await supabase
-      .from("graph_snapshots")
-      .select("code, state, title, created_at, view_count")
-      .eq("code", code)
-      .single();
+    const { data, error } = await withDbTimeout(
+      supabase
+        .from("graph_snapshots")
+        .select("code, state, title, created_at, view_count")
+        .eq("code", code)
+        .single()
+    );
 
     if (error || !data) {
       return Response.json({ error: "Snapshot not found" }, { status: 404 });

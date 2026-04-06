@@ -1,5 +1,5 @@
 import { createAdminClient } from "@civitics/db";
-import { supabaseUnavailable, unavailableResponse } from "@/lib/supabase-check";
+import { supabaseUnavailable, unavailableResponse, withDbTimeout } from "@/lib/supabase-check";
 
 export const dynamic = "force-dynamic";
 
@@ -42,9 +42,11 @@ export async function GET(request: Request) {
       transaction_count: number;
     };
 
-    const { data, error } = await supabase.rpc("get_official_donors", {
-      p_official_id: validEntityId,
-    });
+    const { data, error } = await withDbTimeout(
+      supabase.rpc("get_official_donors", {
+        p_official_id: validEntityId,
+      })
+    );
 
     if (error) {
       console.error("[graph/treemap/entity] RPC error:", error.message);
@@ -72,20 +74,23 @@ export async function GET(request: Request) {
   const party   = searchParams.get("party");
   const state   = searchParams.get("state");
 
-  const { data, error } = await supabase.rpc("treemap_officials_by_donations", {
-    lim: 200,
-  });
+  // Pass filters to the RPC so the DB aggregates only the relevant officials.
+  // e.g. senate+democrat: ~50 rows instead of 8k — much faster.
+  // Use a longer timeout (10s) for this heavy aggregation RPC.
+  const { data, error } = await withDbTimeout(
+    supabase.rpc("treemap_officials_by_donations", {
+      lim:       200,
+      p_chamber: chamber ?? null,
+      p_party:   party   ?? null,
+      p_state:   state   ?? null,
+    }),
+    10000
+  );
 
   if (error) {
     console.error("[graph/treemap] RPC error:", error.message);
     return Response.json({ error: error.message }, { status: 500 });
   }
 
-  let filtered = (data ?? []) as TreemapRow[];
-
-  if (chamber) filtered = filtered.filter((o) => o.chamber === chamber);
-  if (party)   filtered = filtered.filter((o) => o.party   === party);
-  if (state)   filtered = filtered.filter((o) => o.state   === state);
-
-  return Response.json(filtered);
+  return Response.json((data ?? []) as TreemapRow[]);
 }

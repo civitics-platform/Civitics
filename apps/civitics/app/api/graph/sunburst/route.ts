@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { createAdminClient } from "@civitics/db";
-import { supabaseUnavailable, unavailableResponse } from "@/lib/supabase-check";
+import { supabaseUnavailable, unavailableResponse, withDbTimeout } from "@/lib/supabase-check";
 import type { GroupFilter } from "@civitics/graph";
 
 export const dynamic = "force-dynamic";
@@ -121,11 +121,13 @@ export async function GET(req: NextRequest) {
 
       // Resolve member IDs via RPC
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: memberData, error: memberError } = await (supabase as any).rpc("get_officials_by_filter", {
-        p_chamber: groupFilter.chamber ?? null,
-        p_party:   groupFilter.party   ?? null,
-        p_state:   groupFilter.state   ?? null,
-      }) as { data: Array<{ id: string }> | null; error: unknown };
+      const { data: memberData, error: memberError } = await withDbTimeout(
+        (supabase as any).rpc("get_officials_by_filter", {
+          p_chamber: groupFilter.chamber ?? null,
+          p_party:   groupFilter.party   ?? null,
+          p_state:   groupFilter.state   ?? null,
+        })
+      ) as { data: Array<{ id: string }> | null; error: unknown };
 
       if (memberError) console.error("[sunburst] getMemberIds error:", memberError);
       const memberIds = (memberData ?? []).map((m: { id: string }) => m.id);
@@ -137,10 +139,12 @@ export async function GET(req: NextRequest) {
       // ── Group mode: donation_industries ─────────────────────────────────────
       if (ring1 === "donation_industries") {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data: sectorData, error: sectorError } = await (supabase as any).rpc("get_group_sector_totals", {
-          p_member_ids: memberIds,
-          p_min_usd: 0,
-        }) as { data: Array<{ sector: string; total_usd: number }> | null; error: unknown };
+        const { data: sectorData, error: sectorError } = await withDbTimeout<{ data: Array<{ sector: string; total_usd: number }> | null; error: unknown }>(
+          (supabase as any).rpc("get_group_sector_totals", {
+            p_member_ids: memberIds,
+            p_min_usd: 0,
+          })
+        );
 
         if (sectorError) console.error("[sunburst] group sector error:", sectorError);
 
@@ -168,10 +172,12 @@ export async function GET(req: NextRequest) {
 
       // ── Fetch all group connections via RPC (avoids .in() URL limit) ─────────
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: groupConns, error: connsError } = await (supabase as any).rpc("get_group_connections", {
-        p_member_ids: memberIds,
-        p_limit: 500,
-      }) as { data: Array<{ connection_type: string | null; to_id: string; strength: number; amount_cents: number | null; from_id: string }> | null; error: unknown };
+      const { data: groupConns, error: connsError } = await withDbTimeout(
+        (supabase as any).rpc("get_group_connections", {
+          p_member_ids: memberIds,
+          p_limit: 500,
+        })
+      ) as { data: Array<{ connection_type: string | null; to_id: string; strength: number; amount_cents: number | null; from_id: string }> | null; error: unknown };
 
       if (connsError) {
         console.error("[sunburst] group conns error:", (connsError as { message?: string }).message ?? connsError);
@@ -285,23 +291,27 @@ export async function GET(req: NextRequest) {
     }
 
     // Look up the center entity's own name
-    const { data: centerEntity } = await supabase
-      .from("officials")
-      .select("full_name, party, role_title")
-      .eq("id", entityId)
-      .single();
+    const { data: centerEntity } = await withDbTimeout(
+      supabase
+        .from("officials")
+        .select("full_name, party, role_title")
+        .eq("id", entityId)
+        .single()
+    );
 
     const centerName = centerEntity?.full_name ?? entityLabel ?? entityId;
 
     // ── MODE: donation_industries ──────────────────────────────────────────
     if (ring1 === "donation_industries") {
-      const { data: donations } = await supabase
-        .from("financial_relationships")
-        .select("donor_name, amount_cents, metadata")
-        .eq("official_id", entityId)
-        .not("donor_name", "ilike", "%PAC/Committee%")
-        .order("amount_cents", { ascending: false })
-        .limit(200);
+      const { data: donations } = await withDbTimeout(
+        supabase
+          .from("financial_relationships")
+          .select("donor_name, amount_cents, metadata")
+          .eq("official_id", entityId)
+          .not("donor_name", "ilike", "%PAC/Committee%")
+          .order("amount_cents", { ascending: false })
+          .limit(200)
+      );
 
       const bySector = new Map<string, Array<{ name: string; value: number }>>();
       for (const d of donations ?? []) {
@@ -340,12 +350,14 @@ export async function GET(req: NextRequest) {
 
     // ── MODE: vote_categories ──────────────────────────────────────────────
     if (ring1 === "vote_categories") {
-      const { data: votes } = await supabase
-        .from("entity_connections")
-        .select("connection_type, to_id, strength")
-        .eq("from_id", entityId)
-        .in("connection_type", ["vote_yes", "vote_no", "vote_abstain", "nomination_vote_yes", "nomination_vote_no"])
-        .limit(200);
+      const { data: votes } = await withDbTimeout(
+        supabase
+          .from("entity_connections")
+          .select("connection_type, to_id, strength")
+          .eq("from_id", entityId)
+          .in("connection_type", ["vote_yes", "vote_no", "vote_abstain", "nomination_vote_yes", "nomination_vote_no"])
+          .limit(200)
+      );
 
       const proposalIds = [...new Set((votes ?? []).map(v => v.to_id))];
       const { data: proposals } = await supabase
@@ -391,11 +403,13 @@ export async function GET(req: NextRequest) {
     }
 
     // ── MODE: connection_types (default) ───────────────────────────────────
-    const { data: connections, error } = await supabase
-      .from("entity_connections")
-      .select("connection_type, to_id, strength, amount_cents")
-      .eq("from_id", entityId)
-      .limit(200);
+    const { data: connections, error } = await withDbTimeout(
+      supabase
+        .from("entity_connections")
+        .select("connection_type, to_id, strength, amount_cents")
+        .eq("from_id", entityId)
+        .limit(200)
+    );
 
     if (error) {
       console.error("[sunburst]", error.message);

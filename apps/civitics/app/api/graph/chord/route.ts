@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { createAdminClient } from "@civitics/db";
-import { supabaseUnavailable, unavailableResponse } from "@/lib/supabase-check";
+import { supabaseUnavailable, unavailableResponse, withDbTimeout } from "@/lib/supabase-check";
 import type { GroupFilter } from "@civitics/graph";
 
 export const dynamic = "force-dynamic";
@@ -111,11 +111,13 @@ export async function GET(req: NextRequest) {
   async function getMemberIds(filter: GroupFilter): Promise<string[]> {
     console.log('[getMemberIds] filter:', JSON.stringify(filter));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any).rpc('get_officials_by_filter', {
-      p_chamber: filter.chamber ?? null,
-      p_party:   filter.party   ?? null,
-      p_state:   filter.state   ?? null,
-    }) as { data: Array<{ id: string }> | null; error: unknown };
+    const { data, error } = await withDbTimeout<{ data: Array<{ id: string }> | null; error: unknown }>(
+      (supabase as any).rpc('get_officials_by_filter', {
+        p_chamber: filter.chamber ?? null,
+        p_party:   filter.party   ?? null,
+        p_state:   filter.state   ?? null,
+      })
+    );
     console.log('[getMemberIds] count:', data?.length ?? 0);
     console.log('[getMemberIds] error:', error);
     return (data ?? []).map((m: { id: string }) => m.id);
@@ -134,10 +136,12 @@ export async function GET(req: NextRequest) {
       }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: sectorData, error: sectorError } = await (supabase as any).rpc(
-        'get_crossgroup_sector_totals',
-        { p_group1_ids: group1Ids, p_group2_ids: group2Ids }
-      ) as { data: Array<{ sector: string; group1_usd: number; group2_usd: number }> | null; error: unknown };
+      const { data: sectorData, error: sectorError } = await withDbTimeout<{ data: Array<{ sector: string; group1_usd: number; group2_usd: number }> | null; error: unknown }>(
+        (supabase as any).rpc(
+          'get_crossgroup_sector_totals',
+          { p_group1_ids: group1Ids, p_group2_ids: group2Ids }
+        )
+      );
 
       if (sectorError) {
         console.error('[chord/cross-group] sector error:', sectorError);
@@ -183,10 +187,12 @@ export async function GET(req: NextRequest) {
       const minFlowParam = parseFloat(searchParams.get('minFlowUsd') ?? '0');
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: sectorData, error: sectorError } = await (supabase as any).rpc(
-        'get_group_sector_totals',
-        { p_member_ids: memberIds, p_min_usd: minFlowParam }
-      ) as { data: Array<{ sector: string; total_usd: number }> | null; error: unknown };
+      const { data: sectorData, error: sectorError } = await withDbTimeout<{ data: Array<{ sector: string; total_usd: number }> | null; error: unknown }>(
+        (supabase as any).rpc(
+          'get_group_sector_totals',
+          { p_member_ids: memberIds, p_min_usd: minFlowParam }
+        )
+      );
 
       if (sectorError) {
         console.error('[chord/group] sector error:', sectorError);
@@ -229,25 +235,28 @@ export async function GET(req: NextRequest) {
   if (entityId) {
     try {
       // Fetch official name
-      const { data: officialData } = await (supabase as ReturnType<typeof createAdminClient>)
-        .from("officials")
-        .select("id, name")
-        .eq("id", entityId)
-        .maybeSingle();
+      const { data: officialData } = await withDbTimeout(
+        (supabase as ReturnType<typeof createAdminClient>)
+          .from("officials")
+          .select("id, name")
+          .eq("id", entityId)
+          .maybeSingle()
+      );
 
       const official = officialData as OfficialRow | null;
 
       // Aggregate donations to this official by industry
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: donorData, error } = await (supabase as any)
+      const { data: donorData, error } = await withDbTimeout<{
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        data: Array<{ financial_entities: { industry_category: string | null } | null; amount_cents: number }> | null;
+        error: { message: string } | null;
+      }>((supabase as any)
         .from("financial_relationships")
         .select("financial_entities!inner(industry_category), amount_cents")
-        .eq("official_id", entityId) as {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          data: Array<{ financial_entities: { industry_category: string | null } | null; amount_cents: number }> | null;
-          error: { message: string } | null;
-        };
-
+        .eq("official_id", entityId)
+        .limit(2000)
+      );
       if (error) {
         console.error("[chord/entity] query error:", error.message);
         return NextResponse.json({ groups: [], recipients: [], matrix: [] });
@@ -301,7 +310,7 @@ export async function GET(req: NextRequest) {
   // ── Aggregate mode: industry → party flows ────────────────────────────────
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (createAdminClient() as any).rpc("chord_industry_flows");
+    const { data, error } = await withDbTimeout((createAdminClient() as any).rpc("chord_industry_flows"));
 
     if (error) {
       console.error("[chord] RPC error:", error.message);

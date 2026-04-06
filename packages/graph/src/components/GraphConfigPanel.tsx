@@ -95,18 +95,34 @@ function LabeledToggle({ label, value, onChange }: { label: string; value: boole
   );
 }
 
+// ── Vote/donation count helpers (shared across settings panels) ────────────────
+
+const VOTE_EDGE_TYPES = ['vote_yes', 'vote_no', 'vote_abstain', 'nomination_vote_yes', 'nomination_vote_no'];
+
+function voteCountFrom(graphMeta?: GraphMeta): number {
+  if (!graphMeta) return 0;
+  return VOTE_EDGE_TYPES.reduce((s, t) => s + (graphMeta.connectionTypes[t]?.count ?? 0), 0);
+}
+
+function donationCountFrom(graphMeta?: GraphMeta): number {
+  return graphMeta?.connectionTypes['donation']?.count ?? 0;
+}
+
 // ── Force settings ─────────────────────────────────────────────────────────────
 
 function ForceSettings({ view, hooks, graphMeta }: { view: GraphView; hooks: UseGraphViewReturn; graphMeta?: GraphMeta }) {
   const opts = view.style.vizOptions.force;
   function set(key: string, value: unknown) { hooks.setVizOption('force', key, value); }
 
+  const voteCount     = voteCountFrom(graphMeta);
+  const donationCount = donationCountFrom(graphMeta);
+
   const nodeSizeOptions = [
-    { value: 'connection_count', label: 'Connections',                 available: true },
-    { value: 'donation_total',   label: 'Donations',                   available: graphMeta?.hasDonations ?? true },
-    { value: 'bills_sponsored',  label: 'Bills',                       available: graphMeta?.hasVotes ?? true },
-    { value: 'years_in_office',  label: 'Seniority',                   available: true },
-    { value: 'uniform',          label: 'Uniform',                     available: true },
+    { value: 'connection_count', label: 'Connections',                                                     available: true },
+    { value: 'donation_total',   label: donationCount > 0 ? `Donations (${donationCount})` : 'Donations',  available: graphMeta?.hasDonations ?? true },
+    { value: 'bills_sponsored',  label: voteCount > 0     ? `Bills (${voteCount})`         : 'Bills',      available: graphMeta?.hasVotes ?? true },
+    { value: 'years_in_office',  label: 'Seniority',                                                       available: true },
+    { value: 'uniform',          label: 'Uniform',                                                         available: true },
   ].filter(o => o.available);
 
   // If the current encoding is no longer available (e.g. graph switched to PAC focus), reset to default
@@ -213,10 +229,13 @@ function TreemapSettings({ view, hooks, graphMeta }: { view: GraphView; hooks: U
   const isPacMode = dataMode === 'pac_sector' || dataMode === 'pac_party';
 
   // Filter size options by available data
+  const voteCount     = voteCountFrom(graphMeta);
+  const donationCount = donationCountFrom(graphMeta);
+
   const sizeByOptions = [
-    { value: 'donation_total',   label: 'Donations',   available: graphMeta?.hasDonations ?? true },
-    { value: 'connection_count', label: 'Connections', available: true },
-    { value: 'vote_count',       label: 'Votes cast',  available: graphMeta?.hasVotes ?? true },
+    { value: 'donation_total',   label: donationCount > 0 ? `Donations (${donationCount})` : 'Donations',  available: graphMeta?.hasDonations ?? true },
+    { value: 'connection_count', label: 'Connections',                                                       available: true },
+    { value: 'vote_count',       label: voteCount > 0     ? `Votes cast (${voteCount})`    : 'Votes cast',  available: graphMeta?.hasVotes ?? true },
   ].filter(o => o.available);
 
   const sizeBy = opts?.sizeBy ?? 'donation_total';
@@ -284,11 +303,8 @@ function SunburstSettings({
   // Build ring1 options based on available data.
   // Default true (show option) when graphMeta not yet available.
   // Compute counts from graphMeta.connectionTypes for informative labels.
-  const VOTE_EDGE_TYPES = ['vote_yes', 'vote_no', 'vote_abstain', 'nomination_vote_yes', 'nomination_vote_no'];
-  const voteCount     = graphMeta
-    ? VOTE_EDGE_TYPES.reduce((s, t) => s + (graphMeta.connectionTypes[t]?.count ?? 0), 0)
-    : 0;
-  const donationCount = graphMeta?.connectionTypes['donation']?.count ?? 0;
+  const voteCount     = voteCountFrom(graphMeta);
+  const donationCount = donationCountFrom(graphMeta);
 
   const ring1Options = [
     {
@@ -435,7 +451,7 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
               active={vizType === v.id}
               separator={false}
               depth={1}
-              icon={vizType === v.id ? '✓' : undefined}
+              icon={undefined}
               onClick={() => hooks.setVizType(v.id as VizType)}
             >
               {null}

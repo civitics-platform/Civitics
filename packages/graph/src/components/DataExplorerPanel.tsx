@@ -9,7 +9,7 @@
  * Keyboard shortcut: [ toggles left panel (managed by GraphPage)
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { GraphView } from '../types';
 import type { UseGraphViewReturn } from '../hooks/useGraphView';
 import type { GraphMeta } from '../hooks/useGraphData';
@@ -33,14 +33,14 @@ const SECTION_ICONS: Record<Section, string> = {
 };
 
 export function DataExplorerPanel({ view, hooks, collapsed, onCollapse, graphMeta }: DataExplorerPanelProps) {
-  const [savedAlignment] = useState(() => {
+  const [savedAlignment, setSavedAlignment] = useState(null);
+
+  useEffect(() => {
     try {
       const saved = localStorage.getItem('civic-alignment');
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
+      if (saved) setSavedAlignment(JSON.parse(saved));
+    } catch {}
+  }, []);
 
   // Collapsed: 40px icon strip
   if (collapsed) {
@@ -85,6 +85,7 @@ export function DataExplorerPanel({ view, hooks, collapsed, onCollapse, graphMet
         <FocusTree
           focus={view.focus}
           hooks={hooks}
+          graphMeta={graphMeta}
         />
         <ConnectionsTree
           connections={view.connections}

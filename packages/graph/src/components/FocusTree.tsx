@@ -11,6 +11,7 @@
 import type { FocusEntity, GraphView } from '../types';
 import { isFocusEntity, isFocusGroup, MAX_FOCUS_ENTITIES } from '../types';
 import type { UseGraphViewReturn } from '../hooks/useGraphView';
+import type { GraphMeta } from '../hooks/useGraphData';
 import { TreeNode, TreeSection } from './TreeNode';
 import { EntitySearchInput } from './EntitySearchInput';
 import { GroupBrowser } from './GroupBrowser';
@@ -19,6 +20,8 @@ import { PathFinder } from '../PathFinder';
 export interface FocusTreeProps {
   focus: GraphView['focus'];
   hooks: UseGraphViewReturn;
+  /** Optional: derived from loaded graph data. Used to gate vote-specific options. */
+  graphMeta?: GraphMeta;
 }
 
 const DEPTH_LABELS: Record<number, string> = { 1: '1', 2: '2', 3: '3' };
@@ -58,8 +61,11 @@ const SCOPE_OPTIONS = [
 ] as const;
 
 
-export function FocusTree({ focus, hooks }: FocusTreeProps) {
+export function FocusTree({ focus, hooks, graphMeta }: FocusTreeProps) {
   const { entities, depth, scope, includeProcedural } = focus;
+  // Only show the procedural toggle when the loaded graph actually has vote connections.
+  // When graphMeta is not yet loaded, default to showing it (better UX than hiding it).
+  const showProceduralToggle = graphMeta?.hasVotes !== false;
   const atMax = hooks.atMaxFocus;
 
   // Group entities by groupTag ('' = ungrouped). FocusGroups are handled separately.
@@ -249,19 +255,21 @@ export function FocusTree({ focus, hooks }: FocusTreeProps) {
           </select>
         </div>
 
-        {/* Procedural toggle */}
-        <div
-          className="flex items-center justify-between px-2 py-1.5"
-          style={{ paddingLeft: '32px' }}
-        >
-          <span className="text-[10px] text-gray-500">Procedural votes</span>
-          <button
-            onClick={hooks.toggleIncludeProcedural}
-            className={`w-7 h-4 rounded-full transition-colors relative ${includeProcedural ? 'bg-indigo-500' : 'bg-gray-200'}`}
+        {/* Procedural toggle — only shown when the graph has vote connections */}
+        {showProceduralToggle && (
+          <div
+            className="flex items-center justify-between px-2 py-1.5"
+            style={{ paddingLeft: '32px' }}
           >
-            <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${includeProcedural ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
-          </button>
-        </div>
+            <span className="text-[10px] text-gray-500">Procedural votes</span>
+            <button
+              onClick={hooks.toggleIncludeProcedural}
+              className={`w-7 h-4 rounded-full transition-colors relative ${includeProcedural ? 'bg-indigo-500' : 'bg-gray-200'}`}
+            >
+              <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${includeProcedural ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+        )}
       </TreeSection>
     </TreeSection>
   );

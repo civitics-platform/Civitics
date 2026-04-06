@@ -97,9 +97,23 @@ function LabeledToggle({ label, value, onChange }: { label: string; value: boole
 
 // ── Force settings ─────────────────────────────────────────────────────────────
 
-function ForceSettings({ view, hooks }: { view: GraphView; hooks: UseGraphViewReturn }) {
+function ForceSettings({ view, hooks, graphMeta }: { view: GraphView; hooks: UseGraphViewReturn; graphMeta?: GraphMeta }) {
   const opts = view.style.vizOptions.force;
   function set(key: string, value: unknown) { hooks.setVizOption('force', key, value); }
+
+  const nodeSizeOptions = [
+    { value: 'connection_count', label: 'Connections',                 available: true },
+    { value: 'donation_total',   label: 'Donations',                   available: graphMeta?.hasDonations ?? true },
+    { value: 'bills_sponsored',  label: 'Bills',                       available: graphMeta?.hasVotes ?? true },
+    { value: 'years_in_office',  label: 'Seniority',                   available: true },
+    { value: 'uniform',          label: 'Uniform',                     available: true },
+  ].filter(o => o.available);
+
+  // If the current encoding is no longer available (e.g. graph switched to PAC focus), reset to default
+  const sizeEncoding = opts?.nodeSizeEncoding ?? 'connection_count';
+  const validSizeEncoding = nodeSizeOptions.some(o => o.value === sizeEncoding)
+    ? sizeEncoding
+    : 'connection_count';
 
   return (
     <>
@@ -116,14 +130,8 @@ function ForceSettings({ view, hooks }: { view: GraphView; hooks: UseGraphViewRe
       />
       <LabeledSelect
         label="Node size"
-        value={opts?.nodeSizeEncoding ?? 'connection_count'}
-        options={[
-          { value: 'connection_count', label: 'Connections'   },
-          { value: 'donation_total',   label: 'Donations'     },
-          { value: 'bills_sponsored',  label: 'Bills'         },
-          { value: 'years_in_office',  label: 'Seniority'     },
-          { value: 'uniform',          label: 'Uniform'       },
-        ]}
+        value={validSizeEncoding}
+        options={nodeSizeOptions}
         onChange={v => set('nodeSizeEncoding', v)}
       />
       <LabeledSelect
@@ -158,9 +166,21 @@ function ForceSettings({ view, hooks }: { view: GraphView; hooks: UseGraphViewRe
 
 // ── Chord settings ─────────────────────────────────────────────────────────────
 
-function ChordSettings({ view, hooks }: { view: GraphView; hooks: UseGraphViewReturn }) {
+function ChordSettings({ view, hooks, graphMeta }: { view: GraphView; hooks: UseGraphViewReturn; graphMeta?: GraphMeta }) {
   const opts = view.style.vizOptions.chord;
   function set(key: string, value: unknown) { hooks.setVizOption('chord', key, value); }
+
+  // Chord diagram only shows meaningful data when donation connections are present.
+  // When graphMeta is loaded and confirms no donations, show a note instead of useless controls.
+  const noDonations = graphMeta !== undefined && !graphMeta.hasDonations;
+
+  if (noDonations) {
+    return (
+      <div className="px-3 py-2 text-[10px] text-gray-400 italic">
+        No donation data in this graph — chord diagram will be empty.
+      </div>
+    );
+  }
 
   return (
     <>
@@ -183,12 +203,26 @@ function ChordSettings({ view, hooks }: { view: GraphView; hooks: UseGraphViewRe
 
 // ── Treemap settings ───────────────────────────────────────────────────────────
 
-function TreemapSettings({ view, hooks }: { view: GraphView; hooks: UseGraphViewReturn }) {
+function TreemapSettings({ view, hooks, graphMeta }: { view: GraphView; hooks: UseGraphViewReturn; graphMeta?: GraphMeta }) {
   const opts = view.style.vizOptions.treemap;
   function set(key: string, value: unknown) { hooks.setVizOption('treemap', key, value); }
 
-  const dataMode = opts?.dataMode ?? 'officials';
+  // Auto-default to PAC sector view when a PAC group is focused
+  const defaultDataMode = (graphMeta?.isPacFocus ?? false) ? 'pac_sector' : 'officials';
+  const dataMode = opts?.dataMode ?? defaultDataMode;
   const isPacMode = dataMode === 'pac_sector' || dataMode === 'pac_party';
+
+  // Filter size options by available data
+  const sizeByOptions = [
+    { value: 'donation_total',   label: 'Donations',   available: graphMeta?.hasDonations ?? true },
+    { value: 'connection_count', label: 'Connections', available: true },
+    { value: 'vote_count',       label: 'Votes cast',  available: graphMeta?.hasVotes ?? true },
+  ].filter(o => o.available);
+
+  const sizeBy = opts?.sizeBy ?? 'donation_total';
+  const validSizeBy = sizeByOptions.some(o => o.value === sizeBy)
+    ? sizeBy
+    : (sizeByOptions[0]?.value ?? 'connection_count');
 
   return (
     <>
@@ -216,12 +250,8 @@ function TreemapSettings({ view, hooks }: { view: GraphView; hooks: UseGraphView
           />
           <LabeledSelect
             label="Size by"
-            value={opts?.sizeBy ?? 'donation_total'}
-            options={[
-              { value: 'donation_total',   label: 'Donations'   },
-              { value: 'connection_count', label: 'Connections' },
-              { value: 'vote_count',       label: 'Votes cast'  },
-            ]}
+            value={validSizeBy}
+            options={sizeByOptions}
             onChange={v => set('sizeBy', v)}
           />
           <LabeledSelect
@@ -253,6 +283,13 @@ function SunburstSettings({
 
   // Build ring1 options based on available data.
   // Default true (show option) when graphMeta not yet available.
+  // Compute counts from graphMeta.connectionTypes for informative labels.
+  const VOTE_EDGE_TYPES = ['vote_yes', 'vote_no', 'vote_abstain', 'nomination_vote_yes', 'nomination_vote_no'];
+  const voteCount     = graphMeta
+    ? VOTE_EDGE_TYPES.reduce((s, t) => s + (graphMeta.connectionTypes[t]?.count ?? 0), 0)
+    : 0;
+  const donationCount = graphMeta?.connectionTypes['donation']?.count ?? 0;
+
   const ring1Options = [
     {
       value: 'connection_types',
@@ -261,12 +298,12 @@ function SunburstSettings({
     },
     {
       value: 'donation_industries',
-      label: 'Donor industries',
+      label: donationCount > 0 ? `Donor industries (${donationCount})` : 'Donor industries',
       available: graphMeta?.hasDonations ?? true,
     },
     {
       value: 'vote_categories',
-      label: 'Vote record',
+      label: voteCount > 0 ? `Vote record (${voteCount})` : 'Vote record',
       // Hide for PAC groups (they don't vote). Show if votes exist.
       available: !(graphMeta?.isPacFocus ?? false) && (graphMeta?.hasVotes ?? true),
     },
@@ -473,9 +510,9 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
           }
           separator
         >
-          {vizType === 'force'    && <ForceSettings    view={view} hooks={hooks} />}
-          {vizType === 'chord'    && <ChordSettings    view={view} hooks={hooks} />}
-          {vizType === 'treemap'  && <TreemapSettings  view={view} hooks={hooks} />}
+          {vizType === 'force'    && <ForceSettings    view={view} hooks={hooks} graphMeta={graphMeta} />}
+          {vizType === 'chord'    && <ChordSettings    view={view} hooks={hooks} graphMeta={graphMeta} />}
+          {vizType === 'treemap'  && <TreemapSettings  view={view} hooks={hooks} graphMeta={graphMeta} />}
           {vizType === 'sunburst' && <SunburstSettings view={view} hooks={hooks} graphMeta={graphMeta} />}
         </TreeSection>
 

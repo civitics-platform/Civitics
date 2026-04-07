@@ -310,7 +310,7 @@ export async function GET(req: NextRequest) {
   // ── Aggregate mode: industry → party flows ────────────────────────────────
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await withDbTimeout((createAdminClient() as any).rpc("chord_industry_flows"));
+    const { data, error } = await withDbTimeout<{ data: FlowRow[] | null; error: { message: string } | null }>((createAdminClient() as any).rpc("chord_industry_flows"));
 
     if (error) {
       console.error("[chord] RPC error:", error.message);

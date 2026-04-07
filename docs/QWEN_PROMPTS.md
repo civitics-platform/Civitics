@@ -122,7 +122,7 @@ Remove the old `fromRes`/`toRes` parallel fetch.
 
 ### TASK-03 — Community commenting UI on proposal detail pages
 
-**Status:** `READY`
+**Status:** `COMPLETE — merged 2026-04-07`
 **Risk:** Low — new component, no existing code to break
 **Files to read first:**
 - `apps/civitics/app/proposals/[id]/page.tsx` (understand page structure)

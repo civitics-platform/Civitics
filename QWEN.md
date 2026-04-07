@@ -149,6 +149,38 @@ Never use legacy `anon` / `service_role` keys. Never use `NEXT_PUBLIC_` on the s
 
 ---
 
+## CRITICAL — File Integrity (Do This Every Time)
+
+Every file you edit MUST end with a complete closing `}`. Truncated file endings have occurred on multiple tasks and break the build immediately.
+
+**After editing any file, verify the last line:**
+```ts
+// CORRECT — file ends with closing brace
+  }
+}       ← this must be present
+
+// BROKEN — file ends mid-line or with partial content
+    cons    ← this is a truncated file, it will not compile
+```
+
+**No null bytes.** Do not pad files with null characters. If you are unsure your edit was applied correctly, re-read the file from disk before committing.
+
+**Rule:** After writing any file, read back the last 5 lines to confirm the ending is intact before committing.
+
+---
+
+## Schema — Always Read the Migration First
+
+Before writing any Supabase query, check the actual table schema in `supabase/migrations/`. Do not assume column names from task descriptions — the task description may be out of date. The migration file is authoritative.
+
+Key schema facts that are easy to get wrong:
+- `civic_comments.user_id` is `NOT NULL REFERENCES users(id)` — anonymous inserts will fail with a FK violation
+- `civic_comments` uses `proposal_id` (not `entity_id`) and `body` (not `text`)
+- All amounts are integer cents, never floats
+- All IDs are UUIDs
+
+---
+
 ## Workflow Notes
 
 - All changes go on branch `qwen/phase1` (or current cycle branch) — never commit to master

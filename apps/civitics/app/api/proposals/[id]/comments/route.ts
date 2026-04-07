@@ -40,13 +40,32 @@ export async function GET(
 }
 
 // ─── POST /api/proposals/[id]/comments ────────────────────────────────────────
-// Creates a comment. Body: { text: string }. Anonymous posting for Phase 1.
+// Creates a comment. Body: { text: string }.
+// Requires auth — civic_comments.user_id is NOT NULL REFERENCES users(id).
+// Anonymous posting will be enabled once auth (Phase 1 remaining task) is wired.
 
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    // Auth gate — user_id is NOT NULL in schema, so we need a real session.
+    // Once Supabase auth is wired (Phase 1 remaining), replace this with:
+    //   const cookieStore = await cookies();
+    //   const supabase = createServerClient(cookieStore);
+    //   const { data: { user } } = await supabase.auth.getUser();
+    //   if (!user) return NextResponse.json({ error: "Sign in to comment" }, { status: 401 });
+    const cookieStore = await cookies();
+    const supabase = createServerClient(cookieStore);
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json(
+        { error: "Sign in to comment" },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
     const { text } = body;
 
@@ -71,7 +90,7 @@ export async function POST(
       .insert({
         proposal_id: params.id,
         body: text.trim(),
-        user_id: "00000000-0000-0000-0000-000000000000",
+        user_id: user.id,
       })
       .select("id,body,created_at,upvotes,user_id,is_deleted")
       .single();

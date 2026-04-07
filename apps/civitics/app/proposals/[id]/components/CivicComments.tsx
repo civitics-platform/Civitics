@@ -47,6 +47,7 @@ export function CivicComments({ proposalId }: CivicCommentsProps) {
   const [newComment, setNewComment] = useState("");
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
+  const [requiresAuth, setRequiresAuth] = useState(false);
 
   const fetchComments = useCallback(async () => {
     setLoading(true);
@@ -83,6 +84,10 @@ export function CivicComments({ proposalId }: CivicCommentsProps) {
         body: JSON.stringify({ text: newComment }),
       });
 
+      if (res.status === 401) {
+        setRequiresAuth(true);
+        return;
+      }
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error ?? "Failed to post comment");
@@ -136,6 +141,11 @@ export function CivicComments({ proposalId }: CivicCommentsProps) {
               {posting ? "Posting..." : "Add comment"}
             </button>
           </div>
+          {requiresAuth && (
+            <p className="mt-2 text-xs text-gray-500">
+              Sign in to add a comment.
+            </p>
+          )}
           {postError && (
             <p className="mt-2 text-xs text-red-600">{postError}</p>
           )}

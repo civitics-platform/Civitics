@@ -6,6 +6,7 @@ import { CommentDraftSection } from "../components/CommentDraftSection";
 import { AGENCY_FULL_NAMES } from "../components/agencyNames";
 import { AiSummarySection } from "../components/AiSummarySection";
 import { PageViewTracker } from "../../components/PageViewTracker";
+import { CivicComments } from "./components/CivicComments";
 
 export const dynamic = "force-dynamic";
 
@@ -344,6 +345,9 @@ export default async function ProposalDetailPage({
                 </div>
               </section>
             )}
+
+            {/* Community Comments */}
+            <CivicComments proposalId={p.id} />
 
             {/* Related Proposals */}
             {related.length > 0 && (

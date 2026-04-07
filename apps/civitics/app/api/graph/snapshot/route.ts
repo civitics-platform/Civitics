@@ -126,7 +126,7 @@ async function resolveEntityByName(
   supabase: AdminClient,
   name: string,
 ): Promise<{ entity: ResolvedEntity | null; queries: number }> {
-  const { data, error } = await withDbTimeout(supabase.rpc("search_graph_entities", {
+  const { data, error } = await withDbTimeout<{ data: SearchRow[] | null; error: unknown }>(supabase.rpc("search_graph_entities", {
     q: name,
     lim: 1,
   }));
@@ -279,7 +279,7 @@ async function buildForceData(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   if (filters.length > 0) q = (q as any).in("connection_type", filters);
 
-  const { data: direct } = await withDbTimeout(q);
+  const { data: direct } = await withDbTimeout<{ data: ConnectionRow[] | null; error: unknown }>(q);
   queries++;
   let all = (direct ?? []) as ConnectionRow[];
 
@@ -292,14 +292,14 @@ async function buildForceData(
     ].slice(0, 20);
 
     const [fRes, tRes] = await Promise.all([
-      withDbTimeout(
+      withDbTimeout<{ data: ConnectionRow[] | null; error: unknown }>(
         supabase
           .from("entity_connections")
           .select("id, from_id, from_type, to_id, to_type, connection_type, strength, amount_cents")
           .in("from_id", neighborIds)
           .limit(Math.ceil(limit / 2))
       ),
-      withDbTimeout(
+      withDbTimeout<{ data: ConnectionRow[] | null; error: unknown }>(
         supabase
           .from("entity_connections")
           .select("id, from_id, from_type, to_id, to_type, connection_type, strength, amount_cents")
@@ -327,8 +327,9 @@ async function buildForceData(
   if (!includeProcedural) {
     const proposalIds = [...new Set(all.filter((c) => c.to_type === "proposal").map((c) => c.to_id))];
     if (proposalIds.length > 0) {
-      const { data: propCats } = await withDbTimeout(
-        supabase
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: propCats } = await withDbTimeout<{ data: Array<{ id: string; vote_category: string | null }> | null; error: unknown }>(
+        (supabase as any)
           .from("proposals")
           .select("id, vote_category")
           .in("id", proposalIds)
@@ -419,11 +420,14 @@ async function buildForceData(
   if (resolvedId && resolvedId2) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: pathData } = await withDbTimeout((supabase as any).rpc("find_entity_path", {
-        p_from_id: resolvedId,
-        p_to_id: resolvedId2,
-        p_max_hops: 4,
-      }));
+      const pathResult = await withDbTimeout<{ data: unknown; error: { message: string } | null }>(
+        (supabase as any).rpc("find_entity_path", {
+          p_from_id: resolvedId,
+          p_to_id: resolvedId2,
+          p_max_hops: 4,
+        })
+      );
+      const { data: pathData } = pathResult;
       queries++;
       if (Array.isArray(pathData) && pathData.length > 0) {
         path = (pathData as { entity_id: string }[]).map(
@@ -516,7 +520,10 @@ async function buildChordData(
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await withDbTimeout((supabase as any).rpc("chord_industry_flows"));
+  const chordResult = await withDbTimeout<{ data: FlowRow[] | null; error: unknown }>(
+    (supabase as any).rpc("chord_industry_flows")
+  );
+  const { data, error } = chordResult;
   const queries = 1;
 
   if (error || !data) {
@@ -627,9 +634,12 @@ async function buildTreemapData(
   max_value_entity: string;
   queries: number;
 }> {
-  const { data, error } = await withDbTimeout(supabase.rpc("treemap_officials_by_donations", {
-    lim: Math.min(limit, 200),
-  }));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await withDbTimeout<{ data: Array<{ official_id: string; official_name: string; party: string; state: string; chamber: string; total_donated_cents: number }> | null; error: unknown }>(
+    (supabase as any).rpc("treemap_officials_by_donations", {
+      lim: Math.min(limit, 200),
+    })
+  );
 
   if (error || !data) {
     return {
@@ -1260,7 +1270,7 @@ export async function GET(request: Request) {
   try {
     const supabase = createAdminClient();
 
-    const { data, error } = await withDbTimeout(
+    const { data, error } = await withDbTimeout<{ data: { code: string; state: string; title: string; created_at: string; view_count: number } | null; error: unknown }>(
       supabase
         .from("graph_snapshots")
         .select("code, state, title, created_at, view_count")

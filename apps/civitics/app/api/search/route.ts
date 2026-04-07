@@ -184,17 +184,13 @@ export async function GET(req: NextRequest) {
 
     if (officials.length === 0) return [];
 
-    // Batch connection count lookup (one query, not one per entity)
+    // Batch connection count lookup via RPC (avoids .in() large array bug)
     const ids = officials.map((o) => o.id);
-    const [fromRes, toRes] = await Promise.all([
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (db as any).from("entity_connections").select("from_id").in("from_id", ids),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (db as any).from("entity_connections").select("to_id").in("to_id", ids),
-    ]);
+    const { data: countData } = await (db as any).rpc('get_connection_counts', { entity_ids: ids });
     const countMap = new Map<string, number>();
-    for (const r of fromRes.data ?? []) countMap.set(r.from_id, (countMap.get(r.from_id) ?? 0) + 1);
-    for (const r of toRes.data ?? []) countMap.set(r.to_id, (countMap.get(r.to_id) ?? 0) + 1);
+    for (const r of countData ?? []) {
+      countMap.set(r.entity_id, Number(r.connection_count));
+    }
 
     // Rank priority (mirrors /api/graph/search logic)
     const rankPriority = (o: typeof officials[0]): number => {

@@ -1262,7 +1262,6 @@ export async function GET(request: Request) {
       {
         error:
           "Provide ?code=CIV-XXXX-YYYY to fetch a share code, or ?viz=force|chord|treemap|sunburst for diagnostics",
-      },
       { status: 400 },
     );
   }

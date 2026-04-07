@@ -149,23 +149,28 @@ Never use legacy `anon` / `service_role` keys. Never use `NEXT_PUBLIC_` on the s
 
 ---
 
-## CRITICAL — File Integrity (Do This Every Time)
+## CRITICAL — Mandatory Pre-Commit Self-Check
 
-Every file you edit MUST end with a complete closing `}`. Truncated file endings have occurred on multiple tasks and break the build immediately.
+This check is required before every `git commit`. It takes 30 seconds and has caught a real bug on every single task so far.
 
-**After editing any file, verify the last line:**
-```ts
-// CORRECT — file ends with closing brace
-  }
-}       ← this must be present
+```bash
+# 1. Verify every edited file ends cleanly
+tail -5 path/to/edited/file.ts
+# Must end with a complete `}` — never mid-line, never mid-string
 
-// BROKEN — file ends mid-line or with partial content
-    cons    ← this is a truncated file, it will not compile
+# 2. Verify no binary corruption
+file path/to/edited/file.ts
+# Must say "Unicode text" — if it says "data", the file has null bytes
+
+# 3. If either check fails — fix before committing
 ```
 
-**No null bytes.** Do not pad files with null characters. If you are unsure your edit was applied correctly, re-read the file from disk before committing.
+**The three failure modes seen so far:**
+- File ends with `cons` instead of `console.error(...)` + closing braces — build fails
+- File ends mid-string literal — TypeScript parse error
+- File padded with 339 null bytes — `grep` refuses to read it, `file` reports "data"
 
-**Rule:** After writing any file, read back the last 5 lines to confirm the ending is intact before committing.
+**Rule:** If you are unsure your write was applied completely, re-read the last 10 lines of the file from disk before committing. Never assume the write succeeded.
 
 ---
 

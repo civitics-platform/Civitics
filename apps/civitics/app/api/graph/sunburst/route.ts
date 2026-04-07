@@ -51,16 +51,16 @@ export async function GET(req: NextRequest) {
     }
 
     // ── Helper: sort ring2 children by the selected mode ──────────────────
-    function sortByRing2<T extends { value?: number }>(items: T[]): T[] {
+    function sortByRing2<T extends { value?: number; strength?: number }>(items: T[]): T[] {
       switch (ring2) {
         case 'by_amount':
           return [...items].sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
         case 'by_count':
-          // Future: sort by count field when available; for now same as by_amount
+          // TODO: needs connection count field from DB
           return [...items].sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
         case 'top_entities':
         default:
-          return [...items].sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+          return [...items].sort((a, b) => (b.strength ?? 0) - (a.strength ?? 0));
       }
     }
 
@@ -89,6 +89,7 @@ export async function GET(req: NextRequest) {
                 entityType: entity?.entityType ?? "unknown",
                 party: entity?.party,
                 value: c.amount_cents ?? Math.round(c.strength * 1_000_000),
+                strength: c.strength,
                 type,
               };
             })
@@ -233,6 +234,7 @@ export async function GET(req: NextRequest) {
                 entityId: c.to_id,
                 entityType: "proposal",
                 value: c.amount_cents || Math.round(c.strength * 1_000_000),
+                strength: c.strength,
                 type,
               }))
             ).slice(0, maxRing2),
@@ -384,6 +386,7 @@ export async function GET(req: NextRequest) {
               entityId: v.to_id,
               entityType: "proposal",
               value: Math.round(v.strength * 1_000_000),
+              strength: v.strength,
               type,
             }))
           ).slice(0, maxRing2),

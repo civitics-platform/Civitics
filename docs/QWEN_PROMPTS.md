@@ -62,7 +62,7 @@ Implement distinct behavior for each mode. The `value` field on each child item 
 
 ### TASK-02 — Fix search ranking: connection count query hits .in() large array bug
 
-**Status:** `READY`
+**Status:** `COMPLETE — merged 2026-04-07`
 **Risk:** Medium — touches the search API route, test manually after
 **Files to read first:**
 - `apps/civitics/app/api/search/route.ts` (full file)
@@ -217,4 +217,5 @@ Add `<CivicComments proposalId={proposal.id} />` near the bottom of the proposal
 - [ ] `pnpm build` passes
 - [ ] No hardcoded fake data
 - [ ] No stray `console.log` in production paths
-- [ ] **File endings intact** — check that edited files still have closing braces/catch blocks at EOF (Qwen has truncated file endings before)
+- [ ] **File endings intact** — check ALL edited files end with closing `}` and no truncation (Qwen has truncated endings in every task so far — sunburst, pathfinder, snapshot, search all had issues)
+- [ ] **No null byte corruption** — `file path/to/file.ts` should say "Unicode text", not "data". Binary = corrupted.

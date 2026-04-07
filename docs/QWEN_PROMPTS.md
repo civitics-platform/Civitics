@@ -31,7 +31,7 @@ Claude reviews diffs before merging.
 
 ### TASK-01 — Fix sunburst ring2: all sort modes produce identical output
 
-**Status:** `READY`
+**Status:** `COMPLETE — merged 2026-04-07`
 **Risk:** Low — isolated to one function in one route
 **Files to read first:**
 - `apps/civitics/app/api/graph/sunburst/route.ts` (full file)
@@ -217,3 +217,4 @@ Add `<CivicComments proposalId={proposal.id} />` near the bottom of the proposal
 - [ ] `pnpm build` passes
 - [ ] No hardcoded fake data
 - [ ] No stray `console.log` in production paths
+- [ ] **File endings intact** — check that edited files still have closing braces/catch blocks at EOF (Qwen has truncated file endings before)

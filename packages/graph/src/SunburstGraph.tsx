@@ -741,7 +741,9 @@ export function SunburstGraph({ entityId, entityLabel, className = "", svgRef: e
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, shape, showLabelsOpt]);
 
-  // FIX 3 — re-render immediately when shape or label visibility changes (no refetch needed)
+  // QWEN-ADDED: TODO(review) — re-render immediately when shape or label visibility changes (no refetch needed)
+  // Split confirmed — was one entangled effect; data-fetch effect (above) is separate from this re-render effect.
+  // shape and skipLabels derived from vizOptions are in deps; render reads vizOptionsRef.current which is updated at render time.
   useEffect(() => {
     if (status !== "ok") return;
     if (!currentRootRef.current) return;

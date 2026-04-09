@@ -8,6 +8,7 @@ import { ProfileTabs } from "../components/ProfileTabs";
 import { ShareButton } from "../components/ShareButton";
 import { CareerHistory } from "../components/CareerHistory";
 import { PromisesSection } from "../components/PromisesSection";
+import { SpendingSection } from "../components/SpendingSection";
 import { PageViewTracker } from "../../components/PageViewTracker";
 
 const CivicBadge = nextDynamic(
@@ -224,7 +225,7 @@ export default async function OfficialProfilePage({
       supabase
         .from("officials")
         .select(
-          "id, full_name, first_name, last_name, role_title, party, photo_url, email, website_url, phone, district_name, term_start, term_end, is_active, jurisdictions!jurisdiction_id(name), governing_bodies!governing_body_id(short_name)"
+          "id, full_name, first_name, last_name, role_title, party, photo_url, email, website_url, phone, district_name, term_start, term_end, is_active, jurisdiction_id, jurisdictions!jurisdiction_id(name), governing_bodies!governing_body_id(short_name)"
         )
         .eq("id", params.id)
         .single(),
@@ -293,6 +294,7 @@ export default async function OfficialProfilePage({
     term_start: (o.term_start ?? null) as string | null,
     term_end: (o.term_end ?? null) as string | null,
     is_active: (o.is_active ?? null) as boolean | null,
+    jurisdiction_id: (o.jurisdiction_id ?? null) as string | null,
     state_name: (o.jurisdictions?.name ?? null) as string | null,
     chamber: (o.governing_bodies?.short_name ?? null) as string | null,
   };
@@ -437,6 +439,26 @@ export default async function OfficialProfilePage({
     source_url: string | null;
     source_quote: string | null;
   }>;
+
+  // QWEN-ADDED: Fetch spending records (tied to official's jurisdiction)
+  let spendingRecords: Array<{
+    id: string;
+    recipient_name: string;
+    award_type: string | null;
+    amount_cents: number;
+    award_date: string | null;
+    description: string | null;
+    awarding_agency: string;
+  }> = [];
+  if (official.jurisdiction_id) {
+    const spendingRes = await supabase
+      .from("spending_records")
+      .select("id, recipient_name, award_type, amount_cents, award_date, description, awarding_agency")
+      .eq("jurisdiction_id", official.jurisdiction_id)
+      .order("amount_cents", { ascending: false })
+      .limit(10);
+    spendingRecords = (spendingRes.data ?? []) as typeof spendingRecords;
+  }
 
   // Years in office
   const yearsInOffice = official.term_start
@@ -813,6 +835,9 @@ export default async function OfficialProfilePage({
             </div>
           }
         />
+
+        {/* QWEN-ADDED: Government Spending Section */}
+        <SpendingSection items={spendingRecords} />
 
       </main>
 

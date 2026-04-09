@@ -7,6 +7,7 @@ import { AiProfileSection } from "../components/AiProfileSection";
 import { ProfileTabs } from "../components/ProfileTabs";
 import { ShareButton } from "../components/ShareButton";
 import { CareerHistory } from "../components/CareerHistory";
+import { PromisesSection } from "../components/PromisesSection";
 import { PageViewTracker } from "../../components/PageViewTracker";
 
 const CivicBadge = nextDynamic(
@@ -217,8 +218,8 @@ export default async function OfficialProfilePage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  // Fetch official + joins in parallel with votes, donor count, donor amounts, AI summary, career history
-  const [officialRes, voteCountRes, votesRes, donorCountRes, donorAmtRes, aiSummaryRes, allVotesRes, careerHistoryRes] =
+  // Fetch official + joins in parallel with votes, donor count, donor amounts, AI summary, career history, promises
+  const [officialRes, voteCountRes, votesRes, donorCountRes, donorAmtRes, aiSummaryRes, allVotesRes, careerHistoryRes, promisesRes] =
     await Promise.all([
       supabase
         .from("officials")
@@ -265,6 +266,12 @@ export default async function OfficialProfilePage({
         .eq("official_id", params.id)
         .order("started_at", { ascending: false })
         .limit(20),
+      supabase
+        .from("promises")
+        .select("id, title, description, status, made_at, deadline, resolved_at, source_url, source_quote")
+        .eq("official_id", params.id)
+        .order("made_at", { ascending: false })
+        .limit(10),
     ]);
 
   if (officialRes.error || !officialRes.data) {
@@ -416,6 +423,19 @@ export default async function OfficialProfilePage({
     is_government: boolean;
     revolving_door_flag: boolean;
     revolving_door_explanation: string | null;
+  }>;
+
+  // QWEN-ADDED: Extract promises data for PromisesSection component
+  const promises = (promisesRes.data ?? []) as Array<{
+    id: string;
+    title: string;
+    description: string | null;
+    status: 'made' | 'kept' | 'broken' | 'stalled' | 'partial';
+    made_at: string | null;
+    deadline: string | null;
+    resolved_at: string | null;
+    source_url: string | null;
+    source_quote: string | null;
   }>;
 
   // Years in office
@@ -584,6 +604,9 @@ export default async function OfficialProfilePage({
             />
           </div>
         </div>
+
+        {/* QWEN-ADDED: Promises Section - flagship feature, shown below basic info */}
+        <PromisesSection promises={promises} />
 
         {/* ── TABS ────────────────────────────────────────────────────────── */}
         <ProfileTabs

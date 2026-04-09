@@ -6,6 +6,7 @@ import { OfficialGraph } from "../components/OfficialGraph";
 import { AiProfileSection } from "../components/AiProfileSection";
 import { ProfileTabs } from "../components/ProfileTabs";
 import { ShareButton } from "../components/ShareButton";
+import { CareerHistory } from "../components/CareerHistory";
 import { PageViewTracker } from "../../components/PageViewTracker";
 
 const CivicBadge = nextDynamic(
@@ -216,8 +217,8 @@ export default async function OfficialProfilePage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  // Fetch official + joins in parallel with votes, donor count, donor amounts, AI summary
-  const [officialRes, voteCountRes, votesRes, donorCountRes, donorAmtRes, aiSummaryRes, allVotesRes] =
+  // Fetch official + joins in parallel with votes, donor count, donor amounts, AI summary, career history
+  const [officialRes, voteCountRes, votesRes, donorCountRes, donorAmtRes, aiSummaryRes, allVotesRes, careerHistoryRes] =
     await Promise.all([
       supabase
         .from("officials")
@@ -258,6 +259,12 @@ export default async function OfficialProfilePage({
         .select("vote, proposals!proposal_id(id, title, bill_number)")
         .eq("official_id", params.id)
         .limit(500),
+      supabase
+        .from("career_history")
+        .select("id, organization, role_title, started_at, ended_at, is_government, revolving_door_flag, revolving_door_explanation")
+        .eq("official_id", params.id)
+        .order("started_at", { ascending: false })
+        .limit(20),
     ]);
 
   if (officialRes.error || !officialRes.data) {
@@ -399,6 +406,17 @@ export default async function OfficialProfilePage({
   const voteCount = voteCountRes.count ?? 0;
   const donorCount = donorCountRes.count ?? 0;
   const cachedAiProfile: string | null = aiSummaryRes?.data?.summary_text ?? null;
+  // QWEN-ADDED: Extract career history data for CareerHistory component
+  const careerHistory = (careerHistoryRes.data ?? []) as Array<{
+    id: string;
+    organization: string;
+    role_title: string | null;
+    started_at: string | null;
+    ended_at: string | null;
+    is_government: boolean;
+    revolving_door_flag: boolean;
+    revolving_door_explanation: string | null;
+  }>;
 
   // Years in office
   const yearsInOffice = official.term_start
@@ -585,6 +603,9 @@ export default async function OfficialProfilePage({
               ) : (voteCount > 0 || donorCount > 0) ? (
                 <AiProfileSection officialId={official.id} />
               ) : null}
+
+              {/* QWEN-ADDED: Career History Section */}
+              <CareerHistory items={careerHistory} />
 
               {/* Quick vote breakdown */}
               {recentVotes.length > 0 && (

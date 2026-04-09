@@ -34,7 +34,9 @@ export async function GET(request: Request) {
   // ── Sector mode ──────────────────────────────────────────────────────────────
 
   if (groupBy === "sector") {
-    const { data, error } = await withDbTimeout(
+    // QWEN-ADDED: Add generic type to withDbTimeout for financial_relationships sector query
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await withDbTimeout<any>(
       supabase
         .from("financial_relationships")
         .select("donor_name, amount_cents, metadata")
@@ -95,7 +97,11 @@ export async function GET(request: Request) {
   // ── Party mode ───────────────────────────────────────────────────────────────
 
   // donor_type filter is enforced inside the RPC function
-  const { data, error } = await withDbTimeout(
+  // QWEN-ADDED: Add generic type to withDbTimeout for get_pac_donations_by_party RPC
+  const { data, error } = await withDbTimeout<{
+    data: Array<{ total_usd: number; donor_name: string; party: string; donation_count: number }> | null;
+    error: { message: string } | null;
+  }>(
     supabase.rpc("get_pac_donations_by_party")
   );
 

@@ -47,7 +47,12 @@ export async function GET(req: NextRequest) {
     if (state)
       memberQuery = memberQuery.filter("metadata->>state", "eq", state);
 
-    const { count: memberCount, data: memberData } = await withDbTimeout(memberQuery.limit(1000));
+    // QWEN-ADDED: Add generic type to withDbTimeout for officials query with count
+    const { count: memberCount, data: memberData } = await withDbTimeout<{
+      count: number | null;
+      data: Array<{ id: string }> | null;
+      error: { message: string } | null;
+    }>(memberQuery.limit(1000));
 
     const memberIds = (memberData ?? []).map((m) => m.id);
 
@@ -162,7 +167,11 @@ export async function GET(req: NextRequest) {
   // Which officials received the most money from PACs in this industry?
 
   if (entityType === "pac") {
-    const { data: pacData } = await withDbTimeout(
+    // QWEN-ADDED: Add generic type to withDbTimeout for PAC financial query
+    const { data: pacData } = await withDbTimeout<{
+      data: Array<{ official_id: string | null; amount_cents: number }> | null;
+      error: { message: string } | null;
+    }>(
       supabase
         .from("financial_relationships")
         .select("official_id, amount_cents")

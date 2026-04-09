@@ -224,7 +224,11 @@ export async function GET(request: Request) {
       // two small targeted queries (officials only, capped at 3 000 each)
       // to find the top 10 by connection frequency.
       // Previously fetched all 143 k rows client-side — ~100× egress reduction.
-      const { count, error: countErr } = await withDbTimeout(
+      // QWEN-ADDED: Add generic type to withDbTimeout for count-only HEAD query
+      const { count, error: countErr } = await withDbTimeout<{
+        count: number | null;
+        error: { message: string } | null;
+      }>(
         supabase
           .from("entity_connections")
           .select("*", { count: "exact", head: true })

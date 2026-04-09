@@ -235,7 +235,11 @@ export async function GET(req: NextRequest) {
   if (entityId) {
     try {
       // Fetch official name
-      const { data: officialData } = await withDbTimeout(
+      // QWEN-ADDED: Add generic type to withDbTimeout for maybeSingle query
+      const { data: officialData } = await withDbTimeout<{
+        data: OfficialRow | null;
+        error: { message: string } | null;
+      }>(
         (supabase as ReturnType<typeof createAdminClient>)
           .from("officials")
           .select("id, name")
@@ -243,7 +247,7 @@ export async function GET(req: NextRequest) {
           .maybeSingle()
       );
 
-      const official = officialData as OfficialRow | null;
+      const official = officialData;
 
       // Aggregate donations to this official by industry
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

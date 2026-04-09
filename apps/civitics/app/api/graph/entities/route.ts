@@ -71,7 +71,11 @@ export async function GET(request: Request) {
   const supabase = createAdminClient();
 
   // Use existing fuzzy-search RPC (trigram + ILIKE across all entity tables)
-  const { data, error } = await withDbTimeout(
+  // QWEN-ADDED: Add generic type to withDbTimeout for RPC call
+  const { data, error } = await withDbTimeout<{
+    data: SearchRow[] | null;
+    error: { message: string } | null;
+  }>(
     supabase.rpc("search_graph_entities", {
       q,
       lim: 20,
@@ -83,7 +87,7 @@ export async function GET(request: Request) {
     return Response.json({ results: [], total: 0 }, { status: 500 });
   }
 
-  let rows = (data ?? []) as SearchRow[];
+  let rows = data ?? [];
 
   // Optional type filter (post-RPC since the RPC mixes all types)
   if (typeFilter) {

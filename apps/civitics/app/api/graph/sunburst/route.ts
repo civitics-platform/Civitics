@@ -121,14 +121,17 @@ export async function GET(req: NextRequest) {
       }
 
       // Resolve member IDs via RPC
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: memberData, error: memberError } = await withDbTimeout(
+      // QWEN-ADDED: Add generic type to withDbTimeout for get_officials_by_filter RPC
+      const { data: memberData, error: memberError } = await withDbTimeout<{
+        data: Array<{ id: string }> | null;
+        error: { message: string } | null;
+      }>(
         (supabase as any).rpc("get_officials_by_filter", {
           p_chamber: groupFilter.chamber ?? null,
           p_party:   groupFilter.party   ?? null,
           p_state:   groupFilter.state   ?? null,
         })
-      ) as { data: Array<{ id: string }> | null; error: unknown };
+      );
 
       if (memberError) console.error("[sunburst] getMemberIds error:", memberError);
       const memberIds = (memberData ?? []).map((m: { id: string }) => m.id);
@@ -172,13 +175,16 @@ export async function GET(req: NextRequest) {
       }
 
       // ── Fetch all group connections via RPC (avoids .in() URL limit) ─────────
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: groupConns, error: connsError } = await withDbTimeout(
+      // QWEN-ADDED: Add generic type to withDbTimeout for get_group_connections RPC
+      const { data: groupConns, error: connsError } = await withDbTimeout<{
+        data: Array<{ connection_type: string | null; to_id: string; strength: number; amount_cents: number | null; from_id: string }> | null;
+        error: { message: string } | null;
+      }>(
         (supabase as any).rpc("get_group_connections", {
           p_member_ids: memberIds,
           p_limit: 500,
         })
-      ) as { data: Array<{ connection_type: string | null; to_id: string; strength: number; amount_cents: number | null; from_id: string }> | null; error: unknown };
+      );
 
       if (connsError) {
         console.error("[sunburst] group conns error:", (connsError as { message?: string }).message ?? connsError);
@@ -293,7 +299,11 @@ export async function GET(req: NextRequest) {
     }
 
     // Look up the center entity's own name
-    const { data: centerEntity } = await withDbTimeout(
+    // QWEN-ADDED: Add generic type to withDbTimeout for officials single query
+    const { data: centerEntity } = await withDbTimeout<{
+      data: { full_name: string | null; party: string | null; role_title: string | null } | null;
+      error: { message: string } | null;
+    }>(
       supabase
         .from("officials")
         .select("full_name, party, role_title")
@@ -305,7 +315,9 @@ export async function GET(req: NextRequest) {
 
     // ── MODE: donation_industries ──────────────────────────────────────────
     if (ring1 === "donation_industries") {
-      const { data: donations } = await withDbTimeout(
+      // QWEN-ADDED: Add generic type to withDbTimeout for financial_relationships query
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: donations } = await withDbTimeout<any>(
         supabase
           .from("financial_relationships")
           .select("donor_name, amount_cents, metadata")
@@ -352,7 +364,11 @@ export async function GET(req: NextRequest) {
 
     // ── MODE: vote_categories ──────────────────────────────────────────────
     if (ring1 === "vote_categories") {
-      const { data: votes } = await withDbTimeout(
+      // QWEN-ADDED: Add generic type to withDbTimeout for entity_connections votes query
+      const { data: votes } = await withDbTimeout<{
+        data: Array<{ connection_type: string | null; to_id: string; strength: number }> | null;
+        error: { message: string } | null;
+      }>(
         supabase
           .from("entity_connections")
           .select("connection_type, to_id, strength")
@@ -406,7 +422,11 @@ export async function GET(req: NextRequest) {
     }
 
     // ── MODE: connection_types (default) ───────────────────────────────────
-    const { data: connections, error } = await withDbTimeout(
+    // QWEN-ADDED: Add generic type to withDbTimeout for entity_connections query
+    const { data: connections, error } = await withDbTimeout<{
+      data: Array<{ connection_type: string | null; to_id: string; strength: number; amount_cents: number | null }> | null;
+      error: { message: string } | null;
+    }>(
       supabase
         .from("entity_connections")
         .select("connection_type, to_id, strength, amount_cents")

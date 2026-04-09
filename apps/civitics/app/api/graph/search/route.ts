@@ -21,7 +21,11 @@ export async function GET(req: Request) {
 
   // Single RPC call: fuzzy (trigram + ILIKE) across officials, agencies,
   // proposals, and financial_entities. Fetch 20 per type so ranking has room.
-  const { data, error } = await withDbTimeout(
+  // QWEN-ADDED: Add generic type to withDbTimeout for RPC call
+  const { data, error } = await withDbTimeout<{
+    data: SearchRow[] | null;
+    error: { message: string } | null;
+  }>(
     supabase.rpc("search_graph_entities", {
       q,
       lim: 20,
@@ -33,7 +37,7 @@ export async function GET(req: Request) {
     return Response.json([], { status: 500 });
   }
 
-  const rows = (data ?? []) as SearchRow[];
+  const rows = data ?? [];
 
   // Attach connection counts for all result entities
   const allIds = rows.map((r) => r.id);

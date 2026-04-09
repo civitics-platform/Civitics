@@ -42,7 +42,10 @@ export async function GET(request: Request) {
       transaction_count: number;
     };
 
-    const { data, error } = await withDbTimeout(
+    const { data, error } = await withDbTimeout<{
+      data: Array<{ financial_entity_id: string | null; entity_name: string; entity_type: string; industry_category: string; total_amount_usd: number; transaction_count: number }> | null;
+      error: { message: string } | null;
+    }>(
       supabase.rpc("get_official_donors", {
         p_official_id: validEntityId,
       })
@@ -53,7 +56,7 @@ export async function GET(request: Request) {
       return Response.json({ error: error.message }, { status: 500 });
     }
 
-    const rows: DonorRow[] = ((data ?? []) as RpcRow[]).map((row) => ({
+    const rows: DonorRow[] = (data ?? []).map((row) => ({
       donor_id:          row.financial_entity_id ?? "",
       donor_name:        row.entity_name,
       industry_category: row.industry_category,
@@ -77,7 +80,11 @@ export async function GET(request: Request) {
   // Pass filters to the RPC so the DB aggregates only the relevant officials.
   // e.g. senate+democrat: ~50 rows instead of 8k — much faster.
   // Use a longer timeout (10s) for this heavy aggregation RPC.
-  const { data, error } = await withDbTimeout(
+  // QWEN-ADDED: Add generic type to withDbTimeout for treemap_officials_by_donations RPC
+  const { data, error } = await withDbTimeout<{
+    data: Array<{ official_id: string; official_name: string; party: string; state: string; chamber: string; total_donated_cents: number }> | null;
+    error: { message: string } | null;
+  }>(
     supabase.rpc("treemap_officials_by_donations", {
       lim:       200,
       p_chamber: chamber ?? null,

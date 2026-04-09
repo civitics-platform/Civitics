@@ -149,9 +149,21 @@ export default async function AgencyProfilePage({
   const supabase = createServerClient(cookieStore);
   const now = new Date().toISOString();
 
-  // All fetches in parallel
+  // Step 1: fetch agency
+  const agencyRes = await supabase
+    .from("agencies")
+    .select("id, name, short_name, acronym, agency_type, website_url, contact_email, description, governing_body_id")
+    .eq("id", slug)
+    .single();
+
+  const agency = agencyRes.data;
+  if (!agency) notFound();
+
+  // Step 2: use agency key for proposal queries (metadata->>agency_id stores acronym or name)
+  const agencyKey = agency.acronym ?? agency.name;
+
+  // All proposal/spending fetches in parallel
   const [
-    agencyRes,
     activeRulesRes,
     recentRulesRes,
     spendingRes,
@@ -159,74 +171,27 @@ export default async function AgencyProfilePage({
     openCountRes,
   ] = await Promise.all([
     supabase
-      .from("agencies")
-      .select("id, name, short_name, acronym, agency_type, website_url, contact_email, description, governing_body_id")
-      .eq("id", slug)
-      .single(),
-
-    // Active rulemaking — will use agency key after we know it
-    supabase
       .from("proposals")
       .select("id, title, status, type, bill_number, regulations_gov_id, introduced_at, comment_period_end, summary_plain")
       .in("status", ["open_comment", "introduced", "in_committee", "floor_vote"])
-      .filter("metadata->>agency_id", "eq", slug) // placeholder; replaced below
+      .filter("metadata->>agency_id", "eq", agencyKey)
       .order("comment_period_end", { ascending: true })
       .limit(20),
 
-    // Recent closed rules
     supabase
       .from("proposals")
       .select("id, title, status, type, bill_number, regulations_gov_id, introduced_at, comment_period_end, summary_plain")
       .in("status", ["comment_closed", "final_rule", "enacted", "signed", "failed", "withdrawn"])
-      .filter("metadata->>agency_id", "eq", slug)
+      .filter("metadata->>agency_id", "eq", agencyKey)
       .order("updated_at", { ascending: false })
       .limit(5),
 
-    // Spending records (top 100 raw rows, aggregate in JS)
     supabase
       .from("spending_records")
       .select("recipient_name, award_type, amount_cents, award_date")
-      .ilike("awarding_agency", `%${slug}%`)
+      .ilike("awarding_agency", `%${agency.name}%`)
       .order("amount_cents", { ascending: false })
       .limit(100),
-
-    // Total proposal count placeholder
-    supabase
-      .from("proposals")
-      .select("id", { count: "exact", head: true })
-      .filter("metadata->>agency_id", "eq", slug),
-
-    // Open comment count placeholder
-    supabase
-      .from("proposals")
-      .select("id", { count: "exact", head: true })
-      .filter("metadata->>agency_id", "eq", slug)
-      .eq("status", "open_comment")
-      .gt("comment_period_end", now),
-  ]);
-
-  const agency = agencyRes.data;
-  if (!agency) notFound();
-
-  // Now re-run proposals queries using the real agency key (acronym or name)
-  const agencyKey = agency.acronym ?? agency.name;
-
-  const [activeRules2, recentRules2, totalCount2, openCount2] = await Promise.all([
-    supabase
-      .from("proposals")
-      .select("id, title, status, type, bill_number, regulations_gov_id, introduced_at, comment_period_end, summary_plain")
-      .in("status", ["open_comment", "introduced", "in_committee", "floor_vote"])
-      .filter("metadata->>agency_id", "eq", agencyKey)
-      .order("comment_period_end", { ascending: true })
-      .limit(20),
-
-    supabase
-      .from("proposals")
-      .select("id, title, status, type, bill_number, regulations_gov_id, introduced_at, comment_period_end, summary_plain")
-      .in("status", ["comment_closed", "final_rule", "enacted", "signed", "failed", "withdrawn"])
-      .filter("metadata->>agency_id", "eq", agencyKey)
-      .order("updated_at", { ascending: false })
-      .limit(5),
 
     supabase
       .from("proposals")
@@ -241,21 +206,13 @@ export default async function AgencyProfilePage({
       .gt("comment_period_end", now),
   ]);
 
-  const activeRules: Proposal[] = (activeRules2.data ?? []) as Proposal[];
-  const recentRules: Proposal[] = (recentRules2.data ?? []) as Proposal[];
-  const totalRules  = totalCount2.count ?? 0;
-  const openRules   = openCount2.count ?? 0;
-
-  // Spending — re-query with actual agency name
-  const spendingRes2 = await supabase
-    .from("spending_records")
-    .select("recipient_name, award_type, amount_cents, award_date")
-    .ilike("awarding_agency", `%${agency.name}%`)
-    .order("amount_cents", { ascending: false })
-    .limit(100);
+  const activeRules: Proposal[] = (activeRulesRes.data ?? []) as Proposal[];
+  const recentRules: Proposal[] = (recentRulesRes.data ?? []) as Proposal[];
+  const totalRules  = totalCountRes.count ?? 0;
+  const openRules   = openCountRes.count ?? 0;
 
   const spendingGroups = aggregateSpending(
-    ((spendingRes2.data ?? spendingRes.data ?? []) as SpendingRow[])
+    (spendingRes.data ?? []) as SpendingRow[]
   );
 
   const totalSpentCents = spendingGroups.reduce((sum, g) => sum + g.totalCents, 0);

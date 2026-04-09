@@ -7,6 +7,7 @@ import { AGENCY_FULL_NAMES } from "../components/agencyNames";
 import { AiSummarySection } from "../components/AiSummarySection";
 import { PageViewTracker } from "../../components/PageViewTracker";
 import { CivicComments } from "./components/CivicComments";
+import { PositionWidget } from "./components/PositionWidget";
 
 export const dynamic = "force-dynamic";
 
@@ -345,6 +346,9 @@ export default async function ProposalDetailPage({
                 </div>
               </section>
             )}
+
+            {/* Community Position */}
+            <PositionWidget proposalId={p.id} />
 
             {/* Community Comments */}
             <CivicComments proposalId={p.id} />

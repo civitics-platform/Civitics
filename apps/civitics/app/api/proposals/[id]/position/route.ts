@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createServerClient, createAdminClient } from "@civitics/db";
+import { createServerClient } from "@civitics/db";
 
 export const dynamic = "force-dynamic";
 
@@ -78,10 +78,9 @@ export async function POST(
       );
     }
 
-    const adminDb = createAdminClient();
-
-    // Check if user already has a position for this proposal
-    const { data: existing } = await adminDb
+    // Use createServerClient (RLS-respecting) — civic_comments has INSERT/UPDATE policies
+    // that enforce auth.uid() = user_id, so no need to bypass with createAdminClient.
+    const { data: existing } = await supabase
       .from("civic_comments")
       .select("id")
       .eq("proposal_id", params.id)
@@ -93,7 +92,7 @@ export async function POST(
     let result;
     if (existing) {
       // Update existing row
-      result = await adminDb
+      result = await supabase
         .from("civic_comments")
         .update({ position })
         .eq("id", existing.id)
@@ -101,7 +100,7 @@ export async function POST(
         .single();
     } else {
       // Insert new row
-      result = await adminDb
+      result = await supabase
         .from("civic_comments")
         .insert({
           proposal_id: params.id,

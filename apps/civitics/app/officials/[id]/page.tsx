@@ -432,7 +432,7 @@ export default async function OfficialProfilePage({
     id: string;
     title: string;
     description: string | null;
-    status: 'made' | 'kept' | 'broken' | 'stalled' | 'partial';
+    status: 'made' | 'in_progress' | 'kept' | 'broken' | 'partially_kept' | 'expired' | 'modified';
     made_at: string | null;
     deadline: string | null;
     resolved_at: string | null;

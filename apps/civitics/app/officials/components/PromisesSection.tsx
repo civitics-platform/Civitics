@@ -1,10 +1,11 @@
 // QWEN-ADDED: Promises accountability section for official detail pages
+// FIXED: enum values corrected to match promise_status in 0001_initial_schema.sql
 
 type PromiseRow = {
   id: string;
   title: string;
   description: string | null;
-  status: 'made' | 'kept' | 'broken' | 'stalled' | 'partial';
+  status: 'made' | 'in_progress' | 'kept' | 'broken' | 'partially_kept' | 'expired' | 'modified';
   made_at: string | null;
   deadline: string | null;
   resolved_at: string | null;
@@ -22,11 +23,13 @@ function formatMonthYear(dateStr: string | null): string | null {
 }
 
 const STATUS_STYLES: Record<PromiseRow['status'], { label: string; cls: string }> = {
-  made:    { label: 'Made',        cls: 'bg-gray-100 text-gray-600' },
-  kept:    { label: 'Kept \u2713', cls: 'bg-green-100 text-green-700' },
-  broken:  { label: 'Broken',      cls: 'bg-red-100 text-red-700' },
-  stalled: { label: 'Stalled',     cls: 'bg-amber-100 text-amber-700' },
-  partial: { label: 'Partial',     cls: 'bg-orange-100 text-orange-700' },
+  made:          { label: 'Made',           cls: 'bg-gray-100 text-gray-600' },
+  in_progress:   { label: 'In Progress',    cls: 'bg-blue-100 text-blue-700' },
+  kept:          { label: 'Kept \u2713',    cls: 'bg-green-100 text-green-700' },
+  broken:        { label: 'Broken',         cls: 'bg-red-100 text-red-700' },
+  partially_kept:{ label: 'Partial \u2713', cls: 'bg-orange-100 text-orange-700' },
+  expired:       { label: 'Expired',        cls: 'bg-gray-200 text-gray-500' },
+  modified:      { label: 'Modified',       cls: 'bg-purple-100 text-purple-700' },
 };
 
 /**
@@ -36,10 +39,10 @@ const STATUS_STYLES: Record<PromiseRow['status'], { label: string; cls: string }
 export function PromisesSection({ promises }: { promises: PromiseRow[] }) {
   if (promises.length === 0) return null;
 
-  // Summary counts
-  const summary = { kept: 0, broken: 0, stalled: 0, made: 0, partial: 0 };
+  // Summary counts — only the three most meaningful statuses shown in footer
+  const summary = { kept: 0, broken: 0, in_progress: 0 };
   for (const p of promises) {
-    if (p.status in summary) summary[p.status]++;
+    if (p.status in summary) summary[p.status as keyof typeof summary]++;
   }
 
   return (
@@ -60,7 +63,7 @@ export function PromisesSection({ promises }: { promises: PromiseRow[] }) {
           const style = STATUS_STYLES[p.status] ?? STATUS_STYLES.made;
           const madeDate = formatMonthYear(p.made_at);
           const deadlineDate = formatMonthYear(p.deadline);
-          const showDeadline = (p.status === 'made' || p.status === 'stalled') && deadlineDate;
+          const showDeadline = (p.status === 'made' || p.status === 'in_progress') && deadlineDate;
           const truncatedQuote = p.source_quote
             ? (p.source_quote.length > 200
                 ? p.source_quote.slice(0, 200) + '\u2026'
@@ -109,12 +112,12 @@ export function PromisesSection({ promises }: { promises: PromiseRow[] }) {
       </div>
 
       {/* Summary row */}
-      {(summary.kept > 0 || summary.broken > 0 || summary.stalled > 0) && (
+      {(summary.kept > 0 || summary.broken > 0 || summary.in_progress > 0) && (
         <div className="px-5 py-3 bg-gray-50 border-t border-gray-100 text-xs text-gray-500">
           {[
             summary.kept > 0 && `${summary.kept} kept`,
             summary.broken > 0 && `${summary.broken} broken`,
-            summary.stalled > 0 && `${summary.stalled} stalled`,
+            summary.in_progress > 0 && `${summary.in_progress} in progress`,
           ]
             .filter(Boolean)
             .join(', ')}

@@ -741,9 +741,10 @@ export function SunburstGraph({ entityId, entityLabel, className = "", svgRef: e
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, shape, showLabelsOpt]);
 
-  // QWEN-ADDED: TODO(review) — re-render immediately when shape or label visibility changes (no refetch needed)
-  // Split confirmed — was one entangled effect; data-fetch effect (above) is separate from this re-render effect.
-  // shape and skipLabels derived from vizOptions are in deps; render reads vizOptionsRef.current which is updated at render time.
+  // Re-render immediately when shape or label visibility changes (no refetch needed).
+  // Uses showLabelsOpt (full string) not skipLabels (boolean) so all three transitions fire:
+  // 'auto'→'always', 'always'→'never', 'never'→'auto', etc.
+  // render reads vizOptionsRef.current which is updated synchronously at render time.
   useEffect(() => {
     if (status !== "ok") return;
     if (!currentRootRef.current) return;
@@ -752,7 +753,7 @@ export function SunburstGraph({ entityId, entityLabel, className = "", svgRef: e
     const { width, height } = container.getBoundingClientRect();
     renderRef.current?.(currentRootRef.current, width || 600, height || 500, { shape, skipLabels });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shape, skipLabels, status]);
+  }, [shape, showLabelsOpt, status]);
 
   return (
     <div ref={containerRef} className={`relative w-full h-full flex flex-col ${className}`}>

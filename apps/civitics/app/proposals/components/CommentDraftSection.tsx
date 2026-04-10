@@ -6,6 +6,7 @@ type Props = {
   regulationsGovId: string | null;
   congressGovUrl: string | null;
   title: string;
+  proposalId: string;
 };
 
 const TABS = ["write", "template"] as const;
@@ -20,12 +21,15 @@ const TEMPLATES = {
     `I am writing regarding the proposed rule: "${title}".\n\nI request additional information on the following points:\n\n[List your questions here]\n\nThank you for your transparency and responsiveness to public inquiry.`,
 };
 
-export function CommentDraftSection({ regulationsGovId, congressGovUrl, title }: Props) {
+export function CommentDraftSection({ regulationsGovId, congressGovUrl, title, proposalId }: Props) {
   const [tab, setTab] = useState<Tab>("write");
   const [text, setText] = useState("");
   const [name, setName] = useState("");
   const [org, setOrg] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [confirmationNumber, setConfirmationNumber] = useState<string | null>(null);
+  const [fallbackUrl, setFallbackUrl] = useState<string | null>(null);
 
   const submitHref = regulationsGovId
     ? `https://www.regulations.gov/commenton/${regulationsGovId}`
@@ -49,15 +53,22 @@ export function CommentDraftSection({ regulationsGovId, congressGovUrl, title }:
   }
 
   if (submitted) {
+    const displayHref = fallbackUrl ?? submitHref;
     return (
       <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-6 text-center">
         <p className="text-lg font-semibold text-emerald-800">
           ✓ Thanks for participating in democracy.
         </p>
-        <p className="mt-1 text-sm text-emerald-700">
-          Your comment has been prepared. Paste it into the form at regulations.gov to submit
-          officially.
-        </p>
+        {confirmationNumber ? (
+          <p className="mt-1 text-sm text-emerald-700">
+            Confirmation #: <span className="font-mono font-medium">{confirmationNumber}</span>
+          </p>
+        ) : (
+          <p className="mt-1 text-sm text-emerald-700">
+            Your comment has been prepared. Paste it into the form at regulations.gov to submit
+            officially.
+          </p>
+        )}
         <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
           <button
             onClick={() => {
@@ -69,14 +80,16 @@ export function CommentDraftSection({ regulationsGovId, congressGovUrl, title }:
           >
             Copy comment text
           </button>
-          <a
-            href={submitHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
-          >
-            Open regulations.gov →
-          </a>
+          {displayHref && (
+            <a
+              href={displayHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
+            >
+              Open regulations.gov →
+            </a>
+          )}
         </div>
         <button
           onClick={() => setSubmitted(false)}
@@ -178,11 +191,38 @@ export function CommentDraftSection({ regulationsGovId, congressGovUrl, title }:
           Step 3 — Submit
         </p>
         <button
-          disabled={!text.trim()}
-          onClick={() => setSubmitted(true)}
+          disabled={!text.trim() || isSubmitting}
+          onClick={async () => {
+            setIsSubmitting(true);
+            try {
+              const res = await fetch(`/api/proposals/${proposalId}/comment`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  comment_text: text,
+                  name: name || undefined,
+                  org: org || undefined,
+                  regulations_gov_id: regulationsGovId,
+                }),
+              });
+              const data = await res.json();
+              if (data.status === "submitted") {
+                setConfirmationNumber(data.confirmation_number ?? null);
+                setFallbackUrl(null);
+              } else {
+                // failed or no_api_key — always provide fallback
+                setFallbackUrl(data.fallback_url ?? submitHref);
+              }
+            } catch {
+              setFallbackUrl(submitHref);
+            } finally {
+              setIsSubmitting(false);
+              setSubmitted(true);
+            }
+          }}
           className="w-full rounded-md bg-indigo-600 px-4 py-3 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
-          Submit Official Comment →
+          {isSubmitting ? "Submitting..." : "Submit Official Comment →"}
         </button>
         <p className="mt-2 text-center text-xs text-gray-400">
           Opens regulations.gov · Free, always · No account required

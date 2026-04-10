@@ -405,6 +405,7 @@ export default async function ProposalDetailPage({
                     regulationsGovId={p.regulations_gov_id}
                     congressGovUrl={p.congress_gov_url}
                     title={p.title}
+                    proposalId={p.id}
                   />
                 </div>
               ) : (

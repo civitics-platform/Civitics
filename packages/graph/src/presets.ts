@@ -248,6 +248,68 @@ export const CLEAN_VIEW: GraphViewPreset = {
   },
 }
 
+// QWEN-ADDED: Shows which industries and PACs fund which officials
+export const INDUSTRY_CAPTURE: GraphViewPreset = {
+  focus: {
+    entities: [],
+    scope: 'all',
+    depth: 2,
+    includeProcedural: false,
+  },
+  connections: buildConnections(['donation']),
+  style: {
+    vizType: 'force',
+    vizOptions: {
+      force: {
+        layout: 'force_directed',
+        nodeSizeEncoding: 'donation_total',
+        nodeColorEncoding: 'entity_type',
+        singleColor: '#3b82f6',
+        edgeThicknessEncoding: 'amount_proportional',
+        edgeOpacity: 0.75,
+        theme: 'dark',
+      },
+    },
+  },
+  meta: {
+    name: 'Industry Capture',
+    isPreset: true,
+    presetId: 'industry-capture',
+    isDirty: false,
+  },
+}
+
+// QWEN-ADDED: Shows co-sponsorship networks between legislators
+export const CO_SPONSOR_NETWORK: GraphViewPreset = {
+  focus: {
+    entities: [],
+    scope: 'all',
+    depth: 2,
+    includeProcedural: false,
+  },
+  connections: buildConnections(['co_sponsorship']),
+  style: {
+    vizType: 'force',
+    vizOptions: {
+      force: {
+        layout: 'force_directed',
+        nodeSizeEncoding: 'bills_sponsored',
+        nodeColorEncoding: 'party_affiliation',
+        singleColor: '#3b82f6',
+        edgeThicknessEncoding: 'uniform',
+        edgeOpacity: 0.65,
+        theme: 'dark',
+      },
+    },
+  },
+  meta: {
+    name: 'Co-Sponsor Network',
+    isPreset: true,
+    presetId: 'co-sponsor-network',
+    isDirty: false,
+  },
+}
+
 export const CHORD_TOP_DONORS: GraphViewPreset = {
   focus: {
     entities: [],
@@ -445,6 +507,8 @@ export const BUILT_IN_PRESETS: GraphViewPreset[] = [
   COMMITTEE_POWER,
   FULL_RECORD,
   CLEAN_VIEW,
+  INDUSTRY_CAPTURE,
+  CO_SPONSOR_NETWORK,
   CHORD_TOP_DONORS,
   TREEMAP_BY_STATE,
   TREEMAP_BY_CHAMBER,

@@ -392,6 +392,11 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
     if (p.meta.presetId === 'follow-the-money' && graphMeta && !graphMeta.hasDonations) return false;
     // "Votes & Bills" needs vote data
     if (p.meta.presetId === 'votes-and-bills' && graphMeta && !graphMeta.hasVotes) return false;
+    // QWEN-ADDED: Industry Capture needs donation data (same as follow-the-money)
+    if (p.meta.presetId === 'industry-capture' && graphMeta && !graphMeta.hasDonations) return false;
+    // QWEN-ADDED: Co-Sponsor Network needs vote data (co_sponsorship travels with legislative data)
+    // TODO(review): gating check — unsure if hasVotes is right for co-sponsorship
+    if (p.meta.presetId === 'co-sponsor-network' && graphMeta && !graphMeta.hasVotes) return false;
     return true;
   });
 

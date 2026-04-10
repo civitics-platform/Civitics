@@ -19,7 +19,7 @@ export default async function ProfilePage() {
   // Look up users row — migration 0009 uses id = auth.users(id) directly
   const { data: profile } = await supabase
     .from("users")
-    .select("id, display_name, email, avatar_url, civic_credits_balance, is_active, created_at")
+    .select("id, display_name, email, avatar_url, civic_credits_balance, is_active, is_email_verified, created_at")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -28,7 +28,7 @@ export default async function ProfilePage() {
   if (!resolvedProfile && user.email) {
     const { data: emailMatch } = await supabase
       .from("users")
-      .select("id, display_name, email, avatar_url, civic_credits_balance, is_active, created_at")
+      .select("id, display_name, email, avatar_url, civic_credits_balance, is_active, is_email_verified, created_at")
       .eq("email", user.email)
       .maybeSingle();
     resolvedProfile = emailMatch;
@@ -66,12 +66,23 @@ export default async function ProfilePage() {
         {/* Details grid */}
         <dl className="divide-y divide-gray-100">
           {/* Email */}
+          {/* is_email_verified exists in the users table (migration 0001) — Qwen's TODO was wrong */}
           <div className="flex items-center justify-between py-3">
             <div>
               <dt className="text-sm font-medium text-gray-500">Email</dt>
               <dd className="mt-0.5 text-sm text-gray-900">{email || "Not available"}</dd>
             </div>
-            {/* TODO(review): is_email_verified column does not exist in migration 0009 — omitting badge for now */}
+            {resolvedProfile?.is_email_verified != null && (
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                  resolvedProfile.is_email_verified
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-gray-100 text-gray-500"
+                }`}
+              >
+                {resolvedProfile.is_email_verified ? "Verified" : "Unverified"}
+              </span>
+            )}
           </div>
 
           {/* Civic credits */}

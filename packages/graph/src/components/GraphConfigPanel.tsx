@@ -394,9 +394,10 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
     if (p.meta.presetId === 'votes-and-bills' && graphMeta && !graphMeta.hasVotes) return false;
     // QWEN-ADDED: Industry Capture needs donation data (same as follow-the-money)
     if (p.meta.presetId === 'industry-capture' && graphMeta && !graphMeta.hasDonations) return false;
-    // QWEN-ADDED: Co-Sponsor Network needs vote data (co_sponsorship travels with legislative data)
-    // TODO(review): gating check — unsure if hasVotes is right for co-sponsorship
-    if (p.meta.presetId === 'co-sponsor-network' && graphMeta && !graphMeta.hasVotes) return false;
+    // QWEN-ADDED: Co-Sponsor Network needs co_sponsorship edges.
+    // Fix: hasVotes was wrong — voteTypes only tracks vote_yes/no/abstain, not co_sponsorship.
+    // Check connectionTypes directly, mirroring how hasDonations checks 'donation' in connectionTypes.
+    if (p.meta.presetId === 'co-sponsor-network' && graphMeta && !('co_sponsorship' in graphMeta.connectionTypes)) return false;
     return true;
   });
 

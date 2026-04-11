@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createServerClient, createAdminClient } from "@civitics/db";
+import { createServerClient } from "@civitics/db";
 
 export const dynamic = "force-dynamic";
 
@@ -24,11 +24,15 @@ export async function POST(
       );
     }
 
+    // Use supabase (authenticated server client) throughout — not createAdminClient.
+    // civic_initiatives has a public read policy so supabase can read it fine.
+    // civic_initiative_signatures RLS policies (insert_own / delete_own) rely on
+    // auth.uid() being set, which createServerClient provides correctly.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const adminDb = createAdminClient() as any;
+    const db = supabase as any;
 
     // Fetch initiative to check stage
-    const { data: initiative, error: initError } = await adminDb
+    const { data: initiative, error: initError } = await db
       .from("civic_initiatives")
       .select("id,stage")
       .eq("id", params.id)
@@ -57,7 +61,7 @@ export async function POST(
     }
 
     // Check if user already signed
-    const { data: existingSig, error: sigError } = await adminDb
+    const { data: existingSig, error: sigError } = await db
       .from("civic_initiative_signatures")
       .select("id")
       .eq("initiative_id", params.id)
@@ -73,7 +77,8 @@ export async function POST(
 
     if (existingSig) {
       // Unsign — delete the existing signature
-      const { error: deleteError } = await adminDb
+      // RLS policy civic_sigs_delete_own (USING user_id = auth.uid()) enforces ownership.
+      const { error: deleteError } = await db
         .from("civic_initiative_signatures")
         .delete()
         .eq("id", existingSig.id);
@@ -89,7 +94,8 @@ export async function POST(
     }
 
     // Sign — insert new signature
-    const { error: insertError } = await adminDb
+    // RLS policy civic_sigs_insert_own (WITH CHECK user_id = auth.uid()) enforces ownership.
+    const { error: insertError } = await db
       .from("civic_initiative_signatures")
       .insert({
         initiative_id: params.id,

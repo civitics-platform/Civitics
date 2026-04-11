@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createServerClient, createAdminClient } from "@civitics/db";
+import { createServerClient } from "@civitics/db";
 
 export const dynamic = "force-dynamic";
 
@@ -136,10 +136,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Use supabase (authenticated server client) — not createAdminClient.
+    // RLS civic_initiatives_insert_own enforces primary_author_id = auth.uid() at DB level.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const adminDb = createAdminClient() as any;
+    const db = supabase as any;
 
-    const { data, error } = await adminDb
+    const { data, error } = await db
       .from("civic_initiatives")
       .insert({
         title: title.trim(),

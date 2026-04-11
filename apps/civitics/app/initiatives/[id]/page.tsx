@@ -17,6 +17,7 @@ import { InlineEditor } from "./components/InlineEditor";
 import { ArgumentBoard } from "./components/ArgumentBoard";
 import { QualityGate } from "./components/QualityGate";
 import { SignaturePanel } from "./components/SignaturePanel";
+import { ResponseWindowStatus, type ResponseRow } from "./components/ResponseWindowStatus";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,17 +40,6 @@ type InitiativeDetail = {
   updated_at: string;
 };
 
-type OfficialResponse = {
-  id: string;
-  official_id: string;
-  response_type: "support" | "oppose" | "pledge" | "refer" | "no_response";
-  body_text: string | null;
-  committee_referred: string | null;
-  window_opened_at: string;
-  window_closes_at: string;
-  responded_at: string | null;
-  is_verified_staff: boolean;
-};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -60,13 +50,6 @@ const STAGE_STYLES: Record<string, { label: string; color: string; description: 
   resolved:   { label: "Resolved",     color: "bg-green-100 text-green-700 border-green-200", description: "Resolved" },
 };
 
-const RESPONSE_STYLES: Record<string, { label: string; color: string }> = {
-  support:     { label: "Supports",           color: "bg-green-100 text-green-800 border-green-200" },
-  oppose:      { label: "Opposes",            color: "bg-red-100 text-red-800 border-red-200" },
-  pledge:      { label: "Pledged to Sponsor", color: "bg-indigo-100 text-indigo-800 border-indigo-200" },
-  refer:       { label: "Referred to Cmte",   color: "bg-amber-100 text-amber-800 border-amber-200" },
-  no_response: { label: "No Response",        color: "bg-gray-100 text-gray-600 border-gray-200" },
-};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -146,7 +129,7 @@ export default async function InitiativeDetailPage({
     .select("id,official_id,response_type,body_text,committee_referred,window_opened_at,window_closes_at,responded_at,is_verified_staff")
     .eq("initiative_id", id);
 
-  const officialResponses = (responses ?? []) as OfficialResponse[];
+  const officialResponses = (responses ?? []) as ResponseRow[];
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -298,42 +281,11 @@ export default async function InitiativeDetailPage({
               />
             </div>
 
-            {/* Official responses */}
-            {officialResponses.length > 0 && (
-              <div className="mt-8">
-                <h2 className="mb-4 text-base font-semibold text-gray-900">Official responses</h2>
-                <div className="space-y-3">
-                  {officialResponses.map((r) => {
-                    const rs = RESPONSE_STYLES[r.response_type] ?? RESPONSE_STYLES.no_response;
-                    return (
-                      <div key={r.id} className="rounded-lg border border-gray-200 bg-white p-4">
-                        <div className="flex items-center justify-between gap-3 flex-wrap">
-                          <div className="flex items-center gap-2">
-                            <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${rs.color}`}>
-                              {rs.label}
-                            </span>
-                            {r.is_verified_staff && (
-                              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
-                                ✓ Verified staff
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-xs text-gray-400">
-                            Window closes {formatDate(r.window_closes_at)}
-                          </span>
-                        </div>
-                        {r.body_text && (
-                          <p className="mt-2 text-sm text-gray-700">{r.body_text}</p>
-                        )}
-                        {r.committee_referred && (
-                          <p className="mt-1 text-xs text-gray-500">Referred to: {r.committee_referred}</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+            {/* Official response windows */}
+            <ResponseWindowStatus
+              initiativeId={id}
+              responses={officialResponses}
+            />
 
             {/* Version history */}
             {/* Argument board */}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createServerClient } from "@civitics/db";
+import { createServerClient, createAdminClient } from "@civitics/db";
+import { checkAndFireMilestones } from "../../_lib/milestones";
 
 export const dynamic = "force-dynamic";
 
@@ -137,6 +138,29 @@ export async function POST(
         { status: 500 }
       );
     }
+
+    // ── Milestone check ──────────────────────────────────────────────────────
+    // After a new signature is added, check if any thresholds have been crossed.
+    // Runs async (fire-and-forget) so it never delays the sign response.
+    const adminClient = createAdminClient();
+    const [totalRes, constituentRes] = await Promise.all([
+      adminClient
+        .from("civic_initiative_signatures")
+        .select("*", { count: "exact", head: true })
+        .eq("initiative_id", params.id),
+      adminClient
+        .from("civic_initiative_signatures")
+        .select("*", { count: "exact", head: true })
+        .eq("initiative_id", params.id)
+        .eq("verification_tier", "district"),
+    ]);
+
+    checkAndFireMilestones(
+      adminClient,
+      params.id,
+      totalRes.count ?? 0,
+      constituentRes.count ?? 0,
+    ).catch(() => { /* silent — never fail the sign request over milestone logic */ });
 
     return NextResponse.json({ signed: true });
   } catch {

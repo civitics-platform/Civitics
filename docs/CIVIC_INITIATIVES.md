@@ -4,7 +4,7 @@ Living status doc for the Civic Initiatives feature. Update as sprints complete.
 Full design spec: see `Civic_Initiatives_Design.docx` in the civitics outputs folder.
 
 **Last updated:** 2026-04-11
-**Current sprint:** Sprint 6 — Official notifications + response window (not started)
+**Current sprint:** Sprint 7 — Responsiveness score on official profiles (not started)
 
 ---
 
@@ -29,7 +29,7 @@ who don't respond within 30 days of hitting constituent thresholds get a permane
 | 3 | Argument board | ✅ Done (2026-04-11) |
 | 4 | Quality gate v1 | ✅ Done (2026-04-11) |
 | 5 | Mobilise & signatures UI | ✅ Done (2026-04-11) |
-| 6 | Official notifications + response window | 🔲 Not started |
+| 6 | Official notifications + response window | ✅ Done (2026-04-11) |
 | 7 | Responsiveness score on official profiles | 🔲 Not started |
 | 8 | Platform integration (graph, follow, proposals) | 🔲 Not started |
 | 9 | Quality gate v2 (population-normalised) | 🔲 Not started |
@@ -83,6 +83,32 @@ Full column definitions: see TASK-11 in `docs/QWEN_PROMPTS.md`.
 - **Authorship: individual + community both supported** — community proposals carry higher credibility signal in UI
 
 ---
+
+## Sprint 6 — Delivered (2026-04-11)
+
+New migration: `supabase/migrations/20260411060000_civic_initiatives_sprint6.sql`
+- `civic_initiative_milestone_events(id, initiative_id, milestone, constituent_count, total_count, fired_at)` — UNIQUE(initiative_id, milestone). Public read, system-only write.
+
+New shared lib:
+- `apps/civitics/app/api/initiatives/_lib/milestones.ts`
+  - `checkAndFireMilestones(adminClient, initiativeId, totalCount, constituentCount)` — checks thresholds, inserts event rows (idempotent via unique constraint), triggers `openResponseWindows()` for the `response_window` milestone
+  - `openResponseWindows()` — creates `civic_initiative_responses` rows for matched officials (scope+state matching, capped at 50), 30-day window, `ignoreDuplicates: true`
+
+Updated `sign/route.ts` (POST only):
+- After a toggle, fetches updated counts via `createAdminClient()` and calls `checkAndFireMilestones()` as fire-and-forget (never delays the sign response)
+
+New API route:
+- `POST /api/initiatives/[id]/respond` — official response submission. Validates: auth required, initiative is mobilise, official_id exists, window exists + is open + not already responded. `is_verified_staff = email.endsWith('.gov')`. Returns `{ success, official_name, response_type, is_verified_staff }`.
+
+New component:
+- `ResponseWindowStatus.tsx` — client component replacing the old inline official responses. Shows:
+  - Summary chips: N responded / N open / N no-response
+  - Amber notice banner with countdown when windows are open, with "Submit your response →" link for officials
+  - Per-row WindowRow: response badge, verified staff tag, open/expired status, days remaining or elapsed, expandable body, permanent record footer note
+
+Updated `[id]/page.tsx`:
+- Imports `ResponseWindowStatus` + `ResponseRow` type; replaced old inline response rendering
+- Removed now-unused `OfficialResponse` type and `RESPONSE_STYLES` constant (moved into component)
 
 ## Sprint 5 — Delivered (2026-04-11)
 

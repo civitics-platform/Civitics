@@ -4,7 +4,7 @@ Living status doc for the Civic Initiatives feature. Update as sprints complete.
 Full design spec: see `Civic_Initiatives_Design.docx` in the civitics outputs folder.
 
 **Last updated:** 2026-04-11
-**Current sprint:** Sprint 10 — Comment submission (regulations.gov integration) (not started)
+**Current sprint:** All sprints complete — feature complete
 
 ---
 
@@ -33,7 +33,7 @@ who don't respond within 30 days of hitting constituent thresholds get a permane
 | 7 | Responsiveness score on official profiles | ✅ Done (2026-04-11) |
 | 8 | Platform integration (graph, follow, proposals) | ✅ Done (2026-04-11) |
 | 9 | Quality gate v2 (population-normalised) | ✅ Done (2026-04-11) |
-| 10 | Comment submission (regulations.gov integration) | 🔲 Not started |
+| 10 | Comment submission (regulations.gov integration) | ✅ Done (2026-04-11) |
 
 ---
 
@@ -81,6 +81,37 @@ Full column definitions: see TASK-11 in `docs/QWEN_PROMPTS.md`.
 - **Geography coarsened** — `target_district` and `district` on signatures are always district/zip level, never precise coordinates (consistent with platform privacy rule)
 - **Signing requires mobilise stage** — can't sign a draft; advances to deliberate then mobilise via quality gate
 - **Authorship: individual + community both supported** — community proposals carry higher credibility signal in UI
+
+---
+
+## Sprint 10 — Delivered (2026-04-11)
+
+### Threshold transparency (bonus, Craig request)
+
+Updated `QualityGate.tsx`:
+- `ThresholdExplainer` internal component — "How thresholds are set ↓" expandable below signal list.
+- Shows the full `TIER_TABLE` (6 tiers, population range → upvotes required → example) when expanded.
+- The row matching the current initiative's tier is highlighted in indigo.
+- Scope-default note explains the fallback behaviour when no jurisdiction is linked.
+- Decision: transparent contextual display on the initiative page beats a separate admin dashboard — makes the rules legible to any visitor without implying they're configurable.
+
+### Comment submission (regulations.gov integration)
+
+New component: `apps/civitics/app/initiatives/[id]/components/InitiativeCommentPanel.tsx`
+- `"use client"`, accepts `{ initiativeTitle, initiativeSummary, proposals: CommentableProposal[] }`.
+- `isCommentable()` filter: proposal must have `regulations_gov_id` or `congress_gov_url`, and `comment_period_end` must be null or in the future.
+- Renders null when no eligible proposals — zero render cost on non-federal initiatives.
+- Multi-proposal selector: if multiple linked proposals with open dockets, user picks which to comment on.
+- Template pre-populates with initiative title + summary for context; user overwrites as desired.
+- Calls `/api/proposals/${proposalId}/comment` (existing Qwen route, reused unchanged).
+- Success state: confirmation number (if API key present) or copy+redirect fallback.
+- Days-remaining pill on proposals with known deadlines.
+- `CommentableProposal` type exported for use in page.tsx.
+
+Updated `apps/civitics/app/initiatives/[id]/page.tsx`:
+- `linkedProposalsRes` query extended to include `regulations_gov_id, congress_gov_url, comment_period_end`.
+- `linkedProposals` cast to `CommentableProposal[]`.
+- `<InitiativeCommentPanel>` rendered in main column when `stage === "mobilise"`, between `ResponseWindowStatus` and `ArgumentBoard`.
 
 ---
 

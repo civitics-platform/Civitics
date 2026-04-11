@@ -19,6 +19,7 @@ import { QualityGate } from "./components/QualityGate";
 import { SignaturePanel } from "./components/SignaturePanel";
 import { ResponseWindowStatus, type ResponseRow } from "./components/ResponseWindowStatus";
 import { FollowButton } from "./components/FollowButton";
+import { InitiativeCommentPanel, type CommentableProposal } from "./components/InitiativeCommentPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -118,7 +119,7 @@ export default async function InitiativeDetailPage({
         .eq("initiative_id", id),
       supabase
         .from("civic_initiative_proposal_links")
-        .select("proposal_id, proposals!proposal_id(id, title, bill_number, short_title, status)")
+        .select("proposal_id, proposals!proposal_id(id, title, bill_number, short_title, status, regulations_gov_id, congress_gov_url, comment_period_end)")
         .eq("initiative_id", id)
         .limit(10),
     ]);
@@ -136,7 +137,7 @@ export default async function InitiativeDetailPage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const linkedProposals = ((linkedProposalsRes.data ?? []) as any[])
     .map((row) => row.proposals)
-    .filter(Boolean);
+    .filter(Boolean) as CommentableProposal[];
 
   // Fetch official responses
   const { data: responses } = await supabase
@@ -301,6 +302,15 @@ export default async function InitiativeDetailPage({
               initiativeId={id}
               responses={officialResponses}
             />
+
+            {/* Official comment submission — shown in mobilise stage when linked proposals have open dockets */}
+            {initiative.stage === "mobilise" && (
+              <InitiativeCommentPanel
+                initiativeTitle={initiative.title}
+                initiativeSummary={initiative.summary}
+                proposals={linkedProposals}
+              />
+            )}
 
             {/* Version history */}
             {/* Argument board */}

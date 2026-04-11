@@ -3,6 +3,71 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 
+// ─── Threshold explainer ──────────────────────────────────────────────────────
+
+const TIER_TABLE = [
+  { range: "< 100K",  upvotes: 10,  example: "Small town / rural district" },
+  { range: "< 500K",  upvotes: 25,  example: "Mid-sized city"               },
+  { range: "< 2M",    upvotes: 50,  example: "Large city or county"         },
+  { range: "< 10M",   upvotes: 100, example: "Small state"                  },
+  { range: "< 50M",   upvotes: 200, example: "Large state"                  },
+  { range: "50M+",    upvotes: 500, example: "Federal"                      },
+];
+
+function ThresholdExplainer({ currentTierLabel }: { currentTierLabel?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-3 border-t border-gray-100 pt-3">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-600 transition-colors"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+        </svg>
+        How thresholds are set
+        <span className="ml-0.5 text-gray-300">{open ? "↑" : "↓"}</span>
+      </button>
+
+      {open && (
+        <div className="mt-2.5 rounded-lg border border-gray-100 bg-gray-50 p-3">
+          <p className="mb-2 text-[11px] text-gray-500 leading-relaxed">
+            The upvote threshold scales with your district&apos;s population so a small
+            town initiative isn&apos;t held to the same bar as a federal one. When no
+            jurisdiction is linked, a scope-level default is used (local ≈ 75K,
+            state ≈ 6.5M, federal ≈ 335M).
+          </p>
+          <table className="w-full text-[11px]">
+            <thead>
+              <tr className="border-b border-gray-200">
+                <th className="pb-1 text-left font-semibold text-gray-500">Population</th>
+                <th className="pb-1 text-left font-semibold text-gray-500">Upvotes needed</th>
+                <th className="hidden pb-1 text-left font-semibold text-gray-500 sm:table-cell">Example</th>
+              </tr>
+            </thead>
+            <tbody>
+              {TIER_TABLE.map((row) => {
+                const isCurrent = currentTierLabel?.startsWith(row.range.replace("< ", "").replace("+", ""));
+                return (
+                  <tr
+                    key={row.range}
+                    className={`border-b border-gray-100 last:border-0 ${isCurrent ? "bg-indigo-50" : ""}`}
+                  >
+                    <td className={`py-1 tabular-nums ${isCurrent ? "font-semibold text-indigo-700" : "text-gray-600"}`}>{row.range}</td>
+                    <td className={`py-1 tabular-nums ${isCurrent ? "font-semibold text-indigo-700" : "text-gray-600"}`}>{row.upvotes}</td>
+                    <td className="hidden py-1 text-gray-400 sm:table-cell">{row.example}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type SignalStatus = "pass" | "fail" | "pending";
@@ -237,6 +302,9 @@ export function QualityGate({ initiativeId, currentStage }: QualityGateProps) {
         ) : (
           <p className="text-xs text-gray-400">Loading gate status…</p>
         )}
+
+        {/* Threshold explainer */}
+        <ThresholdExplainer currentTierLabel={gate?.population_context?.tier_label} />
 
         {/* Refresh + advance */}
         <div className="mt-4 flex items-center gap-3">

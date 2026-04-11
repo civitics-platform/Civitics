@@ -9,6 +9,13 @@ interface UserMenuProps {
   onClose: () => void;
 }
 
+// Phase 1 — real working links
+const PHASE1_LINKS = [
+  { label: "My Profile",     href: "/profile"            },
+  { label: "My Initiatives", href: "/initiatives?mine=1" },
+];
+
+// Phase 2 — not built yet
 const PHASE2_ITEMS = ["My Positions", "Following", "Submitted Comments"];
 
 export function UserMenu({ user, onClose }: UserMenuProps) {
@@ -57,20 +64,32 @@ export function UserMenu({ user, onClose }: UserMenuProps) {
         <p className="truncate text-xs text-gray-600">{user.email}</p>
       </div>
 
+      {/* Phase 1 links — live */}
+      <div className="border-b border-gray-100 py-1">
+        {PHASE1_LINKS.map(({ label, href }) => (
+          <a
+            key={href}
+            href={href}
+            onClick={onClose}
+            className="flex w-full items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            {label}
+          </a>
+        ))}
+      </div>
+
       {/* Phase 2 items — shown as coming soon */}
       <div className="border-b border-gray-100 py-1">
         {PHASE2_ITEMS.map((item) => (
           <button
             key={item}
-            onClick={() =>
-              setComingSoon(comingSoon === item ? null : item)
-            }
+            onClick={() => setComingSoon(comingSoon === item ? null : item)}
             className="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
           >
             <span>{item}</span>
-            {comingSoon === item ? (
+            {comingSoon === item && (
               <span className="text-xs text-gray-400">Coming soon</span>
-            ) : null}
+            )}
           </button>
         ))}
       </div>

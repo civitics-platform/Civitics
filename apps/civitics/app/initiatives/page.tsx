@@ -57,17 +57,22 @@ function formatDate(iso: string | null): string {
 export default async function InitiativesPage({
   searchParams,
 }: {
-  searchParams: { stage?: string; scope?: string; tag?: string; page?: string };
+  searchParams: { stage?: string; scope?: string; tag?: string; page?: string; mine?: string };
 }) {
   const params = searchParams;
   const stage = params.stage ?? "";
   const scope = params.scope ?? "";
-  const tag = params.tag ?? "";
-  const page = Math.max(1, parseInt(params.page ?? "1") || 1);
+  const tag   = params.tag   ?? "";
+  const mine  = params.mine  === "1";
+  const page  = Math.max(1, parseInt(params.page ?? "1") || 1);
   const PAGE_SIZE = 20;
 
   const cookieStore = await cookies();
   const supabase = createServerClient(cookieStore);
+
+  // Auth — needed for "Mine" tab
+  const { data: { user } } = await supabase.auth.getUser();
+  const isMine = mine && !!user;
 
   // Build query
   let query = supabase
@@ -77,7 +82,17 @@ export default async function InitiativesPage({
       { count: "exact" }
     );
 
-  if (stage) query = query.eq("stage", stage);
+  if (isMine) {
+    // "My initiatives" view: author's own rows (includes drafts — RLS allows it)
+    query = query.eq("primary_author_id", user!.id);
+    // Still allow stage filtering within own initiatives
+    if (stage) query = query.eq("stage", stage);
+  } else {
+    // Public view: never show drafts
+    query = query.neq("stage", "draft");
+    if (stage) query = query.eq("stage", stage);
+  }
+
   if (scope) query = query.eq("scope", scope);
   if (tag)   query = query.contains("issue_area_tags", [tag]);
 
@@ -92,10 +107,11 @@ export default async function InitiativesPage({
 
   function buildUrl(updates: Record<string, string>) {
     const p = new URLSearchParams();
-    const merged = { stage, scope, tag, ...updates };
+    const merged = { stage, scope, tag, mine: isMine ? "1" : "", ...updates };
     if (merged.stage) p.set("stage", merged.stage);
     if (merged.scope) p.set("scope", merged.scope);
     if (merged.tag)   p.set("tag", merged.tag);
+    if (merged.mine === "1") p.set("mine", "1");
     if (merged.page && merged.page !== "1") p.set("page", merged.page);
     const qs = p.toString();
     return `/initiatives${qs ? `?${qs}` : ""}`;
@@ -161,14 +177,14 @@ export default async function InitiativesPage({
           </Link>
         </div>
 
-        {/* ── Stage tabs ───────────────────────────────────────────────── */}
+        {/* ── Stage / view tabs ────────────────────────────────────────── */}
         <div className="mb-6 flex gap-1 overflow-x-auto rounded-lg border border-gray-200 bg-white p-1">
           {STAGE_TABS.map((tab) => (
             <Link
               key={tab.value}
-              href={buildUrl({ stage: tab.value, page: "1" })}
+              href={buildUrl({ stage: tab.value, mine: "", page: "1" })}
               className={`flex-shrink-0 rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-                stage === tab.value
+                !isMine && stage === tab.value
                   ? "bg-indigo-600 text-white shadow-sm"
                   : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
               }`}
@@ -176,6 +192,19 @@ export default async function InitiativesPage({
               {tab.label}
             </Link>
           ))}
+          {/* "Mine" tab — only shown when signed in */}
+          {user && (
+            <Link
+              href={`/initiatives?mine=1`}
+              className={`ml-auto flex-shrink-0 rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                isMine
+                  ? "bg-indigo-600 text-white shadow-sm"
+                  : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+              }`}
+            >
+              My initiatives
+            </Link>
+          )}
         </div>
 
         {/* ── Scope filter ─────────────────────────────────────────────── */}
@@ -218,8 +247,12 @@ export default async function InitiativesPage({
                   d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
             </div>
-            <p className="text-sm font-medium text-gray-900">No initiatives yet</p>
-            <p className="mt-1 text-sm text-gray-500">Be the first — start a civic initiative.</p>
+            <p className="text-sm font-medium text-gray-900">
+              {isMine ? "You haven't started any initiatives yet" : "No initiatives yet"}
+            </p>
+            <p className="mt-1 text-sm text-gray-500">
+              {isMine ? "Draft your first initiative and open it for community deliberation." : "Be the first — start a civic initiative."}
+            </p>
             <Link
               href="/initiatives/new"
               className="mt-4 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"

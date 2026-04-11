@@ -129,6 +129,7 @@ export type NodeType =
   | "official"
   | "governing_body"
   | "proposal"
+  | "initiative"
   | "corporation"
   | "pac"
   | "individual";
@@ -175,6 +176,7 @@ export const NODE_COLORS: Record<NodeType, { fill: string; stroke: string }> = {
   official:       { fill: "#f8fafc", stroke: "#6366f1" },
   governing_body: { fill: "#f5f3ff", stroke: "#7c3aed" },
   proposal:       { fill: "#fffbeb", stroke: "#f59e0b" },
+  initiative:     { fill: "#ecfdf5", stroke: "#059669" },   // emerald — civic grassroots energy
   corporation:    { fill: "#f0fdf4", stroke: "#16a34a" },
   pac:            { fill: "#fff7ed", stroke: "#ea580c" },
   individual:     { fill: "#eff6ff", stroke: "#3b82f6" },

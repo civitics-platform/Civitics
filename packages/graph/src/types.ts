@@ -21,6 +21,7 @@ export type NodeType =
   | 'official'
   | 'agency'
   | 'proposal'
+  | 'initiative'
   | 'financial'
   | 'organization'
   | 'corporation'

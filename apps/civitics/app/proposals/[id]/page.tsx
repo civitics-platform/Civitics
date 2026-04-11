@@ -8,6 +8,7 @@ import { AiSummarySection } from "../components/AiSummarySection";
 import { PageViewTracker } from "../../components/PageViewTracker";
 import { CivicComments } from "./components/CivicComments";
 import { PositionWidget } from "./components/PositionWidget";
+import { RelatedInitiatives, type InitiativeLink } from "../components/RelatedInitiatives";
 
 export const dynamic = "force-dynamic";
 
@@ -174,11 +175,23 @@ export default async function ProposalDetailPage({
     .eq("entity_id", p.id)
     .maybeSingle();
 
-  const [votesRes, relatedRes, aiSummaryRes] = await Promise.all([votesPromise, relatedQuery, aiSummaryPromise]);
+  const relatedInitiativesQuery = supabase
+    .from("civic_initiative_proposal_links")
+    .select("civic_initiatives!initiative_id(id, title, stage, scope, issue_area_tags)")
+    .eq("proposal_id", p.id)
+    .limit(5);
+
+  const [votesRes, relatedRes, aiSummaryRes, relatedInitiativesRes] = await Promise.all([
+    votesPromise, relatedQuery, aiSummaryPromise, relatedInitiativesQuery,
+  ]);
 
   const votes = (votesRes.data ?? []) as Vote[];
   const related = (relatedRes.data ?? []) as RelatedProposal[];
   const cachedAiSummary: string | null = aiSummaryRes?.data?.summary_text ?? null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const relatedInitiatives = ((relatedInitiativesRes.data ?? []) as any[])
+    .map((row) => row.civic_initiatives)
+    .filter(Boolean) as InitiativeLink[];
 
   // Vote tally
   const tally = votes.reduce<Record<string, number>>((acc, v) => {
@@ -352,6 +365,9 @@ export default async function ProposalDetailPage({
 
             {/* Community Comments */}
             <CivicComments proposalId={p.id} />
+
+            {/* Citizen Initiatives linked to this proposal */}
+            <RelatedInitiatives initiatives={relatedInitiatives} />
 
             {/* Related Proposals */}
             {related.length > 0 && (

@@ -4,7 +4,7 @@ Living status doc for the Civic Initiatives feature. Update as sprints complete.
 Full design spec: see `Civic_Initiatives_Design.docx` in the civitics outputs folder.
 
 **Last updated:** 2026-04-11
-**Current sprint:** Sprint 8 — Platform integration (graph, follow, proposals) (not started)
+**Current sprint:** Sprint 9 — Quality gate v2 (population-normalised) (not started)
 
 ---
 
@@ -31,7 +31,7 @@ who don't respond within 30 days of hitting constituent thresholds get a permane
 | 5 | Mobilise & signatures UI | ✅ Done (2026-04-11) |
 | 6 | Official notifications + response window | ✅ Done (2026-04-11) |
 | 7 | Responsiveness score on official profiles | ✅ Done (2026-04-11) |
-| 8 | Platform integration (graph, follow, proposals) | 🔲 Not started |
+| 8 | Platform integration (graph, follow, proposals) | ✅ Done (2026-04-11) |
 | 9 | Quality gate v2 (population-normalised) | 🔲 Not started |
 | 10 | Comment submission (regulations.gov integration) | 🔲 Not started |
 
@@ -83,6 +83,29 @@ Full column definitions: see TASK-11 in `docs/QWEN_PROMPTS.md`.
 - **Authorship: individual + community both supported** — community proposals carry higher credibility signal in UI
 
 ---
+
+## Sprint 8 — Delivered (2026-04-11)
+
+New migration: `supabase/migrations/20260411080000_civic_initiatives_sprint8.sql`
+- `civic_initiative_follows(id, initiative_id, user_id, created_at)` — UNIQUE(initiative_id, user_id). RLS: select all, insert/delete own.
+- `civic_initiative_proposal_links(id, initiative_id, proposal_id, linked_by, created_at)` — UNIQUE(initiative_id, proposal_id). RLS: select all, insert/delete own (author check at API layer).
+
+Graph package (`packages/graph/src`):
+- `types.ts` — `initiative` added to NodeType union (ForceGraph v1)
+- `index.ts` — `initiative` added to NodeType union + NODE_COLORS (`{ fill: "#ecfdf5", stroke: "#059669" }` — emerald)
+- `apps/civitics/app/api/graph/connections/route.ts` — `case "initiative": return "initiative"` added to mapNodeType; initiatives now render correctly when they appear as graph nodes
+
+New API routes:
+- `GET/POST /api/initiatives/[id]/follow` — toggle follow; GET returns `{ following, count }` for unauthenticated users (follows: false). Same toggle pattern as upvote/sign.
+- `GET/POST /api/initiatives/[id]/link-proposal` — GET returns linked proposals; POST creates or unlinks (`{ proposal_id, unlink?: true }`). Author-only via primary_author_id check. Idempotent insert.
+
+New components:
+- `FollowButton.tsx` — star/unstar button with live count; checks state on mount, 401 redirects to sign-in
+- `proposals/components/RelatedInitiatives.tsx` — server component showing citizen initiatives linked to a proposal (stage badge, scope, tags, link to initiative)
+
+Updated pages:
+- `initiatives/[id]/page.tsx` — follow + linked proposals added to parallel Promise.all; FollowButton added to support card; "Linked legislation" sidebar card shows linked proposal bills
+- `proposals/[id]/page.tsx` — related initiatives query added to Promise.all; `<RelatedInitiatives>` rendered above related proposals section
 
 ## Sprint 7 — Delivered (2026-04-11)
 

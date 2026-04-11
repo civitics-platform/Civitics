@@ -26,6 +26,7 @@ function mapNodeType(dbType: string, subType?: string): NodeType {
     case "agency": return "agency";
     case "governing_body": return "agency";
     case "proposal": return "proposal";
+    case "initiative": return "initiative";
     case "financial": {
       switch (subType) {
         case "pac":

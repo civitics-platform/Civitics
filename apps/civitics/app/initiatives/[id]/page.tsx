@@ -18,6 +18,7 @@ import { ArgumentBoard } from "./components/ArgumentBoard";
 import { QualityGate } from "./components/QualityGate";
 import { SignaturePanel } from "./components/SignaturePanel";
 import { ResponseWindowStatus, type ResponseRow } from "./components/ResponseWindowStatus";
+import { FollowButton } from "./components/FollowButton";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -94,7 +95,7 @@ export default async function InitiativeDetailPage({
   const supabase = createServerClient(cookieStore);
 
   // Fetch initiative + counts in parallel
-  const [initiativeRes, { data: { user } }, totalSigsRes, verifiedSigsRes, upvoteRes] =
+  const [initiativeRes, { data: { user } }, totalSigsRes, verifiedSigsRes, upvoteRes, followRes, linkedProposalsRes] =
     await Promise.all([
       supabase.from("civic_initiatives").select("*").eq("id", id).single(),
       supabase.auth.getUser(),
@@ -111,6 +112,15 @@ export default async function InitiativeDetailPage({
         .from("civic_initiative_upvotes")
         .select("*", { count: "exact", head: true })
         .eq("initiative_id", id),
+      supabase
+        .from("civic_initiative_follows")
+        .select("*", { count: "exact", head: true })
+        .eq("initiative_id", id),
+      supabase
+        .from("civic_initiative_proposal_links")
+        .select("proposal_id, proposals!proposal_id(id, title, bill_number, short_title, status)")
+        .eq("initiative_id", id)
+        .limit(10),
     ]);
 
   if (initiativeRes.error || !initiativeRes.data) {
@@ -121,7 +131,12 @@ export default async function InitiativeDetailPage({
   const isAuthor = user?.id === initiative.primary_author_id;
   const canEdit = isAuthor && (initiative.stage === "draft" || initiative.stage === "deliberate");
   const stageStyle = STAGE_STYLES[initiative.stage] ?? STAGE_STYLES.draft;
-  const upvoteCount = upvoteRes.count ?? 0;
+  const upvoteCount   = upvoteRes.count ?? 0;
+  const followCount   = followRes.count ?? 0;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const linkedProposals = ((linkedProposalsRes.data ?? []) as any[])
+    .map((row) => row.proposals)
+    .filter(Boolean);
 
   // Fetch official responses
   const { data: responses } = await supabase
@@ -300,13 +315,19 @@ export default async function InitiativeDetailPage({
 
           {/* ── Sidebar ──────────────────────────────────────────────── */}
           <aside className="mt-8 space-y-4 lg:mt-0">
-            {/* Upvote card */}
+            {/* Upvote + follow card */}
             <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
               <p className="mb-3 text-sm font-semibold text-gray-900">Support this initiative</p>
               <UpvoteButton initiativeId={initiative.id} initialCount={upvoteCount} />
               <p className="mt-2 text-xs text-gray-400">
                 Upvotes help advance to deliberation.
               </p>
+              <div className="mt-3 border-t border-gray-100 pt-3">
+                <FollowButton initiativeId={initiative.id} initialCount={followCount} />
+                <p className="mt-1.5 text-xs text-gray-400">
+                  Follow to get updates on this initiative.
+                </p>
+              </div>
             </div>
 
             {/* Signature panel (shown in mobilise stage) */}
@@ -347,6 +368,27 @@ export default async function InitiativeDetailPage({
                 </div>
               </dl>
             </div>
+            {/* Linked proposals */}
+            {linkedProposals.length > 0 && (
+              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                <p className="mb-3 text-sm font-semibold text-gray-900">Linked legislation</p>
+                <div className="space-y-2">
+                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                  {linkedProposals.map((p: any) => (
+                    <a
+                      key={p.id}
+                      href={`/proposals/${p.id}`}
+                      className="block rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs transition-colors hover:border-indigo-200 hover:bg-indigo-50"
+                    >
+                      <span className="font-medium text-gray-800 line-clamp-2">
+                        {p.bill_number ? `${p.bill_number} · ` : ""}{p.short_title ?? p.title}
+                      </span>
+                      <span className="mt-0.5 block capitalize text-gray-400">{p.status?.replace(/_/g, " ")}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
           </aside>
         </div>
       </main>

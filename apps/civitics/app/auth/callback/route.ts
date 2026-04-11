@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createServerClient } from "@civitics/db";
+import type { CookieStore } from "@civitics/db";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -8,30 +9,37 @@ export async function GET(request: Request) {
   const next = searchParams.get("next") ?? "/";
 
   if (code) {
-    const cookieStore = cookies();
-    const supabase = createServerClient(cookieStore);
+    const cookieStore = await cookies();
 
+    // Collect cookies Supabase wants to set during session exchange.
+    // cookies() from next/headers is read-only in Route Handlers — we can't
+    // call .setAll() on it directly. Instead we buffer them here and apply
+    // them to the NextResponse before returning.
+    const pending: Parameters<NonNullable<CookieStore["setAll"]>>[0] = [];
+
+    const adapter: CookieStore = {
+      getAll: () => cookieStore.getAll(),
+      setAll: (c) => pending.push(...c),
+    };
+
+    const supabase = createServerClient(adapter);
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
-      // Upsert user profile on sign-in
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      // Upsert user profile row on first sign-in
+      const { data: { user } } = await supabase.auth.getUser();
 
       if (user) {
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const db = supabase as any;
-          await db.from("users").upsert(
+          await (supabase as any).from("users").upsert(
             {
-              id: user.id,
-              email: user.email,
-              display_name: user.user_metadata?.full_name as string | undefined,
-              avatar_url: user.user_metadata?.avatar_url as string | undefined,
-              auth_provider:
-                (user.app_metadata?.provider as string) || "email",
-              last_seen: new Date().toISOString(),
+              id:            user.id,
+              email:         user.email,
+              display_name:  user.user_metadata?.full_name as string | undefined,
+              avatar_url:    user.user_metadata?.avatar_url as string | undefined,
+              auth_provider: (user.app_metadata?.provider as string) || "email",
+              last_seen:     new Date().toISOString(),
             },
             { onConflict: "id", ignoreDuplicates: false }
           );
@@ -40,9 +48,16 @@ export async function GET(request: Request) {
         }
       }
 
-      // Redirect back to where they came from
       const redirectTo = next.startsWith("/") ? `${origin}${next}` : origin;
-      return NextResponse.redirect(redirectTo);
+      const response = NextResponse.redirect(redirectTo);
+
+      // Apply the buffered session cookies to the redirect response
+      pending.forEach(({ name, value, options }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        response.cookies.set(name, value, options as any);
+      });
+
+      return response;
     }
   }
 

@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createServerClient } from "@civitics/db";
+import type { CookieStore } from "@civitics/db";
 
 // Handles email confirmation via token_hash (alternative to PKCE code flow).
 // Supabase uses this for magic links in some configurations and for
@@ -13,18 +14,34 @@ export async function GET(request: Request) {
   const next = searchParams.get("next") ?? "/";
 
   if (token_hash && type) {
-    const cookieStore = cookies();
-    const supabase = createServerClient(cookieStore);
+    const cookieStore = await cookies();
 
+    // Same buffering pattern as /auth/callback — cookies() is read-only in
+    // Route Handlers; collect what Supabase wants to set and apply to response.
+    const pending: Parameters<NonNullable<CookieStore["setAll"]>>[0] = [];
+
+    const adapter: CookieStore = {
+      getAll: () => cookieStore.getAll(),
+      setAll: (c) => pending.push(...c),
+    };
+
+    const supabase = createServerClient(adapter);
     const { error } = await supabase.auth.verifyOtp({
       token_hash,
-      // EmailOtpType covers magic link, signup, recovery, invite, email_change
       type: type as "email" | "recovery" | "invite" | "email_change" | "signup",
     });
 
     if (!error) {
       const redirectTo = next.startsWith("/") ? `${origin}${next}` : origin;
-      return NextResponse.redirect(redirectTo);
+      const response = NextResponse.redirect(redirectTo);
+
+      // Apply the buffered session cookies to the redirect response
+      pending.forEach(({ name, value, options }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        response.cookies.set(name, value, options as any);
+      });
+
+      return response;
     }
   }
 

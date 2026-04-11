@@ -15,6 +15,8 @@ import { UpvoteButton } from "./components/UpvoteButton";
 import { VersionHistory } from "./components/VersionHistory";
 import { InlineEditor } from "./components/InlineEditor";
 import { ArgumentBoard } from "./components/ArgumentBoard";
+import { QualityGate } from "./components/QualityGate";
+import { SignaturePanel } from "./components/SignaturePanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -277,6 +279,14 @@ export default async function InitiativeDetailPage({
               </div>
             )}
 
+            {/* Quality gate — shown to author on draft + deliberate stages */}
+            {isAuthor && (initiative.stage === "draft" || initiative.stage === "deliberate") && (
+              <QualityGate
+                initiativeId={initiative.id}
+                currentStage={initiative.stage}
+              />
+            )}
+
             {/* Proposal body */}
             <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
               <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-400">
@@ -347,30 +357,14 @@ export default async function InitiativeDetailPage({
               </p>
             </div>
 
-            {/* Signature stats (shown in mobilise stage) */}
+            {/* Signature panel (shown in mobilise stage) */}
             {initiative.stage === "mobilise" && (
-              <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
-                <p className="mb-3 text-sm font-semibold text-indigo-900">Signatures</p>
-                <div className="space-y-2">
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-xs text-indigo-700">Total signed</span>
-                    <span className="text-lg font-bold text-indigo-900">
-                      {(totalSigsRes.count ?? 0).toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-xs text-indigo-700">District-verified</span>
-                    <span className="text-base font-semibold text-indigo-800">
-                      {(verifiedSigsRes.count ?? 0).toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-                {initiative.mobilise_started_at && (
-                  <p className="mt-3 text-xs text-indigo-600">
-                    Mobilising since {formatDate(initiative.mobilise_started_at)}
-                  </p>
-                )}
-              </div>
+              <SignaturePanel
+                initiativeId={initiative.id}
+                mobiliseStartedAt={initiative.mobilise_started_at}
+                initialTotal={totalSigsRes.count ?? 0}
+                initialConstituent={verifiedSigsRes.count ?? 0}
+              />
             )}
 
             {/* Meta card */}

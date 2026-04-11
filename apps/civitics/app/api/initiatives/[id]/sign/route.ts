@@ -4,6 +4,36 @@ import { createServerClient } from "@civitics/db";
 
 export const dynamic = "force-dynamic";
 
+// ─── GET /api/initiatives/[id]/sign ───────────────────────────────────────────
+// Returns whether the current user has signed this initiative.
+// Returns { signed: false } for unauthenticated requests.
+
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const cookieStore = await cookies();
+    const supabase = createServerClient(cookieStore);
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ signed: false });
+    }
+
+    const { data } = await supabase
+      .from("civic_initiative_signatures")
+      .select("id")
+      .eq("initiative_id", params.id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    return NextResponse.json({ signed: !!data });
+  } catch {
+    return NextResponse.json({ signed: false });
+  }
+}
+
 // ─── POST /api/initiatives/[id]/sign ──────────────────────────────────────────
 // Toggle a signature: if already signed, unsign (DELETE); otherwise sign (INSERT).
 // Only initiatives in 'mobilise' stage accept signatures.

@@ -4,7 +4,7 @@ Living status doc for the Civic Initiatives feature. Update as sprints complete.
 Full design spec: see `Civic_Initiatives_Design.docx` in the civitics outputs folder.
 
 **Last updated:** 2026-04-11
-**Current sprint:** Sprint 4 — Quality gate v1 (not started)
+**Current sprint:** Sprint 6 — Official notifications + response window (not started)
 
 ---
 
@@ -27,8 +27,8 @@ who don't respond within 30 days of hitting constituent thresholds get a permane
 | 1 | DB migration + core API routes | ✅ Done (2026-04-11) |
 | 2 | Create & deliberate UI | ✅ Done (2026-04-11) |
 | 3 | Argument board | ✅ Done (2026-04-11) |
-| 4 | Quality gate v1 | 🔲 Not started |
-| 5 | Mobilise & signatures UI | 🔲 Not started |
+| 4 | Quality gate v1 | ✅ Done (2026-04-11) |
+| 5 | Mobilise & signatures UI | ✅ Done (2026-04-11) |
 | 6 | Official notifications + response window | 🔲 Not started |
 | 7 | Responsiveness score on official profiles | 🔲 Not started |
 | 8 | Platform integration (graph, follow, proposals) | 🔲 Not started |
@@ -83,6 +83,27 @@ Full column definitions: see TASK-11 in `docs/QWEN_PROMPTS.md`.
 - **Authorship: individual + community both supported** — community proposals carry higher credibility signal in UI
 
 ---
+
+## Sprint 5 — Delivered (2026-04-11)
+
+No new migration or API routes — reuses Sprint 1 infra.
+
+Updated API route:
+- `GET /api/initiatives/[id]/sign` — added GET handler; returns `{ signed: boolean }` for the current user (false if unauthenticated). POST toggle unchanged.
+
+New component:
+- `SignaturePanel.tsx` — sidebar panel for mobilise-stage initiatives. Replaces the basic stats card.
+  - Checks sign state on mount via GET `/sign`
+  - Sign/Unsign button (green outline when signed, indigo filled when not)
+  - Count grid: total signed + district-verified, updated optimistically then confirmed via polling
+  - Polls `signature-count` every 30s for live count updates
+  - Milestone ladder (4 steps): 100 total → Listed publicly, 250 constituent → Officials notified, 1000 constituent → 30-day response window, 5000 constituent → Featured on homepage
+  - Each milestone shows icon, label, description, value/required, progress bar (hidden when hit, replaced by green ✓)
+  - Days mobilising counter in header
+  - 401 response redirects to sign-in with `?next=` return path
+
+Updated `[id]/page.tsx`:
+- Imports and renders `<SignaturePanel>` in place of the old inline signature stats card
 
 ## Qwen Task References
 

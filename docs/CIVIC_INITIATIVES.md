@@ -3,8 +3,8 @@
 Living status doc for the Civic Initiatives feature. Update as sprints complete.
 Full design spec: see `Civic_Initiatives_Design.docx` in the civitics outputs folder.
 
-**Last updated:** 2026-04-09
-**Current sprint:** Sprint 1 — DB & core model (not started)
+**Last updated:** 2026-04-11
+**Current sprint:** Sprint 3 — Argument board (not started)
 
 ---
 
@@ -24,8 +24,8 @@ who don't respond within 30 days of hitting constituent thresholds get a permane
 
 | Sprint | Scope | Status |
 |--------|-------|--------|
-| 1 | DB migration + core API routes | 🔲 Not started |
-| 2 | Create & deliberate UI | 🔲 Not started |
+| 1 | DB migration + core API routes | ✅ Done (2026-04-11) |
+| 2 | Create & deliberate UI | ✅ Done (2026-04-11) |
 | 3 | Argument board | 🔲 Not started |
 | 4 | Quality gate v1 | 🔲 Not started |
 | 5 | Mobilise & signatures UI | 🔲 Not started |
@@ -86,5 +86,23 @@ Full column definitions: see TASK-11 in `docs/QWEN_PROMPTS.md`.
 
 ## Qwen Task References
 
-- **TASK-11** — DB migration → `docs/QWEN_PROMPTS.md`
-- **TASK-12** — Core API routes → `docs/QWEN_PROMPTS.md` (blocked on TASK-11)
+- **TASK-11** — DB migration → `docs/QWEN_PROMPTS.md` ✅
+- **TASK-12** — Core API routes → `docs/QWEN_PROMPTS.md` ✅
+
+## Sprint 2 — Delivered (2026-04-11)
+
+New migration: `supabase/migrations/20260411020000_civic_initiatives_sprint2.sql`
+- `civic_initiative_versions` — snapshot of body_md + title before each edit
+- `civic_initiative_upvotes` — one row per user per initiative (toggle pattern)
+
+New API routes:
+- `PATCH /api/initiatives/[id]` — update title/body/etc (draft/deliberate only; auto-snapshots version)
+- `GET/POST /api/initiatives/[id]/upvote` — check/toggle upvote
+- `GET /api/initiatives/[id]/versions` — version history list
+
+New pages:
+- `/initiatives` — list with stage tabs, scope filter, pagination
+- `/initiatives/new` — create form (title, summary, body_md editor, scope, tags)
+- `/initiatives/[id]` — detail page: proposal body, upvote, official responses, version history
+  - Author inline editor (shown when stage = draft or deliberate)
+  - Signature stats sidebar (shown when stage = mobilise)

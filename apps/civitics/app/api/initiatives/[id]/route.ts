@@ -1,42 +1,12 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@civitics/db";
+import type { Database } from "@civitics/db";
 
 export const dynamic = "force-dynamic";
 
-// QWEN-ADDED: type definitions for initiative detail response
-type InitiativeDetail = {
-  id: string;
-  title: string;
-  summary: string | null;
-  body_md: string;
-  stage: "draft" | "deliberate" | "mobilise" | "resolved";
-  authorship_type: "individual" | "community";
-  primary_author_id: string | null;
-  linked_proposal_id: string | null;
-  scope: "federal" | "state" | "local";
-  target_district: string | null;
-  issue_area_tags: string[];
-  quality_gate_score: Record<string, unknown>;
-  mobilise_started_at: string | null;
-  resolved_at: string | null;
-  resolution_type: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-// QWEN-ADDED: type for official response rows
-type ResponseRow = {
-  id: string;
-  official_id: string;
-  response_type: "support" | "oppose" | "pledge" | "refer" | "no_response";
-  body_text: string | null;
-  committee_referred: string | null;
-  window_opened_at: string;
-  window_closes_at: string;
-  responded_at: string | null;
-  is_verified_staff: boolean;
-};
+type InitiativeDetail = Database["public"]["Tables"]["civic_initiatives"]["Row"];
+type ResponseRow = Database["public"]["Tables"]["civic_initiative_responses"]["Row"];
 
 // ─── GET /api/initiatives/[id] ────────────────────────────────────────────────
 // Full initiative detail with signature counts and official responses.
@@ -47,8 +17,7 @@ export async function GET(
 ) {
   try {
     const cookieStore = await cookies();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const supabase = createServerClient(cookieStore) as any;
+    const supabase = createServerClient(cookieStore);
 
     // Fetch initiative detail
     const { data: initiative, error: initError } = await supabase

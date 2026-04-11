@@ -13,8 +13,7 @@ export async function GET(
 ) {
   try {
     const cookieStore = await cookies();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const supabase = createServerClient(cookieStore) as any;
+    const supabase = createServerClient(cookieStore);
 
     const [totalRes, verifiedRes] = await Promise.all([
       supabase

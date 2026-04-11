@@ -28,11 +28,9 @@ export async function POST(
     // civic_initiatives has a public read policy so supabase can read it fine.
     // civic_initiative_signatures RLS policies (insert_own / delete_own) rely on
     // auth.uid() being set, which createServerClient provides correctly.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const db = supabase as any;
 
     // Fetch initiative to check stage
-    const { data: initiative, error: initError } = await db
+    const { data: initiative, error: initError } = await supabase
       .from("civic_initiatives")
       .select("id,stage")
       .eq("id", params.id)
@@ -61,7 +59,7 @@ export async function POST(
     }
 
     // Check if user already signed
-    const { data: existingSig, error: sigError } = await db
+    const { data: existingSig, error: sigError } = await supabase
       .from("civic_initiative_signatures")
       .select("id")
       .eq("initiative_id", params.id)
@@ -78,7 +76,7 @@ export async function POST(
     if (existingSig) {
       // Unsign — delete the existing signature
       // RLS policy civic_sigs_delete_own (USING user_id = auth.uid()) enforces ownership.
-      const { error: deleteError } = await db
+      const { error: deleteError } = await supabase
         .from("civic_initiative_signatures")
         .delete()
         .eq("id", existingSig.id);
@@ -95,7 +93,7 @@ export async function POST(
 
     // Sign — insert new signature
     // RLS policy civic_sigs_insert_own (WITH CHECK user_id = auth.uid()) enforces ownership.
-    const { error: insertError } = await db
+    const { error: insertError } = await supabase
       .from("civic_initiative_signatures")
       .insert({
         initiative_id: params.id,

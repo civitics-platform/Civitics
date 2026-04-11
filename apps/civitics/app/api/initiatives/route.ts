@@ -1,23 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@civitics/db";
+import type { Database } from "@civitics/db";
 
 export const dynamic = "force-dynamic";
 
-// QWEN-ADDED: type definitions for civic initiatives API responses
-type InitiativeRow = {
-  id: string;
-  title: string;
-  summary: string | null;
-  stage: "draft" | "deliberate" | "mobilise" | "resolved";
-  scope: "federal" | "state" | "local";
-  authorship_type: "individual" | "community";
-  issue_area_tags: string[];
-  target_district: string | null;
-  mobilise_started_at: string | null;
-  created_at: string;
-  resolved_at: string | null;
-};
+type InitiativeRow = Database["public"]["Tables"]["civic_initiatives"]["Row"];
 
 const VALID_STAGES = ["draft", "deliberate", "mobilise", "resolved"] as const;
 const VALID_SCOPES = ["federal", "state", "local"] as const;
@@ -41,9 +29,7 @@ export async function GET(request: NextRequest) {
     );
     const offset = (page - 1) * limit;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const db = supabase as any;
-    let query = db
+    let query = supabase
       .from("civic_initiatives")
       .select(
         "id,title,summary,stage,scope,authorship_type,issue_area_tags,target_district,mobilise_started_at,created_at,resolved_at",
@@ -138,10 +124,7 @@ export async function POST(request: NextRequest) {
 
     // Use supabase (authenticated server client) — not createAdminClient.
     // RLS civic_initiatives_insert_own enforces primary_author_id = auth.uid() at DB level.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const db = supabase as any;
-
-    const { data, error } = await db
+    const { data, error } = await supabase
       .from("civic_initiatives")
       .insert({
         title: title.trim(),

@@ -25,6 +25,21 @@ export async function middleware(request: NextRequest) {
     return new NextResponse(null, { status: 404 });
   }
 
+  // ── PKCE code intercept ────────────────────────────────────────────────────
+  // When Supabase's emailRedirectTo URL isn't in its allowed_redirect_urls
+  // (common in local dev without a config.toml), it falls back to the site_url
+  // and appends ?code= there instead. Intercept it here and forward to the
+  // callback route which knows how to exchange it for a session.
+  const code = request.nextUrl.searchParams.get("code");
+  if (code && !path.startsWith("/auth/")) {
+    const callbackUrl = request.nextUrl.clone();
+    callbackUrl.pathname = "/auth/callback";
+    // Pass the original path as `next` so the user lands back where they were
+    callbackUrl.searchParams.set("code", code);
+    callbackUrl.searchParams.set("next", path === "/" ? "/" : path);
+    return NextResponse.redirect(callbackUrl);
+  }
+
   let response = NextResponse.next({
     request: { headers: request.headers },
   });

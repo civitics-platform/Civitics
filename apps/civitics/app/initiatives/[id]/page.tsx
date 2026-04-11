@@ -14,6 +14,7 @@ import { PageViewTracker } from "../../components/PageViewTracker";
 import { UpvoteButton } from "./components/UpvoteButton";
 import { VersionHistory } from "./components/VersionHistory";
 import { InlineEditor } from "./components/InlineEditor";
+import { ArgumentBoard } from "./components/ArgumentBoard";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -325,6 +326,13 @@ export default async function InitiativeDetailPage({
             )}
 
             {/* Version history */}
+            {/* Argument board */}
+            <ArgumentBoard
+              initiativeId={initiative.id}
+              stage={initiative.stage}
+              currentUserId={user?.id ?? null}
+            />
+
             <VersionHistory initiativeId={initiative.id} />
           </div>
 

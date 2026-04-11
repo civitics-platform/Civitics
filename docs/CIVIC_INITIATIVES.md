@@ -4,7 +4,7 @@ Living status doc for the Civic Initiatives feature. Update as sprints complete.
 Full design spec: see `Civic_Initiatives_Design.docx` in the civitics outputs folder.
 
 **Last updated:** 2026-04-11
-**Current sprint:** Sprint 3 — Argument board (not started)
+**Current sprint:** Sprint 4 — Quality gate v1 (not started)
 
 ---
 
@@ -26,7 +26,7 @@ who don't respond within 30 days of hitting constituent thresholds get a permane
 |--------|-------|--------|
 | 1 | DB migration + core API routes | ✅ Done (2026-04-11) |
 | 2 | Create & deliberate UI | ✅ Done (2026-04-11) |
-| 3 | Argument board | 🔲 Not started |
+| 3 | Argument board | ✅ Done (2026-04-11) |
 | 4 | Quality gate v1 | 🔲 Not started |
 | 5 | Mobilise & signatures UI | 🔲 Not started |
 | 6 | Official notifications + response window | 🔲 Not started |
@@ -88,6 +88,22 @@ Full column definitions: see TASK-11 in `docs/QWEN_PROMPTS.md`.
 
 - **TASK-11** — DB migration → `docs/QWEN_PROMPTS.md` ✅
 - **TASK-12** — Core API routes → `docs/QWEN_PROMPTS.md` ✅
+
+## Sprint 3 — Delivered (2026-04-11)
+
+New migration: `supabase/migrations/20260411030000_civic_initiatives_sprint3.sql`
+- `civic_initiative_arguments` — top-level For/Against args + threaded replies (parent_id)
+- `civic_initiative_argument_votes` — one vote per user per argument (toggle pattern)
+- `civic_initiative_argument_flags` — one flag per user per argument, with flag_type enum
+
+New API routes:
+- `GET /api/initiatives/[id]/arguments` — all args structured as { for: [], against: [] }, with vote_count and replies nested. Top-level sorted by vote_count desc.
+- `POST /api/initiatives/[id]/arguments` — create top-level arg or reply; only on deliberate/mobilise initiatives; replies max 1 level deep
+- `GET/POST /api/initiatives/[id]/arguments/[argId]/vote` — check/toggle vote on argument
+- `POST /api/initiatives/[id]/arguments/[argId]/flag` — flag argument (idempotent)
+
+New component:
+- `ArgumentBoard.tsx` — two-column For/Against layout, per-argument vote buttons, reply forms, flag dropdown, SubmitArgumentForm with side toggle. Wired into `/initiatives/[id]` detail page.
 
 ## Sprint 2 — Delivered (2026-04-11)
 

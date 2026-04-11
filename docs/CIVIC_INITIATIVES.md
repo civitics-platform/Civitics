@@ -4,7 +4,7 @@ Living status doc for the Civic Initiatives feature. Update as sprints complete.
 Full design spec: see `Civic_Initiatives_Design.docx` in the civitics outputs folder.
 
 **Last updated:** 2026-04-11
-**Current sprint:** Sprint 9 — Quality gate v2 (population-normalised) (not started)
+**Current sprint:** Sprint 10 — Comment submission (regulations.gov integration) (not started)
 
 ---
 
@@ -32,7 +32,7 @@ who don't respond within 30 days of hitting constituent thresholds get a permane
 | 6 | Official notifications + response window | ✅ Done (2026-04-11) |
 | 7 | Responsiveness score on official profiles | ✅ Done (2026-04-11) |
 | 8 | Platform integration (graph, follow, proposals) | ✅ Done (2026-04-11) |
-| 9 | Quality gate v2 (population-normalised) | 🔲 Not started |
+| 9 | Quality gate v2 (population-normalised) | ✅ Done (2026-04-11) |
 | 10 | Comment submission (regulations.gov integration) | 🔲 Not started |
 
 ---
@@ -65,7 +65,7 @@ Full column definitions: see TASK-11 in `docs/QWEN_PROMPTS.md`.
 
 | Question | Status |
 |----------|--------|
-| Quality gate normalisation formula (rural vs. urban threshold) | 🟡 Unresolved — start with simple ratio, calibrate with data |
+| Quality gate normalisation formula (rural vs. urban threshold) | ✅ Resolved (Sprint 9) — step-function tiers by population; scope-level defaults when no jurisdiction linked |
 | Moderation: who reviews flagged proposals/arguments? | 🟡 Unresolved — defer to Sprint 4 |
 | Official verification (how to confirm staff identity) | 🟡 Unresolved — .gov email domain matching is v1 approach |
 | Engagement incentives for responsive officials | 🟡 Unresolved |
@@ -81,6 +81,32 @@ Full column definitions: see TASK-11 in `docs/QWEN_PROMPTS.md`.
 - **Geography coarsened** — `target_district` and `district` on signatures are always district/zip level, never precise coordinates (consistent with platform privacy rule)
 - **Signing requires mobilise stage** — can't sign a draft; advances to deliberate then mobilise via quality gate
 - **Authorship: individual + community both supported** — community proposals carry higher credibility signal in UI
+
+---
+
+## Sprint 9 — Delivered (2026-04-11)
+
+New migration: `supabase/migrations/20260411090000_civic_initiatives_sprint9.sql`
+- `civic_initiatives.jurisdiction_id UUID REFERENCES jurisdictions(id) ON DELETE SET NULL` — nullable FK for population lookup.
+
+Updated `apps/civitics/app/api/initiatives/_lib/gate.ts`:
+- `GATE_CONFIG.UPVOTE_MINIMUM = 10` — floor (no district ever requires fewer).
+- `POPULATION_TIERS` — step-function: < 100K → 10, < 500K → 25, < 2M → 50, < 10M → 100, < 50M → 200, 50M+ → 500.
+- `SCOPE_DEFAULT_POPULATION` — fallbacks when jurisdiction_id is NULL: local 75K, state 6.5M, federal 335M.
+- `computeGate(supabase, id, mobiliseStartedAt, context?)` — added optional `{ jurisdictionId?, scope? }` context param. When jurisdictionId set, fetches actual population from `jurisdictions` table; otherwise uses scope default. Upvote signal's `required` and `description` now reflect the normalised threshold.
+- `PopulationContext` type exported: `{ source, population, tier_label }`.
+- `GateResult` now includes optional `population_context`.
+
+Updated `gate/route.ts` + `advance/route.ts`:
+- Both select `jurisdiction_id,scope` from initiative and pass as context to `computeGate()`.
+
+Updated `QualityGate.tsx`:
+- Added `PopulationContext` type.
+- Population tier badge shown in gate header: `Small district (< 100K) · estimated` (or actual if jurisdiction linked).
+- The upvote signal row already reflects the dynamic threshold via `signal.required` — no further changes needed.
+
+Open design question resolved:
+- **Quality gate normalisation formula** → ✅ Step-function tiers, seeded with scope-level defaults; calibrate thresholds with data once live.
 
 ---
 

@@ -4,7 +4,7 @@ Living status doc for the Civic Initiatives feature. Update as sprints complete.
 Full design spec: see `Civic_Initiatives_Design.docx` in the civitics outputs folder.
 
 **Last updated:** 2026-04-11
-**Current sprint:** Sprint 7 — Responsiveness score on official profiles (not started)
+**Current sprint:** Sprint 8 — Platform integration (graph, follow, proposals) (not started)
 
 ---
 
@@ -30,7 +30,7 @@ who don't respond within 30 days of hitting constituent thresholds get a permane
 | 4 | Quality gate v1 | ✅ Done (2026-04-11) |
 | 5 | Mobilise & signatures UI | ✅ Done (2026-04-11) |
 | 6 | Official notifications + response window | ✅ Done (2026-04-11) |
-| 7 | Responsiveness score on official profiles | 🔲 Not started |
+| 7 | Responsiveness score on official profiles | ✅ Done (2026-04-11) |
 | 8 | Platform integration (graph, follow, proposals) | 🔲 Not started |
 | 9 | Quality gate v2 (population-normalised) | 🔲 Not started |
 | 10 | Comment submission (regulations.gov integration) | 🔲 Not started |
@@ -83,6 +83,31 @@ Full column definitions: see TASK-11 in `docs/QWEN_PROMPTS.md`.
 - **Authorship: individual + community both supported** — community proposals carry higher credibility signal in UI
 
 ---
+
+## Sprint 7 — Delivered (2026-04-11)
+
+No migration needed — reads from `civic_initiative_responses` (Sprint 1 table).
+
+New API route:
+- `GET /api/officials/[id]/responsiveness` — returns `ResponsivenessData`: responded / no_response / open / total_closed / response_rate (0-100 or null) / grade (A-F or null) / recent (last 10 windows with initiative title + scope). Exports `gradeFromRate()` helper and `ResponsivenessData` type for reuse.
+
+Grade tiers: A ≥90%, B ≥70%, C ≥50%, D ≥30%, F <30%, null = no closed windows.
+
+New component:
+- `officials/components/ResponsivenessCard.tsx` — server component (no `"use client"`):
+  - Grade badge (colored ring, A=emerald → F=red)
+  - Response rate % + label ("Highly responsive" etc.)
+  - Progress bar (green = responded, gray = no-response)
+  - Stat pills: N responded / N no-response / N open
+  - Recent window list: initiative title linked, scope, days remaining or responded date, response type badge
+  - "Silence is data" permanence note when no_response > 0
+  - Returns null if no windows at all (invisible until relevant)
+
+Updated `officials/[id]/page.tsx`:
+- Added `civic_initiative_responses` join query to existing `Promise.all`
+- Computed grade/rate/counts server-side using `gradeFromRate()` from route module
+- Quick stats row: `sm:grid-cols-4 → sm:grid-cols-5`, added "Civic responsiveness" StatCell showing `Grade · Rate%` or open count
+- Added `<ResponsivenessCard>` to overview tab (below CareerHistory)
 
 ## Sprint 6 — Delivered (2026-04-11)
 

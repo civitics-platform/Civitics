@@ -9,6 +9,8 @@ import { ShareButton } from "../components/ShareButton";
 import { CareerHistory } from "../components/CareerHistory";
 import { PromisesSection } from "../components/PromisesSection";
 import { SpendingSection } from "../components/SpendingSection";
+import { ResponsivenessCard } from "../components/ResponsivenessCard";
+import { gradeFromRate } from "../../api/officials/[id]/responsiveness/route";
 import { PageViewTracker } from "../../components/PageViewTracker";
 
 const CivicBadge = nextDynamic(
@@ -220,7 +222,7 @@ export default async function OfficialProfilePage({
   const sb = supabase as any;
 
   // Fetch official + joins in parallel with votes, donor count, donor amounts, AI summary, career history, promises
-  const [officialRes, voteCountRes, votesRes, donorCountRes, donorAmtRes, aiSummaryRes, allVotesRes, careerHistoryRes, promisesRes] =
+  const [officialRes, voteCountRes, votesRes, donorCountRes, donorAmtRes, aiSummaryRes, allVotesRes, careerHistoryRes, promisesRes, responsivenessRes] =
     await Promise.all([
       supabase
         .from("officials")
@@ -273,6 +275,12 @@ export default async function OfficialProfilePage({
         .eq("official_id", params.id)
         .order("made_at", { ascending: false })
         .limit(10),
+      supabase
+        .from("civic_initiative_responses")
+        .select("id, initiative_id, response_type, responded_at, window_closes_at, window_opened_at, civic_initiatives!initiative_id(id, title, scope)")
+        .eq("official_id", params.id)
+        .order("window_opened_at", { ascending: false })
+        .limit(20),
     ]);
 
   if (officialRes.error || !officialRes.data) {
@@ -460,6 +468,42 @@ export default async function OfficialProfilePage({
     spendingRecords = (spendingRes.data ?? []) as typeof spendingRecords;
   }
 
+  // ── Responsiveness score ──────────────────────────────────────────────────────
+  const now = new Date();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const responsivenessRows = (responsivenessRes.data ?? []) as any[];
+  let civicResponded   = 0;
+  let civicNoResponse  = 0;
+  let civicOpen        = 0;
+  for (const r of responsivenessRows) {
+    if (r.responded_at)                                    civicResponded++;
+    else if (new Date(r.window_closes_at) < now)           civicNoResponse++;
+    else                                                   civicOpen++;
+  }
+  const civicTotalClosed   = civicResponded + civicNoResponse;
+  const civicResponseRate  = civicTotalClosed > 0
+    ? Math.round((civicResponded / civicTotalClosed) * 100)
+    : null;
+  const civicGrade         = civicResponseRate !== null ? gradeFromRate(civicResponseRate) : null;
+
+  const responsivenessData = {
+    responded:     civicResponded,
+    no_response:   civicNoResponse,
+    open:          civicOpen,
+    total_closed:  civicTotalClosed,
+    response_rate: civicResponseRate,
+    grade:         civicGrade,
+    recent: responsivenessRows.slice(0, 10).map((r) => ({
+      initiative_id:    r.initiative_id as string,
+      initiative_title: (r.civic_initiatives?.title ?? "Unknown initiative") as string,
+      scope:            (r.civic_initiatives?.scope ?? "federal") as string,
+      response_type:    r.response_type as string,
+      responded_at:     r.responded_at as string | null,
+      window_closes_at: r.window_closes_at as string,
+      window_opened_at: r.window_opened_at as string,
+    })),
+  };
+
   // Years in office
   const yearsInOffice = official.term_start
     ? Math.max(
@@ -608,7 +652,7 @@ export default async function OfficialProfilePage({
           </div>
 
           {/* Quick stats */}
-          <div className="grid grid-cols-2 gap-px border-t border-gray-100 bg-gray-100 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-px border-t border-gray-100 bg-gray-100 sm:grid-cols-5">
             <StatCell value={voteCount.toLocaleString()} label="Votes on record" />
             <StatCell
               value={donorCount.toLocaleString()}
@@ -623,6 +667,17 @@ export default async function OfficialProfilePage({
             <StatCell
               value={yearsInOffice !== null ? `${yearsInOffice}y` : "—"}
               label="Years in office"
+            />
+            <StatCell
+              value={
+                civicGrade
+                  ? `${civicGrade} · ${civicResponseRate}%`
+                  : civicOpen > 0
+                  ? `${civicOpen} open`
+                  : "—"
+              }
+              label="Civic responsiveness"
+              note={civicTotalClosed > 0 ? `${civicResponded}/${civicTotalClosed} responded` : undefined}
             />
           </div>
         </div>
@@ -651,6 +706,9 @@ export default async function OfficialProfilePage({
 
               {/* QWEN-ADDED: Career History Section */}
               <CareerHistory items={careerHistory} />
+
+              {/* Civic responsiveness */}
+              <ResponsivenessCard data={responsivenessData} />
 
               {/* Quick vote breakdown */}
               {recentVotes.length > 0 && (

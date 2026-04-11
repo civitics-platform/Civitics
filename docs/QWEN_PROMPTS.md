@@ -4,7 +4,7 @@ Living document. Claude adds tasks here when Claude usage is limited.
 Qwen picks up tasks from the Active Queue and works on branch `qwen/<cycle>`.
 Claude reviews diffs before merging.
 
-**Last updated: 2026-04-07**
+**Last updated: 2026-04-09**
 
 ---
 
@@ -591,6 +591,267 @@ Add `<SpendingSection items={spendingRecords} />` near the bottom of the officia
 
 ---
 
+### TASK-11 — Civic Initiatives: DB migration (Sprint 1)
+
+**Status:** `READY`
+**Risk:** Low — new tables only, nothing existing is modified or dropped
+**Files to read first:**
+- `supabase/migrations/0009_users_table.sql` (users table schema — FK target)
+- `supabase/migrations/0001_initial_schema.sql` (search for `civic_comments` — use as RLS pattern reference)
+- `docs/CIVIC_INITIATIVES.md` (feature overview and data model spec)
+
+**Background:**
+Civic Initiatives is a new Phase 2 feature: a lifecycle-based community platform where citizens draft proposals, gather signatures, and hold officials publicly accountable. This task creates the three core tables that underpin the entire feature. All subsequent Civic Initiatives tasks depend on this migration being applied first.
+
+**What to build:**
+Create `supabase/migrations/0033_civic_initiatives.sql` with the following three tables, indexes, and RLS policies.
+
+**Table 1 — `civic_initiatives`:**
+```sql
+CREATE TYPE initiative_stage AS ENUM ('draft', 'deliberate', 'mobilise', 'resolved');
+CREATE TYPE initiative_authorship AS ENUM ('individual', 'community');
+CREATE TYPE initiative_scope AS ENUM ('federal', 'state', 'local');
+CREATE TYPE initiative_resolution AS ENUM ('sponsored', 'declined', 'withdrawn', 'expired');
+
+CREATE TABLE IF NOT EXISTS civic_initiatives (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title                 TEXT NOT NULL CHECK (char_length(title) BETWEEN 10 AND 120),
+  summary               TEXT CHECK (char_length(summary) <= 500),
+  body_md               TEXT NOT NULL,
+  stage                 initiative_stage NOT NULL DEFAULT 'draft',
+  authorship_type       initiative_authorship NOT NULL DEFAULT 'individual',
+  primary_author_id     UUID REFERENCES users(id) ON DELETE SET NULL,
+  linked_proposal_id    UUID REFERENCES proposals(id) ON DELETE SET NULL,
+  scope                 initiative_scope NOT NULL DEFAULT 'federal',
+  target_district       TEXT,            -- coarsened to district level, never precise geo
+  issue_area_tags       TEXT[] NOT NULL DEFAULT '{}',
+  quality_gate_score    JSONB NOT NULL DEFAULT '{}',
+  mobilise_started_at   TIMESTAMPTZ,
+  resolved_at           TIMESTAMPTZ,
+  resolution_type       initiative_resolution,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS civic_initiatives_stage ON civic_initiatives(stage);
+CREATE INDEX IF NOT EXISTS civic_initiatives_author ON civic_initiatives(primary_author_id);
+CREATE INDEX IF NOT EXISTS civic_initiatives_proposal ON civic_initiatives(linked_proposal_id);
+CREATE INDEX IF NOT EXISTS civic_initiatives_scope ON civic_initiatives(scope);
+CREATE INDEX IF NOT EXISTS civic_initiatives_tags ON civic_initiatives USING GIN(issue_area_tags);
+```
+
+**Table 2 — `civic_initiative_signatures`:**
+```sql
+CREATE TYPE signature_verification AS ENUM ('unverified', 'email', 'district');
+
+CREATE TABLE IF NOT EXISTS civic_initiative_signatures (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  initiative_id     UUID NOT NULL REFERENCES civic_initiatives(id) ON DELETE CASCADE,
+  user_id           UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  verification_tier signature_verification NOT NULL DEFAULT 'unverified',
+  district          TEXT,   -- coarsened, never precise coordinates
+  signed_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(initiative_id, user_id)  -- one signature per user per initiative
+);
+
+CREATE INDEX IF NOT EXISTS civic_sigs_initiative ON civic_initiative_signatures(initiative_id);
+CREATE INDEX IF NOT EXISTS civic_sigs_user ON civic_initiative_signatures(user_id);
+CREATE INDEX IF NOT EXISTS civic_sigs_district ON civic_initiative_signatures(initiative_id, district);
+```
+
+**Table 3 — `civic_initiative_responses`:**
+```sql
+CREATE TYPE official_response_type AS ENUM ('support', 'oppose', 'pledge', 'refer', 'no_response');
+
+CREATE TABLE IF NOT EXISTS civic_initiative_responses (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  initiative_id         UUID NOT NULL REFERENCES civic_initiatives(id) ON DELETE CASCADE,
+  official_id           UUID NOT NULL REFERENCES officials(id) ON DELETE CASCADE,
+  response_type         official_response_type NOT NULL DEFAULT 'no_response',
+  body_text             TEXT,
+  committee_referred    TEXT,
+  window_opened_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  window_closes_at      TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '30 days'),
+  responded_at          TIMESTAMPTZ,
+  is_verified_staff     BOOLEAN NOT NULL DEFAULT false,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(initiative_id, official_id)  -- one response record per official per initiative
+);
+
+CREATE INDEX IF NOT EXISTS civic_responses_initiative ON civic_initiative_responses(initiative_id);
+CREATE INDEX IF NOT EXISTS civic_responses_official ON civic_initiative_responses(official_id);
+CREATE INDEX IF NOT EXISTS civic_responses_type ON civic_initiative_responses(response_type);
+```
+
+**RLS Policies:**
+Follow the same pattern as `civic_comments` in `0001_initial_schema.sql`. Apply:
+- `civic_initiatives`: SELECT open to all (anon + authenticated). INSERT/UPDATE restricted to authenticated users where `primary_author_id = auth.uid()`. DELETE not permitted.
+- `civic_initiative_signatures`: SELECT open to all. INSERT restricted to authenticated users where `user_id = auth.uid()`. DELETE allowed for own rows only (`user_id = auth.uid()`).
+- `civic_initiative_responses`: SELECT open to all. INSERT/UPDATE restricted to authenticated users (staff verification handled at API layer, not RLS). DELETE not permitted.
+
+Enable RLS on all three tables: `ALTER TABLE <table> ENABLE ROW LEVEL SECURITY;`
+
+**Trigger for `updated_at`:**
+Add a trigger on `civic_initiatives` to auto-update `updated_at` on row modification. Use the same trigger function pattern already used in the codebase (search for `set_updated_at` or similar in `0001_initial_schema.sql` — reuse it, don't redefine it).
+
+**Important:**
+- Use `supabase migration new civic_initiatives --local` to create the file — this generates the correct timestamp prefix automatically. Then populate the generated file with the SQL above rather than manually creating `0033_`.
+- Apply with `supabase migration up --local` — never against production.
+- Do NOT run `DROP` or `TRUNCATE` on anything.
+
+**Acceptance criteria:**
+- `supabase migration up --local` applies cleanly with no errors
+- All three tables visible in local Studio at `http://127.0.0.1:54323`
+- RLS enabled on all three tables
+- `pnpm build` still passes (migration doesn't touch TypeScript)
+
+---
+
+### TASK-12 — Civic Initiatives: core API routes (Sprint 1)
+
+**Status:** `BLOCKED: TASK-11 must be merged and migration applied first`
+**Risk:** Low-Medium — new routes only, no existing files modified
+**Files to read first:**
+- `apps/civitics/app/api/proposals/[id]/comments/route.ts` (auth + admin client pattern)
+- `apps/civitics/app/api/proposals/route.ts` (list pagination pattern)
+- `supabase/migrations/0033_civic_initiatives.sql` (exact column names — authoritative)
+- `docs/CIVIC_INITIATIVES.md` (feature overview)
+
+**Background:**
+Sprint 1 API layer for Civic Initiatives. Five routes covering list, detail, create, sign, and signature count. No UI yet — these routes are the foundation that the list and detail pages (Sprint 3) will consume.
+
+**What to build:**
+
+Create the following route files. Read the comments/route.ts and proposals/route.ts patterns first — match the error handling, dynamic export, and client usage exactly.
+
+---
+
+**Route 1 — `apps/civitics/app/api/initiatives/route.ts`**
+
+`GET /api/initiatives` — paginated list of initiatives.
+
+Query params: `stage` (filter by stage enum), `scope` (federal/state/local), `tag` (filter by issue_area_tags contains), `page` (default 1), `limit` (default 20, max 50).
+
+```ts
+export const dynamic = "force-dynamic";
+// Use createServerClient(cookies()) — respects RLS, anon can read
+// Response: { initiatives: InitiativeRow[], total: number, page: number }
+// Order by: mobilise_started_at DESC NULLS LAST, created_at DESC
+// Columns to return: id, title, summary, stage, scope, authorship_type, issue_area_tags,
+//                    target_district, mobilise_started_at, created_at, resolved_at
+// For tag filter: .contains('issue_area_tags', [tag])
+```
+
+`POST /api/initiatives` — create a new initiative.
+
+Requires auth: call `supabase.auth.getUser()`, return 401 if no user.
+Body: `{ title: string; summary?: string; body_md: string; scope: string; issue_area_tags?: string[]; linked_proposal_id?: string }`
+Insert with `primary_author_id = user.id`, `stage = 'draft'`, `authorship_type = 'individual'`.
+Use `createAdminClient()` for the insert.
+
+```ts
+// Response on success: { initiative: { id, title, stage } } with status 201
+// Validate: title 10–120 chars, body_md non-empty, scope is valid enum value
+// Return 400 with { error: string } for validation failures
+```
+
+---
+
+**Route 2 — `apps/civitics/app/api/initiatives/[id]/route.ts`**
+
+`GET /api/initiatives/[id]` — full initiative detail.
+
+```ts
+export const dynamic = "force-dynamic";
+// Use createServerClient(cookies())
+// Select all columns from civic_initiatives where id = params.id
+// Also fetch signature counts in parallel:
+//   total_signatures: count(*) from civic_initiative_signatures where initiative_id = id
+//   constituent_verified: count(*) where initiative_id = id AND verification_tier = 'district'
+// Also fetch official responses: select * from civic_initiative_responses where initiative_id = id
+// Return 404 if initiative not found
+// Response: { initiative: InitiativeDetail, signature_counts: { total, constituent_verified }, responses: ResponseRow[] }
+```
+
+---
+
+**Route 3 — `apps/civitics/app/api/initiatives/[id]/sign/route.ts`**
+
+`POST /api/initiatives/[id]/sign` — add or remove a signature.
+
+```ts
+export const dynamic = "force-dynamic";
+// Requires auth — return 401 if no user
+// Check if user already signed (SELECT from civic_initiative_signatures where initiative_id = id AND user_id = user.id)
+// If already signed: DELETE the row (unsign). Return { signed: false }
+// If not signed: INSERT. verification_tier defaults to 'unverified' (district verification Phase 2).
+// Return { signed: true }
+// Use createAdminClient() for read + write (need to bypass RLS for the upsert pattern)
+// Return 404 if initiative not found or stage is 'draft' (can only sign mobilise-stage initiatives)
+// Return 400 if initiative is 'resolved'
+```
+
+---
+
+**Route 4 — `apps/civitics/app/api/initiatives/[id]/signature-count/route.ts`**
+
+`GET /api/initiatives/[id]/signature-count` — lightweight count endpoint for client-side polling.
+
+```ts
+export const dynamic = "force-dynamic";
+// Use createServerClient(cookies())
+// Returns: { total: number, constituent_verified: number }
+// Uses count queries with head: true for efficiency — do NOT select all rows
+```
+
+---
+
+**TypeScript types** (define at top of each file that needs them, no shared types file yet):
+
+```ts
+type InitiativeRow = {
+  id: string;
+  title: string;
+  summary: string | null;
+  stage: 'draft' | 'deliberate' | 'mobilise' | 'resolved';
+  scope: 'federal' | 'state' | 'local';
+  authorship_type: 'individual' | 'community';
+  issue_area_tags: string[];
+  target_district: string | null;
+  mobilise_started_at: string | null;
+  created_at: string;
+  resolved_at: string | null;
+};
+
+type ResponseRow = {
+  id: string;
+  official_id: string;
+  response_type: 'support' | 'oppose' | 'pledge' | 'refer' | 'no_response';
+  body_text: string | null;
+  committee_referred: string | null;
+  window_opens_at: string;
+  window_closes_at: string;
+  responded_at: string | null;
+};
+```
+
+**Important:**
+- Every route file must have `export const dynamic = "force-dynamic";` — all use `createAdminClient()` or `cookies()`
+- For the sign route: the initiative must be in `mobilise` stage to accept signatures. Return a clear 400 error otherwise — "This initiative is not currently accepting signatures."
+- Do NOT use `.in()` for any array queries — not applicable here but mentioned for completeness
+- The `[id]` in route paths is the `params.id` — destructure from the second argument: `({ params }: { params: { id: string } })`
+
+**Acceptance criteria:**
+- `GET /api/initiatives` returns 200 with `{ initiatives: [], total: 0, page: 1 }` when no initiatives exist
+- `POST /api/initiatives` returns 401 without auth, 400 with invalid body, 201 with valid body
+- `GET /api/initiatives/[id]` returns 404 for unknown ID, 200 with full detail for valid ID
+- `POST /api/initiatives/[id]/sign` toggles signature correctly (sign → unsign → sign)
+- `GET /api/initiatives/[id]/signature-count` returns `{ total: N, constituent_verified: N }`
+- `pnpm build` passes clean
+- No stray `console.log` in production paths
+
+---
+
 ### TASK-10 — Sunburst re-render bug: shape and showLabels settings don't apply without refetch
 
 **Status:** `READY`
@@ -666,3 +927,4 @@ Leave a `// TODO(review): split confirmed — was one entangled effect` or simil
 - [ ] No stray `console.log` in production paths
 - [ ] **File endings intact** — check ALL edited files end with closing `}` and no truncation (Qwen has truncated endings in every task so far — sunburst, pathfinder, snapshot, search all had issues)
 - [ ] **No null byte corruption** — `file path/to/file.ts` should say "Unicode text", not "data". Binary = corrupted.
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               

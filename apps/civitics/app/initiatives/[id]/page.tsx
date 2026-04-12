@@ -233,7 +233,7 @@ export default async function InitiativeDetailPage({
                   {initiative.title}
                 </h1>
                 {canEdit && (
-                  <div className="flex-shrink-0 pt-0.5">
+                  <div className="relative flex-shrink-0 pt-0.5">
                     <InlineEditor
                       initiativeId={initiative.id}
                       currentTitle={initiative.title}

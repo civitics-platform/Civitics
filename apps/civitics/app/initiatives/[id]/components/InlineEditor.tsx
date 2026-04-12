@@ -94,7 +94,8 @@ export function InlineEditor({
   }
 
   return (
-    <form onSubmit={handleSave} className="mt-4 space-y-5 rounded-xl border border-indigo-200 bg-indigo-50 p-5">
+    // QWEN-ADDED: absolute positioning to avoid layout collision with title/sidebar
+    <form onSubmit={handleSave} className="absolute right-0 top-8 z-20 w-[min(560px,calc(100vw-2rem))] space-y-5 rounded-xl border border-indigo-200 bg-white shadow-xl p-5">
       <div className="flex items-center justify-between">
         <span className="text-sm font-semibold text-indigo-800">Editing draft</span>
         <button

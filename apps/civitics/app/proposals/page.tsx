@@ -398,9 +398,15 @@ export default async function ProposalsPage({
 
         {/* ─── Proposals grid ─────────────────────────────────────────────── */}
         {mainProposals.length === 0 ? (
-          <div className="rounded-lg border border-gray-200 bg-white p-12 text-center">
-            <p className="text-sm font-medium text-gray-500">No proposals match your filters.</p>
-            <a href="/proposals" className="mt-3 inline-block text-sm text-indigo-600 hover:underline">
+          <div className="rounded-xl border border-dashed border-gray-200 bg-white px-8 py-16 text-center">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gray-50">
+              <svg className="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+            <p className="text-sm font-semibold text-gray-900">No proposals match your filters.</p>
+            <p className="mt-1 text-sm text-gray-500">Try adjusting the status, type, or topic filters, or clear your search.</p>
+            <a href="/proposals" className="mt-4 inline-block text-sm font-medium text-indigo-600 hover:underline">
               Clear filters →
             </a>
           </div>

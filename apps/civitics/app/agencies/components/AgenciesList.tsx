@@ -104,14 +104,22 @@ export function AgenciesList({ agencies }: { agencies: AgencyRow[] }) {
       {/* Grid */}
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-sm text-gray-400">
-            <p>No agencies match your filters.</p>
-            <button
-              onClick={() => { setSearch(""); setTypeFilter("all"); setOpenOnly(false); }}
-              className="mt-3 text-xs text-indigo-500 hover:underline"
-            >
-              Clear filters
-            </button>
+          <div className="rounded-xl border border-dashed border-gray-200 bg-white px-8 py-16 text-center">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gray-50">
+              <svg className="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              </svg>
+            </div>
+            <p className="text-sm font-semibold text-gray-900">No agencies found.</p>
+            <p className="mt-1 text-sm text-gray-500">Agency data is updated regularly. Check back soon.</p>
+            {search || typeFilter !== "all" || openOnly ? (
+              <button
+                onClick={() => { setSearch(""); setTypeFilter("all"); setOpenOnly(false); }}
+                className="mt-4 inline-block text-sm font-medium text-indigo-600 hover:underline"
+              >
+                Clear all filters
+              </button>
+            ) : null}
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

@@ -213,13 +213,19 @@ export function OfficialsList({
           {/* Scrollable list */}
           <div ref={listRef} className="flex-1 overflow-y-auto">
             {filtered.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-sm text-gray-400">
-                <p>No officials match your filters.</p>
+              <div className="rounded-xl border border-dashed border-gray-200 bg-white px-8 py-16 text-center mx-4 my-8">
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gray-50">
+                  <svg className="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </div>
+                <p className="text-sm font-semibold text-gray-900">No officials match your filters.</p>
+                <p className="mt-1 text-sm text-gray-500">Try adjusting your search, party, chamber, or state filter.</p>
                 <button
                   onClick={() => { setSearch(""); setChamber("all"); setParty("all"); setState("all"); setIssue(null); setPattern(null); }}
-                  className="mt-3 text-xs text-indigo-500 hover:underline"
+                  className="mt-4 inline-block text-sm font-medium text-indigo-600 hover:underline"
                 >
-                  Clear filters
+                  Clear all filters
                 </button>
               </div>
             ) : (

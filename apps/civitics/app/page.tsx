@@ -122,11 +122,13 @@ function NavBar() {
 
           <nav className="hidden md:flex items-center gap-4">
             {[
-              { label: "Officials",  href: "/officials" },
-              { label: "Proposals",  href: "/proposals" },
-              { label: "Agencies",   href: "/agencies" },
-              { label: "Graph",      href: "/graph" },
-              { label: "Dashboard",  href: "/dashboard" },
+              { label: "Officials",    href: "/officials" },
+              { label: "Proposals",    href: "/proposals" },
+              // QWEN-ADDED: Initiatives nav link
+              { label: "Initiatives",  href: "/initiatives" },
+              { label: "Agencies",     href: "/agencies" },
+              { label: "Graph",        href: "/graph" },
+              { label: "Dashboard",    href: "/dashboard" },
             ].map((item) => (
               <a
                 key={item.label}

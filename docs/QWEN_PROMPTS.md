@@ -4,7 +4,7 @@ Living document. Claude adds tasks here when Claude usage is limited.
 Qwen picks up tasks from the Active Queue and works on branch `qwen/<cycle>`.
 Claude reviews diffs before merging.
 
-**Last updated: 2026-04-12**
+**Last updated: 2026-04-13**
 
 ---
 
@@ -709,7 +709,7 @@ Add a trigger on `civic_initiatives` to auto-update `updated_at` on row modifica
 
 ### TASK-12 — Civic Initiatives: core API routes (Sprint 1)
 
-**Status:** `BLOCKED: TASK-11 must be merged and migration applied first`
+**Status:** `COMPLETE — merged 2026-04-13 (was already implemented in earlier sprint work; verified route files exist)`
 **Risk:** Low-Medium — new routes only, no existing files modified
 **Files to read first:**
 - `apps/civitics/app/api/proposals/[id]/comments/route.ts` (auth + admin client pattern)
@@ -1101,6 +1101,41 @@ Do NOT use React's functional update form (`setEdges(prev => ...)`) for the edge
 - Nodes that are still connected to remaining focus entities stay in the graph
 - Adding entity A back re-fetches and re-renders its subgraph correctly
 - `pnpm build` passes clean
+
+---
+
+### TASK-17 — Add Initiatives to header nav
+**Status:** `COMPLETE — merged 2026-04-13`
+**Risk:** Very Low
+Added `{ label: "Initiatives", href: "/initiatives" }` between Proposals and Agencies in the `NavBar` array in `apps/civitics/app/page.tsx`. Clean.
+
+---
+
+### TASK-18 — Federal/State badge on official cards
+**Status:** `COMPLETE — merged 2026-04-13`
+**Risk:** Low
+Added `source_ids` field to `OfficialRow` type and Supabase select in `officials/page.tsx`. Added `isFederal` derivation and badge JSX in `OfficialCard.tsx` using `source_ids?.["congress_gov"]` pattern. Clean.
+
+---
+
+### TASK-19 — SEO/OG generateMetadata on Officials, Proposals, and Initiatives detail pages
+**Status:** `COMPLETE — merged 2026-04-13`
+**Risk:** Low
+Added `generateMetadata` async functions to `officials/[id]/page.tsx` (uses `createAdminClient`), `proposals/[id]/page.tsx` (uses `createServerClient`), and `initiatives/[id]/page.tsx` (uses `createServerClient`). All return `openGraph.title` + `openGraph.description`. Officials also returns `openGraph.images` when `photo_url` is set. Clean.
+
+---
+
+### TASK-20 — Consistent empty states across list pages
+**Status:** `COMPLETE — merged 2026-04-13`
+**Risk:** Low
+Updated empty states in `officials/components/OfficialsList.tsx`, `proposals/page.tsx`, and `agencies/components/AgenciesList.tsx`. All now use dashed-border card pattern with icon, primary text, secondary helper text. Agencies got an improved empty state (already had one, now visually consistent). Clean.
+
+---
+
+### TASK-21 — Skeleton loading states via Next.js loading.tsx files
+**Status:** `COMPLETE — merged 2026-04-13`
+**Risk:** Low-Medium
+Created `loading.tsx` in `officials/`, `proposals/`, `agencies/`, `initiatives/`. Qwen created the files correctly but did not commit — left in working tree after going in circles on preexisting type errors unrelated to this task. Claude committed cleanly. All files: no imports, static JSX, `animate-pulse` skeletons. Clean.
 
 ---
 

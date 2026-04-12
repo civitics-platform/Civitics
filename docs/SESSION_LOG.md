@@ -6,6 +6,27 @@ without trawling git history or old chat windows.
 
 ---
 
+## 2026-04-13
+
+**Done:**
+- TASK-17 reviewed — clean. Initiatives nav link added to homepage header.
+- TASK-18 reviewed — clean. Federal/State badge on official cards using `source_ids->>'congress_gov'`.
+- TASK-19 reviewed — clean. `generateMetadata` with OG tags on Officials, Proposals, Initiatives detail pages.
+- TASK-20 reviewed — clean. Consistent empty states on Officials, Proposals, Agencies list pages.
+- TASK-21 — Qwen created files correctly but didn't commit (went in circles on preexisting type errors). Claude recovered and committed 4 clean `loading.tsx` files.
+- TASK-12 marked COMPLETE — routes already implemented in earlier sprint work (`api/initiatives/` has `route.ts`, `[id]/route.ts`, `[id]/sign/`, `[id]/signature-count/`).
+- Qwen's circular working-tree changes (truncated files in ~20 files) discarded via `git checkout HEAD`.
+- QWEN_PROMPTS.md and SESSION_LOG.md re-synced after git restore.
+
+**Unblocked:**
+- All TASK-17 through TASK-21 complete. Branch is clean.
+
+**Up next:**
+- FIXES.md priorities: mobile responsiveness (🟠 M) and a11y audit (🟠 M) — better handled by Claude than Qwen
+- Queue next Qwen batch: pull from FIXES.md (officials filtering improvements, proposal filtering, share buttons) or Phase 1 remaining (community commenting UI)
+
+---
+
 ## 2026-04-12
 
 **Done:**

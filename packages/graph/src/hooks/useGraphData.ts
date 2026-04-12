@@ -262,31 +262,18 @@ export function useGraphData(
     const isPacFocus = focus.entities.some(
       e => isFocusGroup(e) && e.filter.entity_type === 'pac'
     );
-
     return {
-      connectionTypes,
-      entityTypes,
-      hasVotes,
-      hasDonations,
-      hasOversight,
-      hasNominations,
-      hasGroups,
-      isPacFocus,
+      connectionTypes, entityTypes, hasVotes, hasDonations,
+      hasOversight, hasNominations, hasGroups, isPacFocus,
     };
   }, [edges, nodes, focus.entities]);
 
   return {
-    nodes,
-    edges: visibleEdges,
-    allEdges: edges,
-    loading,
-    loadingEntityId,
-    graphMeta,
+    nodes, edges: visibleEdges, allEdges: edges, loading,
+    loadingEntityId, graphMeta,
     refetch: () => {
       fetchedIds.current.clear();
-      setNodes([]);
-      setEdges([]);
-      // Re-fetch will trigger via useEffect when entities are still set
+      setNodes([]); setEdges([]);
     },
   };
 }

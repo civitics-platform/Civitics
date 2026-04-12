@@ -1,7 +1,8 @@
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import nextDynamic from "next/dynamic";
-import { createServerClient } from "@civitics/db";
+import { createServerClient, createAdminClient } from "@civitics/db";
 import { OfficialGraph } from "../components/OfficialGraph";
 import { AiProfileSection } from "../components/AiProfileSection";
 import { ProfileTabs } from "../components/ProfileTabs";
@@ -22,6 +23,36 @@ export const dynamic = "force-dynamic";
 
 export async function generateStaticParams() {
   return [];
+}
+
+// QWEN-ADDED: SEO/OG metadata for official detail pages
+export async function generateMetadata(
+  { params }: { params: { id: string } }
+): Promise<Metadata> {
+  const supabase = createAdminClient();
+  const { data } = await supabase
+    .from("officials")
+    .select("full_name, role_title, party, photo_url, district_name")
+    .eq("id", params.id)
+    .single();
+
+  if (!data) return { title: "Official | Civitics" };
+
+  const description = [
+    data.role_title,
+    data.party ? `(${data.party.charAt(0).toUpperCase() + data.party.slice(1)})` : null,
+    data.district_name,
+  ].filter(Boolean).join(" · ");
+
+  return {
+    title: data.full_name,
+    description,
+    openGraph: {
+      title: `${data.full_name} | Civitics`,
+      description,
+      ...(data.photo_url ? { images: [{ url: data.photo_url }] } : {}),
+    },
+  };
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────

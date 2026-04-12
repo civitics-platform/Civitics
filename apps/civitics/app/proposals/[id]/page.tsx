@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { cookies } from "next/headers";
 import { createServerClient } from "@civitics/db";
@@ -14,6 +15,34 @@ export const dynamic = "force-dynamic";
 
 export async function generateStaticParams() {
   return [];
+}
+
+// QWEN-ADDED: SEO/OG metadata for proposal detail pages
+export async function generateMetadata(
+  { params }: { params: { id: string } }
+): Promise<Metadata> {
+  const cookieStore = await cookies();
+  const supabase = createServerClient(cookieStore);
+  const { data } = await supabase
+    .from("proposals")
+    .select("title, type, status, summary_plain")
+    .eq("id", params.id)
+    .single();
+
+  if (!data) return { title: "Proposal | Civitics" };
+
+  const description = data.summary_plain
+    ? data.summary_plain.slice(0, 160)
+    : `${data.type} · ${data.status}`;
+
+  return {
+    title: data.title,
+    description,
+    openGraph: {
+      title: `${data.title} | Civitics`,
+      description,
+    },
+  };
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────

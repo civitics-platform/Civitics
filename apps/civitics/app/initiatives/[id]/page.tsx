@@ -1,9 +1,4 @@
-export const dynamic = "force-dynamic";
-
-export async function generateStaticParams() {
-  return [];
-}
-
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { cookies } from "next/headers";
@@ -20,6 +15,40 @@ import { SignaturePanel } from "./components/SignaturePanel";
 import { ResponseWindowStatus, type ResponseRow } from "./components/ResponseWindowStatus";
 import { FollowButton } from "./components/FollowButton";
 import { InitiativeCommentPanel, type CommentableProposal } from "./components/InitiativeCommentPanel";
+
+export const dynamic = "force-dynamic";
+
+export async function generateStaticParams() {
+  return [];
+}
+
+// QWEN-ADDED: SEO/OG metadata for initiative detail pages
+export async function generateMetadata(
+  { params }: { params: { id: string } }
+): Promise<Metadata> {
+  const cookieStore = await cookies();
+  const supabase = createServerClient(cookieStore);
+  const { data } = await supabase
+    .from("civic_initiatives")
+    .select("title, summary, stage, scope")
+    .eq("id", params.id)
+    .single();
+
+  if (!data) return { title: "Initiative | Civitics" };
+
+  const description = data.summary
+    ? data.summary.slice(0, 160)
+    : `${data.scope} · ${data.stage}`;
+
+  return {
+    title: data.title,
+    description,
+    openGraph: {
+      title: `${data.title} | Civitics`,
+      description,
+    },
+  };
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

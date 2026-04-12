@@ -70,7 +70,7 @@ function LabeledSelect({
       <select
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="flex-1 text-xs border border-gray-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-indigo-400"
+        className="flex-1 text-xs text-gray-900 border border-gray-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-indigo-400"
       >
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>

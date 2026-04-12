@@ -70,7 +70,7 @@ function mapType(t: OldGraphNode["type"]): NewGraphNode["type"] {
 function adaptNode(d: OldGraphNode): NewGraphNode {
   return {
     id: d.id,
-    name: (d as unknown as { label: string }).label ?? d.id,
+    name: (d as unknown as { name: string }).name ?? d.id,
     type: mapType(d.type),
     party: d.party,
     connectionCount:
@@ -258,7 +258,7 @@ function ForceGraph(
           .attr("font-weight", "700")
           .attr("fill", "#374151")
           .attr("pointer-events", "none")
-          .text(initials((d as unknown as { label: string }).label ?? d.id));
+          .text(initials((d as unknown as { name: string }).name ?? d.id));
       } else if (d.type === "governing_body") {
         el.append("rect")
           .attr("x", -30).attr("y", -18)
@@ -274,7 +274,7 @@ function ForceGraph(
           .attr("font-weight", "600")
           .attr("fill", "#374151")
           .attr("pointer-events", "none")
-          .text(truncate((d as unknown as { label: string }).label ?? "", 11));
+          .text(truncate((d as unknown as { name: string }).name ?? "", 11));
       } else if (d.type === "proposal") {
         el.append("rect")
           .attr("x", -28).attr("y", -20)
@@ -295,7 +295,7 @@ function ForceGraph(
           .attr("font-weight", "600")
           .attr("fill", "#92400e")
           .attr("pointer-events", "none")
-          .text(truncate((d as unknown as { label: string }).label ?? "", 10));
+          .text(truncate((d as unknown as { name: string }).name ?? "", 10));
       } else if (d.type === "corporation") {
         el.append("path")
           .attr("d", "M0,-24 L24,0 L0,24 L-24,0 Z")
@@ -309,7 +309,7 @@ function ForceGraph(
           .attr("font-weight", "600")
           .attr("fill", "#14532d")
           .attr("pointer-events", "none")
-          .text(truncate((d as unknown as { label: string }).label ?? "", 9));
+          .text(truncate((d as unknown as { name: string }).name ?? "", 9));
       } else if (d.type === "pac") {
         el.append("path")
           .attr("d", "M0,-22 L22,18 L-22,18 Z")
@@ -323,7 +323,7 @@ function ForceGraph(
           .attr("font-weight", "700")
           .attr("fill", "#7c2d12")
           .attr("pointer-events", "none")
-          .text(truncate((d as unknown as { label: string }).label ?? "", 8));
+          .text(truncate((d as unknown as { name: string }).name ?? "", 8));
       } else {
         // individual — small filled circle, steel blue
         el.append("circle")
@@ -339,7 +339,7 @@ function ForceGraph(
           .attr("font-weight", "600")
           .attr("fill", "#1e40af")
           .attr("pointer-events", "none")
-          .text(initials((d as unknown as { label: string }).label ?? ""));
+          .text(initials((d as unknown as { name: string }).name ?? ""));
       }
 
       // Node label below shape
@@ -354,7 +354,7 @@ function ForceGraph(
         .attr("font-size", "10px")
         .attr("fill", "#6b7280")
         .attr("pointer-events", "none")
-        .text(truncate((d as unknown as { label: string }).label ?? "", 22));
+        .text(truncate((d as unknown as { name: string }).name ?? "", 22));
 
       // Collapsed badge (orange "+")
       if (d.metadata?.collapsed) {

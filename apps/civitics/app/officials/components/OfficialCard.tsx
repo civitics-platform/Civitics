@@ -117,6 +117,8 @@ export function OfficialCard({ official }: { official: OfficialRow }) {
   const partyLabel  = official.party
     ? official.party.charAt(0).toUpperCase() + official.party.slice(1)
     : "Unknown";
+  // QWEN-ADDED: derive federal vs state level from source_ids
+  const isFederal = !!(official.source_ids as Record<string, string> | null)?.["congress_gov"];
 
   return (
     <div className={`bg-white border-b border-gray-200 ${partyBorder}`}>
@@ -146,6 +148,15 @@ export function OfficialCard({ official }: { official: OfficialRow }) {
               {official.chamber && (
                 <span className="rounded border border-gray-200 px-1.5 py-0.5 font-mono text-[10px] text-gray-500">
                   {official.chamber.toUpperCase()}
+                </span>
+              )}
+              {isFederal ? (
+                <span className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600">
+                  Federal
+                </span>
+              ) : (
+                <span className="rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500">
+                  State
                 </span>
               )}
             </div>

@@ -4,7 +4,7 @@ Living document. Claude adds tasks here when Claude usage is limited.
 Qwen picks up tasks from the Active Queue and works on branch `qwen/<cycle>`.
 Claude reviews diffs before merging.
 
-**Last updated: 2026-04-09**
+**Last updated: 2026-04-12**
 
 ---
 
@@ -895,6 +895,215 @@ Leave a `// TODO(review): split confirmed — was one entangled effect` or simil
 ## Template — Adding New Tasks
 
 ```markdown
+### TASK-13 — Fix graph config dropdowns: selected option not shown (blank select)
+
+**Status:** `COMPLETE — reviewed 2026-04-12`
+**Risk:** Low — single-line CSS addition to one helper component
+**Files to read first:**
+- `packages/graph/src/components/GraphConfigPanel.tsx` (read `LabeledSelect` function, ~lines 62–79)
+
+**Background:**
+The graph config panel has a `LabeledSelect` helper component used for Layout, Node Size, Color By, Labels, and all equivalent settings across Force/Chord/Treemap/Sunburst panels. The selected option is never visible — the select appears blank while inactive and shows no label after selection.
+
+**Problem:**
+`LabeledSelect` renders a native `<select>` with `bg-white` background but no explicit text color. The config panel ancestors set `text-gray-500` on labels, which the native `<select>` inherits via CSS `color` cascading. Gray-500 text on a white background is nearly invisible, making the selected option unreadable.
+
+**Fix:**
+In the `LabeledSelect` function (around line 73), add `text-gray-900` to the `<select>` className so it always renders with explicit dark text regardless of parent color inheritance:
+
+```tsx
+// Before:
+className="flex-1 text-xs border border-gray-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-indigo-400"
+
+// After:
+className="flex-1 text-xs text-gray-900 border border-gray-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-indigo-400"
+```
+
+That's the only change. One class, one file.
+
+**Acceptance criteria:**
+- Layout, Node Size, Color By, Labels, Ring 1, Ring 2, and all other LabeledSelect dropdowns show their currently selected option text when collapsed
+- `pnpm build` passes clean
+
+---
+
+### TASK-14 — Fix InlineEditor layout collision on initiative detail page
+
+**Status:** `COMPLETE — reviewed 2026-04-12 (truncation fixed by Claude)`
+**Risk:** Low-Medium — layout change in one page and one component
+**Files to read first:**
+- `apps/civitics/app/initiatives/[id]/page.tsx` (read the title section, ~lines 230–248)
+- `apps/civitics/app/initiatives/[id]/components/InlineEditor.tsx` (read the full file — it's ~210 lines)
+
+**Background:**
+Initiative detail pages show an "Edit" button in the top-right of the title row for authors. When clicked, the InlineEditor expands into a full editing form (title, summary, body, scope, tags). The expanded form collides with the title and "Support" / "Details" sidebar boxes because it renders inside a `flex-shrink-0` div within the `justify-between` title row.
+
+**Problem:**
+In `page.tsx` the structure is:
+```tsx
+<div className="flex items-start justify-between gap-3">
+  <h1 className="text-2xl font-bold ...">{initiative.title}</h1>
+  <div className="flex-shrink-0 pt-0.5">     {/* ← edit button lives here */}
+    <InlineEditor ... />
+  </div>
+</div>
+```
+When `editing = true`, InlineEditor renders a tall form (`space-y-5 p-5`) inside the `flex-shrink-0` column. This overlaps the `<h1>` and bleeds into the sidebar.
+
+**Fix:**
+Change InlineEditor to render the expanded form as an absolutely-positioned overlay that escapes the flex container:
+
+1. In `page.tsx`, add `relative` to the `flex-shrink-0` wrapper div:
+```tsx
+<div className="relative flex-shrink-0 pt-0.5">
+  <InlineEditor ... />
+</div>
+```
+
+2. In `InlineEditor.tsx`, when `editing = true`, change the form's outer `className` from:
+```tsx
+className="mt-4 space-y-5 rounded-xl border border-indigo-200 bg-indigo-50 p-5"
+```
+to:
+```tsx
+className="absolute right-0 top-8 z-20 w-[min(560px,calc(100vw-2rem))] space-y-5 rounded-xl border border-indigo-200 bg-white shadow-xl p-5"
+```
+Key changes: `absolute right-0 top-8` (anchor below the Edit button), `z-20` (float above sidebar), `w-[min(560px,...)]` (bounded width), `bg-white shadow-xl` (card appearance instead of nested feel), remove `mt-4` (no longer needed with absolute positioning).
+
+3. Remove the `mt-4` class from the original since the form is now absolutely positioned.
+
+Do NOT lift editing state into the page or split InlineEditor into multiple components — the absolute positioning approach requires the fewest changes and keeps the component self-contained.
+
+**Acceptance criteria:**
+- Clicking "Edit" on a draft or deliberating initiative opens the edit form as a floating card anchored below the Edit button, not colliding with the title text or the sidebar
+- The form is scrollable if the viewport is short (existing form height is fine — no changes to form internals)
+- "Cancel" still closes the form correctly
+- `pnpm build` passes clean
+
+---
+
+### TASK-15 — Fix ForceGraph: nodes render UUID labels instead of entity names
+
+**Status:** `COMPLETE — reviewed 2026-04-12`
+**Risk:** Medium — modifies D3 rendering in the core ForceGraph component
+**Files to read first:**
+- `packages/graph/src/ForceGraph.tsx` (read the full file — focus on the D3 `useEffect` starting around line 107)
+- `packages/graph/src/types.ts` (search for `GraphNode` and `OldGraphNode` type definitions)
+
+**Background:**
+The graph node label displayed below each shape should be the entity's name (e.g. "Elizabeth Warren", "EXELON CORP"). Instead it shows raw UUIDs. The V2 field contract specifies that graph nodes use a `name` field — not `label`. `ForceGraph.tsx` was never updated to match this contract.
+
+**Problem:**
+Throughout the D3 rendering code in `ForceGraph.tsx`, nodes are cast to `{ label: string }` and accessed as `.label`. When `.label` is undefined (because the actual field is `.name`), the code falls back to `d.id` — which is a UUID. Examples from the current code:
+
+```ts
+// line 73:
+name: (d as unknown as { label: string }).label ?? d.id,
+
+// lines 261, 277, 298, 312, 326, 342, 357 — all look like this:
+.text(initials((d as unknown as { label: string }).label ?? d.id));
+.text(truncate((d as unknown as { label: string }).label ?? "", 11));
+```
+
+**Fix:**
+Do a targeted find-and-replace of the type cast and field access throughout the D3 `useEffect` in `ForceGraph.tsx`. Every occurrence of `(d as unknown as { label: string }).label` should become `(d as unknown as { name: string }).name`. Update the type annotation from `{ label: string }` to `{ name: string }` in every cast.
+
+Specific line-by-line changes:
+- Line 73: `name: (d as unknown as { label: string }).label ?? d.id` → `name: (d as unknown as { name: string }).name ?? d.id`
+- Every `.text(initials(...label...))` → `.text(initials(...name...))`
+- Every `.text(truncate(...label...))` → `.text(truncate(...name...))`
+- The node label text line (~line 357): `.text(truncate((d as unknown as { label: string }).label ?? "", 22))` → `.text(truncate((d as unknown as { name: string }).name ?? "", 22))`
+
+**IMPORTANT:** Do NOT change any local variable named `label` that is used for positioning (e.g. `const labelY` on ~line 346) or SVG class names (e.g. `.attr("class", "node-label")`). Only change the `(d as unknown as { label })` field access casts.
+
+Do NOT change the `initials()` function parameter name (line 50) — that function takes any string, the variable is just named `label` internally. Only change the places where it's called with `d.label` data.
+
+After the changes, do a final search: `grep -n '\.label' packages/graph/src/ForceGraph.tsx` and confirm no remaining `.label` field accesses on node data remain (only CSS class names and local variable names are OK to keep).
+
+**Acceptance criteria:**
+- Graph nodes display the entity's name (e.g. "Elizabeth Warren", "EXELON CORP") below each shape, not a UUID string
+- Initials inside node shapes also show correct letters from the name, not UUID characters
+- Edge hover labels still appear correctly
+- `pnpm build` passes clean
+
+---
+
+### TASK-16 — Fix orphan nodes: removing a focus entity leaves disconnected neighbor nodes
+
+**Status:** `COMPLETE — reviewed 2026-04-12 (truncation fixed by Claude)`
+**Risk:** Medium — modifies core data management hook; requires careful state update logic
+**Files to read first:**
+- `packages/graph/src/hooks/useGraphData.ts` (read lines 74–121 — the entity removal logic in the `useEffect`)
+
+**Background:**
+The graph allows multiple focus entities. When you add entity A, its neighbors (B, C) are fetched and added as nodes. When you then remove entity A from focus, entity A's node is removed and all edges from/to A are removed — but nodes B and C remain as orphans with no connections. They linger in the graph as floating, unclickable ghost nodes.
+
+**Problem:**
+The removal logic in `useGraphData.ts` (lines 91–103) correctly prunes edges but only removes the focus entity node itself, not neighbor nodes that have become disconnected:
+
+```ts
+setNodes(prev =>
+  prev.filter(n =>
+    !removedIds.includes(n.id) && !groupConnectedToRemove.has(n.id)
+    // ← no check that remaining nodes are still referenced by any edge
+  )
+);
+
+setEdges(prev =>
+  prev.filter(e => {
+    const fromRemoved = removedIds.includes(e.fromId) || ...;
+    const toRemoved   = removedIds.includes(e.toId)   || ...;
+    return !fromRemoved && !toRemoved;
+  })
+);
+```
+
+**Fix:**
+Compute the surviving edge set first, then use it to prune nodes. The node pruner should keep a node only if: (a) it's still a focus entity, OR (b) it's referenced by at least one surviving edge.
+
+Replace the current `setNodes` + `setEdges` block (lines 91–103) with:
+
+```ts
+// Step 1: compute the surviving edges as a plain array
+const survivingEdges = edges.filter(e => {
+  const fromRemoved = removedIds.includes(e.fromId) || groupConnectedToRemove.has(e.fromId);
+  const toRemoved   = removedIds.includes(e.toId)   || groupConnectedToRemove.has(e.toId);
+  return !fromRemoved && !toRemoved;
+});
+
+// Step 2: build a set of node IDs still referenced by a surviving edge
+const referencedNodeIds = new Set<string>([
+  ...survivingEdges.map(e => e.fromId),
+  ...survivingEdges.map(e => e.toId),
+]);
+
+// Step 3: keep a node if it's a current focus entity OR still has at least one edge
+setNodes(prev =>
+  prev.filter(n =>
+    !removedIds.includes(n.id) &&
+    !groupConnectedToRemove.has(n.id) &&
+    (currentIds.has(n.id) || referencedNodeIds.has(n.id))
+  )
+);
+
+// Step 4: apply the pre-computed edge filter
+setEdges(() => survivingEdges);
+```
+
+`currentIds` is already a `Set<string>` defined earlier in the same `useEffect` (line 52: `const currentIds = new Set(focus.entities.map(e => e.id))`). Use it directly — don't recompute.
+
+**Important:** The `edges` variable used in Step 1 is the `edges` state value from the hook's `useState`. It's in scope within the `useEffect` but NOT listed in the dependency array (intentionally — the effect only re-runs when focus changes, not on every edge update). This is the correct pattern here; do not add `edges` to the dependency array.
+
+Do NOT use React's functional update form (`setEdges(prev => ...)`) for the edges setter — since we need the edges value to compute the node set, we compute them outside the setter and use `setEdges(() => survivingEdges)` to apply the result.
+
+**Acceptance criteria:**
+- Remove entity A from focus → A's node disappears AND any nodes that were exclusively connected to A (with no other connections in the graph) also disappear
+- Nodes that are still connected to remaining focus entities stay in the graph
+- Adding entity A back re-fetches and re-renders its subgraph correctly
+- `pnpm build` passes clean
+
+---
+
 ### TASK-XX — [Short descriptive title]
 
 **Status:** `READY` | `BLOCKED: <reason>` | `IN PROGRESS` | `NEEDS REVIEW`

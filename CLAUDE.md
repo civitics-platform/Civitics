@@ -1,7 +1,23 @@
 # CLAUDE.md — Civitics Platform
 
 Authoritative reference for the Civitics platform. Read before writing any code.
-Update when architecture decisions change. Last updated: March 2026.
+Update when architecture decisions change. Last updated: April 2026.
+
+---
+
+## Session Continuity — Read These First
+
+Starting a new session? Read these files before touching any code:
+
+| File | What it tells you |
+|---|---|
+| `docs/SESSION_LOG.md` | What happened last session, what's unblocked, what's next |
+| `docs/QWEN_PROMPTS.md` | Qwen task queue — statuses: READY / IN PROGRESS / NEEDS REVIEW / COMPLETE |
+| `docs/FIXES.md` | Bug and improvement backlog, priority-labelled with checkboxes |
+| `docs/PHASE_GOALS.md` | Phase 1 completion picture |
+
+These four files are the fastest path to current project state. Git log and code
+exploration are for verification, not orientation.
 
 ---
 

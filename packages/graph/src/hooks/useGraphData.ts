@@ -88,19 +88,31 @@ export function useGraphData(
         }
       }
 
+      // QWEN-ADDED: Compute surviving edges first, then prune orphaned nodes
+      // Step 1: compute the surviving edges as a plain array
+      const survivingEdges = edges.filter(e => {
+        const fromRemoved = removedIds.includes(e.fromId) || groupConnectedToRemove.has(e.fromId);
+        const toRemoved   = removedIds.includes(e.toId)   || groupConnectedToRemove.has(e.toId);
+        return !fromRemoved && !toRemoved;
+      });
+
+      // Step 2: build a set of node IDs still referenced by a surviving edge
+      const referencedNodeIds = new Set<string>([
+        ...survivingEdges.map(e => e.fromId),
+        ...survivingEdges.map(e => e.toId),
+      ]);
+
+      // Step 3: keep a node if it's a current focus entity OR still has at least one edge
       setNodes(prev =>
         prev.filter(n =>
-          !removedIds.includes(n.id) && !groupConnectedToRemove.has(n.id)
+          !removedIds.includes(n.id) &&
+          !groupConnectedToRemove.has(n.id) &&
+          (currentIds.has(n.id) || referencedNodeIds.has(n.id))
         )
       );
 
-      setEdges(prev =>
-        prev.filter(e => {
-          const fromRemoved = removedIds.includes(e.fromId) || groupConnectedToRemove.has(e.fromId);
-          const toRemoved   = removedIds.includes(e.toId)   || groupConnectedToRemove.has(e.toId);
-          return !fromRemoved && !toRemoved;
-        })
-      );
+      // Step 4: apply the pre-computed edge filter
+      setEdges(() => survivingEdges);
     }
 
     // Fetch data for new entities and groups

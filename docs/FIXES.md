@@ -32,7 +32,7 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## GENERAL / CROSS-CUTTING
 
-- [ ] 🟠 M — **Mobile responsiveness audit** — do a full pass across all pages on 375px and 768px viewports; Officials cards, Graph panel, and Proposals filters are likely pain points
+- [x] 🟠 M — **Mobile responsiveness audit** — fixed 2026-04-12: hamburger nav (NavBar component, all pages), Proposals filter flex-col on mobile, Graph panels auto-collapse at <768px, Official profile header flex-col on mobile, Initiatives inline navs replaced with shared NavBar
 - [ ] 🟠 M — **Accessibility (a11y) audit** — keyboard navigation, ARIA labels, color contrast on dark graph theme; required for grant applications (Knight, Mozilla expect this)
 - [ ] 🟠 M — **SEO / Open Graph metadata** — add `<meta og:*>` and Twitter card tags to Officials, Proposals, and Initiatives detail pages; add JSON-LD structured data for officials and proposals
 - [ ] 🟡 M — **Consistent loading/skeleton states** — audit all data-fetching pages; replace any raw spinners with skeleton cards that match the final layout

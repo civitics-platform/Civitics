@@ -3,8 +3,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { createServerClient } from "@civitics/db";
-import { AuthButton } from "../../components/AuthButton";
-import { GlobalSearch } from "../../components/GlobalSearch";
+import { NavBar } from "../../components/NavBar";
 import { PageViewTracker } from "../../components/PageViewTracker";
 import { UpvoteButton } from "./components/UpvoteButton";
 import { VersionHistory } from "./components/VersionHistory";
@@ -180,44 +179,7 @@ export default async function InitiativeDetailPage({
     <div className="min-h-screen bg-gray-50">
       <PageViewTracker entityType="initiative" entityId={id} />
 
-      {/* ── Nav ─────────────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/95 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-6">
-            <Link href="/" className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600">
-                <span className="text-xs font-bold text-white">CV</span>
-              </div>
-              <span className="hidden text-sm font-semibold text-gray-900 sm:block">Civitics</span>
-            </Link>
-            <nav className="hidden md:flex items-center gap-4">
-              {[
-                { label: "Officials",   href: "/officials" },
-                { label: "Proposals",   href: "/proposals" },
-                { label: "Agencies",    href: "/agencies" },
-                { label: "Graph",       href: "/graph" },
-                { label: "Initiatives", href: "/initiatives" },
-              ].map(({ label, href }) => (
-                <Link
-                  key={href}
-                  href={href}
-                  className={`text-sm font-medium transition-colors ${
-                    href === "/initiatives"
-                      ? "text-indigo-600"
-                      : "text-gray-600 hover:text-gray-900"
-                  }`}
-                >
-                  {label}
-                </Link>
-              ))}
-            </nav>
-          </div>
-          <div className="flex items-center gap-3">
-            <GlobalSearch variant="nav" />
-            <AuthButton />
-          </div>
-        </div>
-      </header>
+      <NavBar />
 
       <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
         {/* Breadcrumb */}

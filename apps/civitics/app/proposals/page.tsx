@@ -302,14 +302,14 @@ export default async function ProposalsPage({
 
         {/* ─── Filters ───────────────────────────────────────────────────── */}
         <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4">
-          <form method="GET" action="/proposals" className="flex flex-wrap items-end gap-3">
+          <form method="GET" action="/proposals" className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
             {/* Status */}
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1 w-full sm:w-auto">
               <label className="text-xs font-medium text-gray-500">Status</label>
               <select
                 name="status"
                 defaultValue={statusFilter}
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               >
                 <option value="open">Open for Comment</option>
                 <option value="all">All Proposals</option>
@@ -318,12 +318,12 @@ export default async function ProposalsPage({
             </div>
 
             {/* Type */}
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1 w-full sm:w-auto">
               <label className="text-xs font-medium text-gray-500">Type</label>
               <select
                 name="type"
                 defaultValue={typeFilter}
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               >
                 <option value="">All Types</option>
                 {Object.entries(PROPOSAL_TYPE_LABELS).map(([val, label]) => (
@@ -335,12 +335,12 @@ export default async function ProposalsPage({
             </div>
 
             {/* Agency */}
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1 w-full sm:w-auto">
               <label className="text-xs font-medium text-gray-500">Agency</label>
               <select
                 name="agency"
                 defaultValue={agencyFilter}
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               >
                 <option value="">All Agencies</option>
                 {AGENCIES.map((a) => {
@@ -355,20 +355,20 @@ export default async function ProposalsPage({
             </div>
 
             {/* Search */}
-            <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
+            <div className="flex flex-col gap-1 w-full sm:flex-1 sm:min-w-[180px]">
               <label className="text-xs font-medium text-gray-500">Search</label>
               <input
                 type="text"
                 name="q"
                 defaultValue={searchQ}
                 placeholder="Search proposals…"
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
             </div>
 
             <button
               type="submit"
-              className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
+              className="w-full sm:w-auto rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
             >
               Filter
             </button>

@@ -5,6 +5,7 @@ import { createServerClient, agencyFullName } from "@civitics/db";
 import { DistrictMap } from "./components/DistrictMap";
 import { GlobalSearch } from "./components/GlobalSearch";
 import { AuthButton } from "./components/AuthButton";
+import { NavBar } from "./components/NavBar";
 import { PageViewTracker } from "./components/PageViewTracker";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -108,50 +109,7 @@ function initials(name: string) {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function NavBar() {
-  return (
-    <header className="border-b border-gray-200 bg-white">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex h-16 items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded bg-indigo-600">
-              <span className="text-xs font-bold text-white">CV</span>
-            </div>
-            <span className="text-lg font-semibold tracking-tight text-gray-900">Civitics</span>
-          </div>
-
-          <nav className="hidden md:flex items-center gap-4">
-            {[
-              { label: "Officials",    href: "/officials" },
-              { label: "Proposals",    href: "/proposals" },
-              // QWEN-ADDED: Initiatives nav link
-              { label: "Initiatives",  href: "/initiatives" },
-              { label: "Agencies",     href: "/agencies" },
-              { label: "Graph",        href: "/graph" },
-              { label: "Dashboard",    href: "/dashboard" },
-            ].map((item) => (
-              <a
-                key={item.label}
-                href={item.href}
-                className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
-              >
-                {item.label}
-              </a>
-            ))}
-          </nav>
-
-          <div className="hidden lg:block">
-            <GlobalSearch variant="nav" />
-          </div>
-
-          <div className="flex items-center gap-3">
-            <AuthButton />
-          </div>
-        </div>
-      </div>
-    </header>
-  );
-}
+// NavBar extracted to components/NavBar.tsx (client component for mobile menu state)
 
 function Hero({ stats }: { stats: Stats }) {
   const statItems = [

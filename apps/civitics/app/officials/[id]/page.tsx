@@ -570,9 +570,9 @@ export default async function OfficialProfilePage({
         {/* ── HEADER ─────────────────────────────────────────────────────── */}
         <div className={`rounded-lg border border-gray-200 bg-white overflow-hidden ${party.border}`}>
           <div className="p-6">
-            <div className="flex items-start gap-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
               {/* Avatar + mini badge */}
-              <div className="flex flex-col items-center gap-2 shrink-0">
+              <div className="flex flex-row items-center gap-4 sm:flex-col sm:items-center sm:gap-2 shrink-0">
                 {official.photo_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img

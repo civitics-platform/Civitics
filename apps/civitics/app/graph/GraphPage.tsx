@@ -42,7 +42,10 @@ export function GraphPage({ initialCode }: GraphPageProps = {}) {
   );
 
   // ── Panel collapse state ──────────────────────────────────────────────────
-  const [leftCollapsed,  setLeftCollapsed]  = useState(false);
+  // Auto-collapse both panels on small screens (<768px) — panels are fixed-width
+  // and would leave no canvas space on mobile.
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+  const [leftCollapsed,  setLeftCollapsed]  = useState(isMobile);
   const [rightCollapsed, setRightCollapsed] = useState(true);
 
   // ── Overlay state ─────────────────────────────────────────────────────────

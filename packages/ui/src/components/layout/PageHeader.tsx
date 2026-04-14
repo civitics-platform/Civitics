@@ -27,22 +27,24 @@ export function PageHeader({
   return (
     <div className="mb-6">
       {breadcrumb && breadcrumb.length > 0 && (
-        <nav className="mb-2 flex items-center gap-1 text-xs text-gray-500">
-          {breadcrumb.map((item, i) => (
-            <React.Fragment key={i}>
-              {i > 0 && <span className="text-gray-400">/</span>}
-              {item.href ? (
-                <a
-                  href={item.href}
-                  className="hover:text-gray-700 transition-colors duration-150"
-                >
-                  {item.label}
-                </a>
-              ) : (
-                <span className="text-gray-700 font-medium">{item.label}</span>
-              )}
-            </React.Fragment>
-          ))}
+        <nav aria-label="Breadcrumb" className="mb-2 flex items-center gap-1 text-xs text-gray-500">
+          <ol className="flex items-center gap-1 list-none p-0 m-0">
+            {breadcrumb.map((item, i) => (
+              <li key={i} className="flex items-center gap-1">
+                {i > 0 && <span aria-hidden="true" className="text-gray-400">/</span>}
+                {item.href ? (
+                  <a
+                    href={item.href}
+                    className="hover:text-gray-700 transition-colors duration-150 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                  >
+                    {item.label}
+                  </a>
+                ) : (
+                  <span aria-current="page" className="text-gray-700 font-medium">{item.label}</span>
+                )}
+              </li>
+            ))}
+          </ol>
         </nav>
       )}
       <div className="flex items-start justify-between gap-4">
@@ -65,7 +67,7 @@ export function PageHeader({
               <a
                 href={action.href}
                 className={cn(
-                  "inline-flex items-center rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-150",
+                  "inline-flex items-center rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1",
                   action.variant === "secondary"
                     ? "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
                     : "bg-blue-600 text-white hover:bg-blue-700"
@@ -75,9 +77,10 @@ export function PageHeader({
               </a>
             ) : (
               <button
+                type="button"
                 onClick={action.onClick}
                 className={cn(
-                  "inline-flex items-center rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-150",
+                  "inline-flex items-center rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1",
                   action.variant === "secondary"
                     ? "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
                     : "bg-blue-600 text-white hover:bg-blue-700"

@@ -230,7 +230,7 @@ export default async function ProposalsPage({
   const countLabel = buildCountLabel(totalCount, statusFilter, searchQ);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <main id="main-content" className="min-h-screen bg-gray-50">
       <PageViewTracker entityType="proposal_list" />
       {/* ─── Header ────────────────────────────────────────────────────────── */}
       <div className="border-b border-gray-200 bg-white">
@@ -251,10 +251,10 @@ export default async function ProposalsPage({
 
         {/* ─── Open Now Featured ─────────────────────────────────────────── */}
         {showFeaturedSection && openFeatured.length > 0 && (
-          <section className="mb-12">
+          <section aria-labelledby="featured-heading" className="mb-12">
             <div className="mb-4 flex items-center gap-3">
-              <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-              <h2 className="text-lg font-semibold text-gray-900">
+              <span aria-hidden="true" className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+              <h2 id="featured-heading" className="text-lg font-semibold text-gray-900">
                 ⏰ Comment Period Open Now
               </h2>
               <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
@@ -270,10 +270,11 @@ export default async function ProposalsPage({
         )}
 
         {/* ─── Topic filter pills ──────────────────────────────────────── */}
-        <div className="mb-4 flex flex-wrap items-center gap-2">
+        <nav aria-label="Filter by topic" className="mb-4 flex flex-wrap items-center gap-2">
           <a
             href={buildUrl(currentParams, { topics: undefined })}
-            className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+            aria-current={activeTopics.length === 0 ? "true" : undefined}
+            className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 ${
               activeTopics.length === 0
                 ? "bg-indigo-600 text-white"
                 : "bg-white border border-gray-200 text-gray-600 hover:border-indigo-300 hover:text-indigo-700"
@@ -287,26 +288,28 @@ export default async function ProposalsPage({
               <a
                 key={pill.tag}
                 href={toggleTopicInUrl(currentParams, pill.tag)}
-                className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                aria-current={isActive ? "true" : undefined}
+                className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 ${
                   isActive
                     ? "bg-indigo-600 text-white"
                     : "bg-white border border-gray-200 text-gray-600 hover:border-indigo-300 hover:text-indigo-700"
                 }`}
               >
-                <span>{pill.icon}</span>
+                <span aria-hidden="true">{pill.icon}</span>
                 {pill.label}
               </a>
             );
           })}
-        </div>
+        </nav>
 
         {/* ─── Filters ───────────────────────────────────────────────────── */}
         <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4">
           <form method="GET" action="/proposals" className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
             {/* Status */}
             <div className="flex flex-col gap-1 w-full sm:w-auto">
-              <label className="text-xs font-medium text-gray-500">Status</label>
+              <label htmlFor="filter-status" className="text-xs font-medium text-gray-500">Status</label>
               <select
+                id="filter-status"
                 name="status"
                 defaultValue={statusFilter}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -319,8 +322,9 @@ export default async function ProposalsPage({
 
             {/* Type */}
             <div className="flex flex-col gap-1 w-full sm:w-auto">
-              <label className="text-xs font-medium text-gray-500">Type</label>
+              <label htmlFor="filter-type" className="text-xs font-medium text-gray-500">Type</label>
               <select
+                id="filter-type"
                 name="type"
                 defaultValue={typeFilter}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -336,8 +340,9 @@ export default async function ProposalsPage({
 
             {/* Agency */}
             <div className="flex flex-col gap-1 w-full sm:w-auto">
-              <label className="text-xs font-medium text-gray-500">Agency</label>
+              <label htmlFor="filter-agency" className="text-xs font-medium text-gray-500">Agency</label>
               <select
+                id="filter-agency"
                 name="agency"
                 defaultValue={agencyFilter}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -356,8 +361,9 @@ export default async function ProposalsPage({
 
             {/* Search */}
             <div className="flex flex-col gap-1 w-full sm:flex-1 sm:min-w-[180px]">
-              <label className="text-xs font-medium text-gray-500">Search</label>
+              <label htmlFor="filter-search" className="text-xs font-medium text-gray-500">Search</label>
               <input
+                id="filter-search"
                 type="text"
                 name="q"
                 defaultValue={searchQ}
@@ -400,7 +406,7 @@ export default async function ProposalsPage({
         {mainProposals.length === 0 ? (
           <div className="rounded-xl border border-dashed border-gray-200 bg-white px-8 py-16 text-center">
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gray-50">
-              <svg className="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg aria-hidden="true" className="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
             </div>
@@ -420,11 +426,11 @@ export default async function ProposalsPage({
 
         {/* ─── Pagination ──────────────────────────────────────────────────── */}
         {totalPages > 1 && (
-          <div className="mt-8 flex items-center justify-center gap-2">
+          <nav aria-label="Pagination" className="mt-8 flex items-center justify-center gap-2">
             {page > 1 && (
               <a
                 href={buildUrl(currentParams, { page: String(page - 1) })}
-                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
               >
                 ← Previous
               </a>
@@ -440,12 +446,14 @@ export default async function ProposalsPage({
               }, [])
               .map((p, i) =>
                 p === "…" ? (
-                  <span key={`ellipsis-${i}`} className="px-1 text-gray-400">…</span>
+                  <span key={`ellipsis-${i}`} aria-hidden="true" className="px-1 text-gray-400">…</span>
                 ) : (
                   <a
                     key={p}
                     href={buildUrl(currentParams, { page: String(p) })}
-                    className={`rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                    aria-current={p === page ? "page" : undefined}
+                    aria-label={p === page ? `Page ${p}, current page` : `Page ${p}`}
+                    className={`rounded-md border px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                       p === page
                         ? "border-indigo-600 bg-indigo-600 text-white"
                         : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
@@ -459,14 +467,14 @@ export default async function ProposalsPage({
             {page < totalPages && (
               <a
                 href={buildUrl(currentParams, { page: String(page + 1) })}
-                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
               >
                 Next →
               </a>
             )}
-          </div>
+          </nav>
         )}
       </div>
-    </div>
+    </main>
   );
 }

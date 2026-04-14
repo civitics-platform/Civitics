@@ -49,11 +49,12 @@ function LabeledSlider({
 }) {
   return (
     <div className="flex items-center gap-2 px-3 py-1">
-      <span className="text-[10px] text-gray-500 w-20 shrink-0">{label}</span>
+      <span aria-hidden="true" className="text-[10px] text-gray-500 w-20 shrink-0">{label}</span>
       <input
         type="range" min={min} max={max} step={step} value={value}
+        aria-label={label}
         onChange={e => onChange(parseFloat(e.target.value))}
-        className="flex-1 h-1 accent-indigo-500"
+        className="flex-1 h-1 accent-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 rounded"
       />
     </div>
   );
@@ -66,11 +67,12 @@ function LabeledSelect({
 }) {
   return (
     <div className="flex items-center gap-2 px-3 py-1">
-      <span className="text-[10px] text-gray-500 w-20 shrink-0">{label}</span>
+      <span aria-hidden="true" className="text-[10px] text-gray-500 w-20 shrink-0">{label}</span>
       <select
+        aria-label={label}
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="flex-1 text-xs text-gray-900 border border-gray-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-indigo-400"
+        className="flex-1 text-xs text-gray-900 border border-gray-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-indigo-400 focus-visible:ring-2 focus-visible:ring-indigo-500"
       >
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
@@ -81,12 +83,16 @@ function LabeledSelect({
 function LabeledToggle({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
   return (
     <div className="flex items-center justify-between px-3 py-1">
-      <span className="text-[10px] text-gray-500">{label}</span>
+      <span aria-hidden="true" className="text-[10px] text-gray-500">{label}</span>
       <div className="flex items-center gap-1.5">
-        <span className="text-[9px] text-gray-400">{value ? 'On' : 'Off'}</span>
+        <span aria-hidden="true" className="text-[9px] text-gray-400">{value ? 'On' : 'Off'}</span>
         <button
+          type="button"
+          role="switch"
+          aria-checked={value}
+          aria-label={label}
           onClick={() => onChange(!value)}
-          className={`w-7 h-4 rounded-full transition-colors relative ${value ? 'bg-indigo-500' : 'bg-gray-300'}`}
+          className={`w-7 h-4 rounded-full transition-colors relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 ${value ? 'bg-indigo-500' : 'bg-gray-300'}`}
         >
           <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${value ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
         </button>
@@ -406,18 +412,22 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
     return (
       <div className="h-full w-10 flex flex-col items-center py-2 gap-3 border-l border-gray-200 bg-white shrink-0">
         <button
+          type="button"
           title="Graph Config — Visualization"
+          aria-label="Open graph config — visualization"
           onClick={onCollapse}
-          className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 transition-colors text-sm"
+          className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 transition-colors text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         >
-          ⬡
+          <span aria-hidden="true">⬡</span>
         </button>
         <button
+          type="button"
           title="Graph Config — Settings"
+          aria-label="Open graph config — settings"
           onClick={onCollapse}
-          className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 transition-colors text-sm"
+          className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 transition-colors text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         >
-          ⚙
+          <span aria-hidden="true">⚙</span>
         </button>
       </div>
     );
@@ -433,11 +443,13 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
           Graph Config
         </span>
         <button
+          type="button"
           onClick={onCollapse}
           title="Collapse panel  (] shortcut)"
-          className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600"
+          aria-label="Collapse config panel"
+          className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg aria-hidden="true" className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
         </button>

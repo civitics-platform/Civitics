@@ -292,6 +292,12 @@ export function GlobalSearch({
         <input
           ref={inputRef}
           type="text"
+          role="combobox"
+          aria-label={placeholder}
+          aria-expanded={open}
+          aria-haspopup="listbox"
+          aria-autocomplete="list"
+          aria-controls="search-results-listbox"
           value={query}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
@@ -301,6 +307,16 @@ export function GlobalSearch({
           autoComplete="off"
           spellCheck={false}
         />
+        {/* Screen-reader live region — announces search status */}
+        <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+          {loading
+            ? "Searching…"
+            : results && open
+              ? results.total > 0
+                ? `${results.total} result${results.total === 1 ? "" : "s"} found`
+                : "No results found"
+              : ""}
+        </div>
         {!isHero && (
           <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 hidden rounded-full border border-gray-300 bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-500 lg:block">
             ⌘K
@@ -310,7 +326,12 @@ export function GlobalSearch({
 
       {/* Dropdown */}
       {open && results && results.total > 0 && (
-        <div className={`absolute left-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg ${isHero ? "w-full" : "w-80"}`}>
+        <div
+          id="search-results-listbox"
+          role="listbox"
+          aria-label="Search results"
+          className={`absolute left-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg ${isHero ? "w-full" : "w-80"}`}
+        >
 
           {/* Officials */}
           {results.officials.length > 0 && (
@@ -319,7 +340,7 @@ export function GlobalSearch({
                 Officials
               </p>
               {results.officials.slice(0, 3).map((o, i) => (
-                <a key={o.id} href={`/officials/${o.id}`} onClick={() => setOpen(false)}>
+                <a key={o.id} role="option" aria-selected={selectedIdx === i} href={`/officials/${o.id}`} onClick={() => setOpen(false)}>
                   <OfficialResult o={o} selected={selectedIdx === i} />
                 </a>
               ))}
@@ -333,7 +354,7 @@ export function GlobalSearch({
                 Proposals
               </p>
               {results.proposals.slice(0, 3).map((p, i) => (
-                <a key={p.id} href={`/proposals/${p.id}`} onClick={() => setOpen(false)}>
+                <a key={p.id} role="option" aria-selected={selectedIdx === offProposal + i} href={`/proposals/${p.id}`} onClick={() => setOpen(false)}>
                   <ProposalResult p={p} selected={selectedIdx === offProposal + i} />
                 </a>
               ))}
@@ -347,7 +368,7 @@ export function GlobalSearch({
                 Agencies
               </p>
               {results.agencies.slice(0, 2).map((a, i) => (
-                <a key={a.id} href={`/agencies/${a.id}`} onClick={() => setOpen(false)}>
+                <a key={a.id} role="option" aria-selected={selectedIdx === offAgency + i} href={`/agencies/${a.id}`} onClick={() => setOpen(false)}>
                   <AgencyResult a={a} selected={selectedIdx === offAgency + i} />
                 </a>
               ))}
@@ -361,7 +382,7 @@ export function GlobalSearch({
                 Donors & PACs
               </p>
               {results.financial_entities.slice(0, 2).map((f, i) => (
-                <a key={f.id} href={`/donors/${f.id}`} onClick={() => setOpen(false)}>
+                <a key={f.id} role="option" aria-selected={selectedIdx === offFinancial + i} href={`/donors/${f.id}`} onClick={() => setOpen(false)}>
                   <FinancialEntityResult f={f} selected={selectedIdx === offFinancial + i} />
                 </a>
               ))}

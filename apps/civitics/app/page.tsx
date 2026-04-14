@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { createServerClient, agencyFullName } from "@civitics/db";
 import { DistrictMap } from "./components/DistrictMap";
 import { GlobalSearch } from "./components/GlobalSearch";
@@ -466,7 +467,19 @@ function CommentBanner() {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string>>;
+}) {
+  // Supabase redirects auth errors (e.g. expired magic links) back to the
+  // site root with ?error=access_denied&error_code=otp_expired. Forward the
+  // user to the sign-in page so they see a proper error message.
+  const params = await searchParams;
+  if (params.error) {
+    redirect("/auth/sign-in?error=auth");
+  }
+
   const cookieStore = await cookies();
   const supabase = createServerClient(cookieStore);
 
@@ -633,7 +646,7 @@ export default async function HomePage() {
       <PageViewTracker />
       <NavBar />
       <Hero stats={stats} />
-      <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+      <main id="main-content" className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-12">
           <CommentBanner />
           <DistrictMap />

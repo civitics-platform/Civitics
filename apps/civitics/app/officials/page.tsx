@@ -90,7 +90,7 @@ export default async function OfficialsPage({
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <main id="main-content" className="min-h-screen bg-gray-50">
       <PageViewTracker entityType="official_list" />
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <PageHeader
@@ -106,6 +106,6 @@ export default async function OfficialsPage({
         officials={officials}
         defaultSelectedId={searchParams.selected}
       />
-    </div>
+    </main>
   );
 }

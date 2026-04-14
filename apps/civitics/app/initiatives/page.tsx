@@ -122,7 +122,7 @@ export default async function InitiativesPage({
 
       <NavBar />
 
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+      <main id="main-content" className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
         {/* ── Page header ──────────────────────────────────────────────── */}
         <div className="mb-8 flex items-start justify-between gap-4">
           <div>

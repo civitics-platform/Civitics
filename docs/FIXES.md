@@ -33,7 +33,7 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 ## GENERAL / CROSS-CUTTING
 
 - [x] 🟠 M — **Mobile responsiveness audit** — fixed 2026-04-12: hamburger nav (NavBar component, all pages), Proposals filter flex-col on mobile, Graph panels auto-collapse at <768px, Official profile header flex-col on mobile, Initiatives inline navs replaced with shared NavBar
-- [ ] 🟠 M — **Accessibility (a11y) audit** — keyboard navigation, ARIA labels, color contrast on dark graph theme; required for grant applications (Knight, Mozilla expect this)
+- [x] 🟠 M — **Accessibility (a11y) audit** — completed 2026-04-13: skip-to-content link in NavBar; aria-label on all nav landmarks; focus-visible rings on all interactive elements; aria-label + aria-pressed on filter pills; htmlFor/id on all proposal filter labels; main landmark + id="main-content" on officials/proposals/initiatives/home pages; aria-live search status region; combobox ARIA on GlobalSearch; role="switch" + aria-checked on graph toggles; aria-label on all graph sliders/selects; aria-hidden on decorative SVGs; aria-current on breadcrumb + active filters + pagination; aria-labelledby on featured section; pagination nav landmark
 - [ ] 🟠 M — **SEO / Open Graph metadata** — add `<meta og:*>` and Twitter card tags to Officials, Proposals, and Initiatives detail pages; add JSON-LD structured data for officials and proposals
 - [ ] 🟡 M — **Consistent loading/skeleton states** — audit all data-fetching pages; replace any raw spinners with skeleton cards that match the final layout
 - [ ] 🟡 S — **Consistent empty states** — every list page needs a clear, helpful "no results" message with suggested actions (clear filters, try search)

@@ -129,6 +129,7 @@ export function OfficialsList({
           <div className="shrink-0 border-b border-gray-100 px-4 py-3 space-y-2">
             <input
               type="search"
+              aria-label="Search officials by name"
               placeholder="Search by name…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -137,6 +138,7 @@ export function OfficialsList({
             <div className="flex flex-wrap gap-2">
               {/* Chamber */}
               <select
+                aria-label="Filter by chamber"
                 value={chamberFilter}
                 onChange={(e) => setChamber(e.target.value as typeof chamberFilter)}
                 className="rounded border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-400"
@@ -148,6 +150,7 @@ export function OfficialsList({
 
               {/* Party */}
               <select
+                aria-label="Filter by party"
                 value={partyFilter}
                 onChange={(e) => setParty(e.target.value as typeof partyFilter)}
                 className="rounded border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-400"
@@ -160,6 +163,7 @@ export function OfficialsList({
 
               {/* State */}
               <select
+                aria-label="Filter by state"
                 value={stateFilter}
                 onChange={(e) => setState(e.target.value)}
                 className="rounded border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-400"
@@ -170,12 +174,14 @@ export function OfficialsList({
               </select>
             </div>
             {/* Issue area pills */}
-            <div className="flex flex-wrap gap-1 pt-1">
+            <div role="group" aria-label="Filter by issue area" className="flex flex-wrap gap-1 pt-1">
               {ISSUE_PILLS.map((pill) => (
                 <button
                   key={pill.tag}
+                  type="button"
+                  aria-pressed={issueFilter === pill.tag}
                   onClick={() => setIssue(issueFilter === pill.tag ? null : pill.tag)}
-                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 ${
                     issueFilter === pill.tag
                       ? "bg-blue-600 text-white"
                       : "bg-gray-100 text-gray-600 hover:bg-blue-50 hover:text-blue-700"
@@ -187,18 +193,20 @@ export function OfficialsList({
             </div>
 
             {/* Donor pattern pills */}
-            <div className="flex flex-wrap gap-1">
+            <div role="group" aria-label="Filter by donor pattern" className="flex flex-wrap gap-1">
               {PATTERN_PILLS.map((pill) => (
                 <button
                   key={pill.tag}
+                  type="button"
+                  aria-pressed={patternFilter === pill.tag}
                   onClick={() => setPattern(patternFilter === pill.tag ? null : pill.tag)}
-                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-1 ${
                     patternFilter === pill.tag
                       ? "bg-purple-600 text-white"
                       : "bg-gray-100 text-gray-600 hover:bg-purple-50 hover:text-purple-700"
                   }`}
                 >
-                  {pill.icon && <span>{pill.icon}</span>} {pill.label}
+                  {pill.icon && <span aria-hidden="true">{pill.icon}</span>} {pill.label}
                 </button>
               ))}
             </div>
@@ -215,7 +223,7 @@ export function OfficialsList({
             {filtered.length === 0 ? (
               <div className="rounded-xl border border-dashed border-gray-200 bg-white px-8 py-16 text-center mx-4 my-8">
                 <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gray-50">
-                  <svg className="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg aria-hidden="true" className="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
                 </div>
@@ -235,9 +243,12 @@ export function OfficialsList({
                 return (
                   <button
                     key={official.id}
+                    type="button"
                     data-official-id={official.id}
+                    aria-pressed={isSelected}
+                    aria-label={`${official.full_name}, ${official.role_title}${official.state_name ? `, ${official.state_name}` : ""}`}
                     onClick={() => setSelectedId(isSelected ? null : official.id)}
-                    className={`w-full border-b border-gray-100 border-l-4 px-4 py-3 text-left transition-colors ${ps.border} ${
+                    className={`w-full border-b border-gray-100 border-l-4 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 ${ps.border} ${
                       isSelected
                         ? "bg-indigo-50 hover:bg-indigo-50"
                         : "bg-white hover:bg-gray-50"

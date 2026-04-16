@@ -241,6 +241,32 @@ If DB is unavailable: build succeeds with [] → pages render on-demand (ISR)
 
 ---
 
+## Claude ↔ Database Access
+
+**Claude's sandbox cannot reach the local Docker Supabase instance directly.**
+The sandbox runs in an isolated Linux environment; `127.0.0.1` is the sandbox's
+localhost, not Craig's Windows machine. Network access to local Docker ports is
+blocked by the sandbox allowlist.
+
+**What this means in practice:**
+- Claude writes migration files to `supabase/migrations/` — Craig runs them
+- The command is always: `supabase migration up --local` (run from repo root)
+- Local Studio is at: http://127.0.0.1:54323
+
+**To give Claude direct DB access (optional, one-time setup):**
+Install `@modelcontextprotocol/server-postgres` as a Cowork local MCP:
+```
+Connection string: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+```
+Once configured, Claude can run migrations, query tables, and inspect schema
+directly without Craig needing to run commands manually. Ask Claude to help
+set this up when ready.
+
+**Until then:** Every session that creates a migration will flag the required
+`supabase migration up --local` command in the SESSION_LOG under ⚠️ Action needed.
+
+---
+
 ## Database Safety Rules
 
 NEVER run database commands against production:

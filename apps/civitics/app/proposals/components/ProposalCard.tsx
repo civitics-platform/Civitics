@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CommentPeriodBadge } from "./CommentPeriodBadge";
 import { SubmitCommentButton } from "./SubmitCommentButton";
 import { EntityTags, type EntityTag } from "../../components/tags/EntityTags";
+import { ProposalShareButton } from "./ProposalShareButton";
 
 export type ProposalCardData = {
   id: string;
@@ -163,17 +164,18 @@ export function ProposalCard({ proposal }: { proposal: ProposalCardData }) {
             </p>
           )}
 
-          {/* Submit button — stopPropagation so card click still navigates to detail */}
-          {open && (
-            <div>
+          {/* Action row: submit + share — stopPropagation so card click still navigates */}
+          <div className="flex items-center gap-2">
+            {open && (
               <SubmitCommentButton
                 regulationsGovId={proposal.regulations_gov_id}
                 congressGovUrl={proposal.congress_gov_url}
                 size="sm"
                 stopPropagation
               />
-            </div>
-          )}
+            )}
+            <ProposalShareButton title={proposal.title} id={proposal.id} stopPropagation />
+          </div>
         </div>
       </div>
     </Link>

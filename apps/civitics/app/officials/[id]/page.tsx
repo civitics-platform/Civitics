@@ -10,6 +10,7 @@ import { ShareButton } from "../components/ShareButton";
 import { CareerHistory } from "../components/CareerHistory";
 import { PromisesSection } from "../components/PromisesSection";
 import { SpendingSection } from "../components/SpendingSection";
+import { OfficialComments } from "./components/OfficialComments";
 import { ResponsivenessCard } from "../components/ResponsivenessCard";
 import { gradeFromRate } from "../../api/officials/[id]/responsiveness/route";
 import { PageViewTracker } from "../../components/PageViewTracker";
@@ -927,6 +928,11 @@ export default async function OfficialProfilePage({
 
         {/* QWEN-ADDED: Government Spending Section */}
         <SpendingSection items={spendingRecords} />
+
+        {/* Community Comments */}
+        <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+          <OfficialComments officialId={official.id} />
+        </div>
 
       </main>
 

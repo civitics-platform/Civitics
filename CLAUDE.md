@@ -12,12 +12,16 @@ Starting a new session? Read these files before touching any code:
 | File | What it tells you |
 |---|---|
 | `docs/SESSION_LOG.md` | What happened last session, what's unblocked, what's next |
-| `docs/QWEN_PROMPTS.md` | Qwen task queue — statuses: READY / IN PROGRESS / NEEDS REVIEW / COMPLETE |
 | `docs/FIXES.md` | Bug and improvement backlog, priority-labelled with checkboxes |
 | `docs/PHASE_GOALS.md` | Phase 1 completion picture |
 
-These four files are the fastest path to current project state. Git log and code
+These three files are the fastest path to current project state. Git log and code
 exploration are for verification, not orientation.
+
+> **Workflow note (as of 2026-04-15):** Qwen Code is no longer part of the workflow.
+> Claude handles all implementation directly. `docs/QWEN_PROMPTS.md` is preserved as
+> historical task archive only — do not queue new tasks there or write Qwen prompts.
+> Work through `docs/FIXES.md` items directly.
 
 ---
 

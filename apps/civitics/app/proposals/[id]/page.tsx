@@ -10,6 +10,7 @@ import { PageViewTracker } from "../../components/PageViewTracker";
 import { CivicComments } from "./components/CivicComments";
 import { PositionWidget } from "./components/PositionWidget";
 import { RelatedInitiatives, type InitiativeLink } from "../components/RelatedInitiatives";
+import { ProposalShareButton } from "../components/ProposalShareButton";
 
 export const dynamic = "force-dynamic";
 
@@ -297,6 +298,7 @@ export default async function ProposalDetailPage({
                 View on congress.gov ↗
               </a>
             )}
+            <ProposalShareButton title={p.title} id={p.id} />
           </div>
         </div>
       </div>

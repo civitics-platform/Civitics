@@ -1,10 +1,11 @@
-# QWEN_PROMPTS.md — Civitics Task Queue for Qwen Code
+# QWEN_PROMPTS.md — Civitics Task Queue (ARCHIVED)
 
-Living document. Claude adds tasks here when Claude usage is limited.
-Qwen picks up tasks from the Active Queue and works on branch `qwen/<cycle>`.
-Claude reviews diffs before merging.
+> ⚠️ **PAUSED as of 2026-04-15.** Qwen Code is no longer free, so this workflow is on hold.
+> Claude now handles all implementation directly. This file is preserved as a historical
+> task archive. **Do not queue new tasks here. Do not write Qwen input prompts.**
+> Work through `docs/FIXES.md` items directly in each session.
 
-**Last updated: 2026-04-13**
+**Last updated: 2026-04-15**
 
 ---
 
@@ -190,7 +191,7 @@ Add `<CivicComments proposalId={proposal.id} />` near the bottom of the proposal
 
 ### TASK-04 — TypeScript audit: add generic types to all remaining bare `withDbTimeout` calls
 
-**Status:** `READY`
+**Status:** `COMPLETE — merged 2026-04-13 (reviewed in commit e14cf061)`
 **Risk:** Very low — TypeScript types only, zero logic changes
 **Files to edit:**
 - `apps/civitics/app/api/graph/chord/route.ts`
@@ -258,7 +259,7 @@ const { count, data } = await withDbTimeout<{
 
 ### TASK-05 — Career history section on official detail pages
 
-**Status:** `READY`
+**Status:** `COMPLETE — merged 2026-04-13 (reviewed in commit e14cf061; CareerHistory.tsx in officials/components/)`
 **Risk:** Low — new component added to existing page, no existing code modified except one import + JSX line
 **Files to read first:**
 - `apps/civitics/app/officials/[id]/page.tsx` (full file — understand layout and existing data fetching pattern)
@@ -331,7 +332,7 @@ type CareerHistoryRow = {
 
 ### TASK-06 — Promises section on official detail pages
 
-**Status:** `READY`
+**Status:** `COMPLETE — merged 2026-04-13 (reviewed in commit e14cf061; PromisesSection.tsx in officials/components/)`
 **Risk:** Low — new component, no existing code modified except one import + JSX line
 **Files to read first:**
 - `apps/civitics/app/officials/[id]/page.tsx` (understand data fetch pattern — follow it exactly)
@@ -413,7 +414,7 @@ type PromiseRow = {
 
 ### TASK-07 — Position tracking widget on proposal detail pages
 
-**Status:** `READY`
+**Status:** `COMPLETE — merged 2026-04-13 (reviewed in commit e14cf061; PositionWidget.tsx in proposals/[id]/components/)`
 **Risk:** Low-medium — new component + small API route; existing civic_comments table already has `position` column
 **Files to read first:**
 - `apps/civitics/app/proposals/[id]/page.tsx` (understand layout)
@@ -482,7 +483,7 @@ for (const row of data ?? []) {
 
 ### TASK-08 — Fix agency page: proposal counts use placeholder filter, not real agency ID
 
-**Status:** `READY`
+**Status:** `COMPLETE — merged 2026-04-13 (reviewed in commit e14cf061)`
 **Risk:** Medium — changes existing data query logic; read the file carefully before editing
 **Files to read first:**
 - `apps/civitics/app/agencies/[slug]/page.tsx` (read the FULL file — especially the data fetch section)
@@ -521,7 +522,7 @@ Look at the existing structure in the file to understand exactly how to refactor
 
 ### TASK-09 — Official detail page: add spending records section
 
-**Status:** `READY`
+**Status:** `COMPLETE — merged 2026-04-13 (reviewed in commit e14cf061; SpendingSection.tsx in officials/components/)`
 **Risk:** Low — new component, data already fetched on the page
 **Files to read first:**
 - `apps/civitics/app/officials/[id]/page.tsx` (check if `spending_records` is already fetched — search for "spending" in the file)
@@ -593,7 +594,7 @@ Add `<SpendingSection items={spendingRecords} />` near the bottom of the officia
 
 ### TASK-11 — Civic Initiatives: DB migration (Sprint 1)
 
-**Status:** `READY`
+**Status:** `COMPLETE — merged 2026-04-11 (migration in supabase/migrations/20260411010026_civic_initiatives.sql)`
 **Risk:** Low — new tables only, nothing existing is modified or dropped
 **Files to read first:**
 - `supabase/migrations/0009_users_table.sql` (users table schema — FK target)
@@ -854,7 +855,7 @@ type ResponseRow = {
 
 ### TASK-10 — Sunburst re-render bug: shape and showLabels settings don't apply without refetch
 
-**Status:** `READY`
+**Status:** `COMPLETE — merged 2026-04-13 (reviewed in commit e14cf061)`
 **Risk:** Medium — touches SunburstGraph component logic; read carefully
 **Files to read first:**
 - `packages/graph/src/SunburstGraph.tsx` (full file — understand data flow and render cycle)
@@ -883,6 +884,173 @@ Leave a `// TODO(review): split confirmed — was one entangled effect` or simil
 - Changing `showLabels` toggles labels immediately
 - No infinite re-render loops (check browser console)
 - `pnpm build` passes
+
+---
+
+---
+
+### TASK-22 — Share button on proposal detail page and cards
+
+**Status:** `READY`
+**Risk:** Low — new component, two JSX additions, no existing logic changed
+**Files to read first:**
+- `apps/civitics/app/officials/components/ShareButton.tsx` (copy this pattern exactly — it's the existing share button for officials; adapt for proposals)
+- `apps/civitics/app/proposals/[id]/page.tsx` (understand header layout — share button goes in the meta row section, roughly line 272–300)
+- `apps/civitics/app/proposals/components/ProposalCard.tsx` (understand card footer — share button goes at the bottom of the card actions row)
+
+**Background:**
+Officials profile pages already have a `ShareButton` component (copy-to-clipboard / Web Share API). The same affordance is missing from proposal detail pages and proposal cards. These are high-value sharing points — users discover a bill they care about and want to forward it.
+
+**What to build:**
+
+1. Create `apps/civitics/app/proposals/components/ProposalShareButton.tsx`
+   - `"use client"` — uses clipboard/navigator.share
+   - Props: `title: string; id: string`
+   - Shares URL `/proposals/${id}`
+   - Copy the officials `ShareButton.tsx` pattern exactly, adapting the text:
+     - `navigator.share` call: `title: "${title} | Civitics"`, `text: "Read about this proposal on Civitics"`, `url: fullUrl`
+     - Button label: `"↗ Share"` / `"✓ Copied"` (same as officials)
+   - Keep the same Tailwind classes as the officials `ShareButton.tsx`
+
+2. Add `<ProposalShareButton title={p.title} id={p.id} />` to `apps/civitics/app/proposals/[id]/page.tsx`.
+   - Import it at the top of the file.
+   - Place it inside the header block, in the meta row div (the `flex flex-wrap items-center gap-4` div around line 273), after the existing external links but before the closing `</div>`.
+
+3. Add an inline `ShareButton` to `apps/civitics/app/proposals/components/ProposalCard.tsx`.
+   - Read the card file to find the footer/action area (where `SubmitCommentButton` appears).
+   - Add a small share button next to the existing action elements. Implement it inline as a small client-side button rather than importing a separate component (the card is already a server component — do NOT add `"use client"` to the card itself).
+   - Instead: add a `<ProposalShareButton />` import and render it in the card footer. Since `ProposalCard.tsx` is a server component, adding a client child is fine — Next.js handles this.
+   - If `ProposalCard.tsx` has a footer actions row with `SubmitCommentButton`, place `ProposalShareButton` on the same row.
+
+**Important:**
+- Do NOT add `"use client"` to `ProposalCard.tsx` or `proposals/[id]/page.tsx` — they are server components
+- `ProposalShareButton` is already a client component, so it can be imported into server components safely
+- The button should be small and unobtrusive — use the same style as the officials `ShareButton.tsx`
+
+**Acceptance criteria:**
+- Share button appears on `/proposals/[id]` in the header area
+- Share button appears on each proposal card in `/proposals` list
+- Clicking copies the proposal URL or opens native share sheet (mobile)
+- `pnpm build` passes clean
+
+---
+
+### TASK-23 — Community commenting on Official detail pages
+
+**Status:** `READY`
+**Risk:** Low-Medium — new component + new API route, adapting existing pattern; does not modify `CivicComments.tsx` or any existing route
+**Files to read first:**
+- `apps/civitics/app/proposals/[id]/components/CivicComments.tsx` (copy this pattern — adapt entity type)
+- `apps/civitics/app/api/proposals/[id]/comments/route.ts` (copy this pattern — adapt for officials)
+- `apps/civitics/app/officials/[id]/page.tsx` (understand page structure; `SpendingSection` is at the bottom around line 929 — add comments below it)
+- `supabase/migrations/0001_initial_schema.sql` (search for `civic_comments` — read the full table definition to get exact column names)
+
+**Background:**
+`civic_comments` is an entity-agnostic table with `entity_type TEXT` and `entity_id UUID` columns. Proposal pages already have a `CivicComments` component. Officials lack an equivalent. Adding community discussion to official pages completes the Phase 1 civic engagement layer.
+
+**civic_comments relevant columns (verified from migration):**
+```
+entity_type   TEXT   — use 'official'
+entity_id     UUID   — the official's id
+user_id       UUID   (nullable)
+display_name  TEXT   (nullable)
+text          TEXT
+created_at    TIMESTAMPTZ
+is_deleted    BOOLEAN DEFAULT false
+```
+
+**What to build:**
+
+1. New API route: `apps/civitics/app/api/officials/[id]/comments/route.ts`
+   - Copy `apps/civitics/app/api/proposals/[id]/comments/route.ts` exactly.
+   - Change `entity_type` from `'proposal'` to `'official'`.
+   - Change `proposal_id` references to `official_id` (or simply use `entity_id = params.id` — check how the proposals route uses it and match).
+   - `export const dynamic = "force-dynamic";`
+   - GET: return comments for `entity_type = 'official'` and `entity_id = params.id`, ordered by `created_at DESC`, limit 50.
+   - POST: insert with `entity_type = 'official'`, `entity_id = params.id`.
+
+2. New component: `apps/civitics/app/officials/[id]/components/OfficialComments.tsx`
+   - Copy `apps/civitics/app/proposals/[id]/components/CivicComments.tsx` exactly.
+   - Change the fetch URL from `/api/proposals/${proposalId}/comments` to `/api/officials/${officialId}/comments`.
+   - Change the prop from `proposalId: string` to `officialId: string`.
+   - Change the empty state text: `"Be the first to comment on this official."` (instead of "proposal").
+   - Change the placeholder text in the textarea: `"Share a thought about this official's record…"`.
+   - Keep all other logic identical.
+
+3. Add `<OfficialComments officialId={official.id} />` to `apps/civitics/app/officials/[id]/page.tsx`.
+   - Import the component at the top of the file.
+   - Place it after `<SpendingSection items={spendingRecords} />` (around line 929) — at the very bottom of the main content area, before the closing `</div>` wrappers.
+
+**Important:**
+- Do NOT modify `CivicComments.tsx` or the proposals comments route — create new files only
+- The route file for officials: the `params` destructure should be `({ params }: { params: { id: string } })` — same as proposals route
+- Check the proposals comments route for the exact `is_deleted` filter and `order` clause — match them exactly
+
+**Acceptance criteria:**
+- Comment section renders on `/officials/[any-id]` without errors
+- Can post a comment and see it appear without page refresh
+- GET/POST API routes return correct data for `entity_type = 'official'`
+- No changes to any existing file (proposals route, CivicComments.tsx) — only additions
+- `pnpm build` passes clean
+
+---
+
+### TASK-24 — Custom 404 and error pages
+
+**Status:** `READY`
+**Risk:** Low — new files only, no existing code touched
+**Files to read first:**
+- `apps/civitics/app/layout.tsx` (read the root layout to understand the wrapping HTML/body structure and any fonts/globals used — not-found.tsx and error.tsx inherit from it)
+- `apps/civitics/app/loading.tsx` or any existing loading.tsx (use as style reference for how these root-level files are structured)
+
+**Background:**
+Next.js App Router uses `not-found.tsx` (for `notFound()` calls and 404s) and `error.tsx` (for runtime errors) as special file conventions. Neither exists yet. Users hitting dead links or server errors currently see the default Next.js error screen. Both should be branded, helpful pages.
+
+**What to build:**
+
+1. `apps/civitics/app/not-found.tsx` — 404 page
+   - Static server component (no `"use client"`)
+   - Headline: "Page not found"
+   - Subtext: "The page you're looking for doesn't exist or has been moved."
+   - Four quick-link cards (simple bordered links): Officials (`/officials`), Proposals (`/proposals`), Agencies (`/agencies`), Civic Initiatives (`/initiatives`)
+   - A link to go back: `<a href="/">← Back to Civitics</a>`
+   - Style: centered, clean white card on gray-50 background, consistent with the rest of the app (use Tailwind only)
+   - Include a large "404" number in light gray as a visual element
+   - No imports from packages that might fail at build time — plain HTML + Tailwind classes only
+
+2. `apps/civitics/app/error.tsx` — runtime error boundary
+   - **Must be `"use client"`** — Next.js requires error boundaries to be client components
+   - Props: `{ error: Error & { digest?: string }; reset: () => void }`
+   - Headline: "Something went wrong"
+   - Subtext: "An unexpected error occurred. Try refreshing the page."
+   - Two buttons:
+     - "Try again" — calls `reset()` (the prop provided by Next.js)
+     - "Go home" — `<a href="/">Go home</a>`
+   - Show `error.digest` in a small gray monospace span if it exists: "Error code: {error.digest}"
+   - Same visual style as the 404 page (centered, white card on gray-50)
+   - Do NOT show `error.message` — it may expose stack traces in production
+
+**Styling reference** (match the app's existing aesthetic):
+```tsx
+// Both pages: outer wrapper
+<div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+  <div className="w-full max-w-lg rounded-xl border border-gray-200 bg-white p-10 text-center shadow-sm">
+    {/* content */}
+  </div>
+</div>
+```
+
+**Important:**
+- `error.tsx` MUST have `"use client"` at the top — this is a Next.js hard requirement for error boundaries
+- `not-found.tsx` must NOT have `"use client"` — it's a server component
+- Do NOT import `NavBar` or any component that fetches data — these pages render when the rest of the app may be broken
+- The quick-link cards in `not-found.tsx` should be plain `<a>` tags (not `<Link>` from next/link), to minimize dependency surface
+
+**Acceptance criteria:**
+- Navigating to a non-existent URL (e.g. `/does-not-exist`) renders the custom 404 page with the four quick-link cards
+- `not-found.tsx` has no `"use client"` directive
+- `error.tsx` has `"use client"` as its first line
+- `pnpm build` passes clean
 
 ---
 

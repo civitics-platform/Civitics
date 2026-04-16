@@ -891,7 +891,7 @@ Leave a `// TODO(review): split confirmed — was one entangled effect` or simil
 
 ### TASK-22 — Share button on proposal detail page and cards
 
-**Status:** `READY`
+**Status:** `COMPLETE — merged 2026-04-15 (commit 410f08c9; implemented by Claude)`
 **Risk:** Low — new component, two JSX additions, no existing logic changed
 **Files to read first:**
 - `apps/civitics/app/officials/components/ShareButton.tsx` (copy this pattern exactly — it's the existing share button for officials; adapt for proposals)
@@ -937,7 +937,7 @@ Officials profile pages already have a `ShareButton` component (copy-to-clipboar
 
 ### TASK-23 — Community commenting on Official detail pages
 
-**Status:** `READY`
+**Status:** `COMPLETE — merged 2026-04-15 (commit 410f08c9; implemented by Claude; requires migration 20260415223406 applied locally)`
 **Risk:** Low-Medium — new component + new API route, adapting existing pattern; does not modify `CivicComments.tsx` or any existing route
 **Files to read first:**
 - `apps/civitics/app/proposals/[id]/components/CivicComments.tsx` (copy this pattern — adapt entity type)
@@ -997,7 +997,7 @@ is_deleted    BOOLEAN DEFAULT false
 
 ### TASK-24 — Custom 404 and error pages
 
-**Status:** `READY`
+**Status:** `COMPLETE — merged 2026-04-15 (commit 410f08c9; implemented by Claude)`
 **Risk:** Low — new files only, no existing code touched
 **Files to read first:**
 - `apps/civitics/app/layout.tsx` (read the root layout to understand the wrapping HTML/body structure and any fonts/globals used — not-found.tsx and error.tsx inherit from it)

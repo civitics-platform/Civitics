@@ -5,13 +5,19 @@
 ## 2026-04-15
 
 **Done:**
-- Audited QWEN_PROMPTS.md — discovered TASK-04 through TASK-11 were already complete (commit e14cf061) but status hadn't been updated; marked all COMPLETE
-- Noted that Officials filtering, proposal filtering, share button on officials, ProfileTabs, and CivicComments on proposals are all already implemented
-- Queued TASK-22 (share button on proposals), TASK-23 (community commenting on officials), TASK-24 (custom 404 + error pages)
+- Paused Qwen workflow — Qwen Code no longer free; Claude now handles all implementation directly (updated CLAUDE.md + QWEN_PROMPTS.md)
+- Marked TASK-04 through TASK-11 as COMPLETE (were done in earlier session, statuses not updated)
+- TASK-22 complete: `ProposalShareButton.tsx` — share button on proposal detail page header and each `ProposalCard`
+- TASK-23 complete: `OfficialComments.tsx` + `/api/officials/[id]/comments/route.ts` + migration `20260415223406_official_community_comments.sql` — community comments on official profile pages (new table, requires `supabase migration up --local`)
+- TASK-24 complete: `not-found.tsx` (branded 404, 4 quick-link cards) + `error.tsx` (client-side error boundary, Try Again + Go Home)
+
+**⚠️ Action needed:**
+- Run `supabase migration up --local` to apply `20260415223406_official_community_comments.sql` before testing TASK-23
 
 **Up next:**
-- Qwen to run TASK-22, TASK-23, TASK-24; review when complete
-- After those: rate limiting on public API routes (🟠 M), clickable links audit (🟢 S), FIXES.md infra items
+- Rate limiting on public API routes (🟠 M — `/api/search`, `/api/graph/*`)
+- Clickable links audit (🟢 S)
+- FIXES.md items: agencies improvements, graph node right-click menu
 
 ---
 

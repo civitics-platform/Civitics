@@ -2,6 +2,29 @@
 
 ---
 
+## 2026-04-16 (session 2)
+
+**Done:**
+- Graph node right-click context menu (`NodeContextMenu.tsx` + `ForceGraph.tsx`):
+  - Right-click any node → positional menu near cursor with: Expand, Pin/Unpin, View profile/proposal, Copy link, Hide
+  - Pin: toggles `fx`/`fy` on D3 simulation node to fix position; `📍` icon when pinned
+  - Hide: adds node to local `hiddenIds` Set; filtered before simulation builds; resets when graph data changes
+  - Copy link: copies `/officials/{id}`, `/proposals/{id}`, or `/graph?entity={id}` to clipboard
+  - Menu flips to stay inside container bounds; closes on Escape or backdrop click
+  - Container ref wired for precise flip calculations
+- Agency card improvements (`AgenciesList.tsx`):
+  - Smart sector tags inferred from agency name/acronym via 15-rule regex table (Environment, Defense, Health, Finance, Transportation, Energy, Education, Labor, Agriculture, Justice, Housing, Immigration, Space, Commerce, Communications); max 2 tags per card
+  - Footer action strip: "Graph" link → `/graph?entity={id}`; "Website" link → external if `website_url` present
+  - Cards are now flex-column so footer always aligns at bottom
+  - `toLocaleString()` formatting on proposal counts
+
+**Up next:**
+- Quick wins: Header/footer consistency audit (🟢 S)
+- Graph: share button / copy link in graph panel (🟢 S)
+- Proposals: "6 closing soonest" header improvements (🟡 M)
+
+---
+
 ## 2026-04-16
 
 **Done:**

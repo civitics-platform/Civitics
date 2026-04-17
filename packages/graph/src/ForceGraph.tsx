@@ -14,7 +14,6 @@ import {
 import type { GraphNode as NewGraphNode, GraphView, NodeActions } from "./types";
 import { Tooltip, useTooltip } from "./components/Tooltip";
 import { NodePopup } from "./components/NodePopup";
-import { NodeContextMenu } from "./components/NodeContextMenu";
 
 export interface ForceGraphProps {
   nodes: OldGraphNode[];
@@ -98,19 +97,6 @@ function ForceGraph(
   const { tooltip, show: showTip, hide: hideTip } = useTooltip();
   const [popup, setPopup] = useState<NewGraphNode | null>(null);
 
-  // ── Context menu (right-click) state ──────────────────────────────────────
-  const [ctxMenu, setCtxMenu] = useState<{
-    node: OldGraphNode;
-    x: number;
-    y: number;
-  } | null>(null);
-  // Nodes pinned in place (fx/fy set in simulation)
-  const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
-  // Nodes hidden from the current view (local — resets when graph data changes)
-  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
-
-  const containerRef = useRef<HTMLDivElement>(null);
-
   const handleClick = useCallback(
     (node: OldGraphNode) => onNodeClick?.(node),
     [onNodeClick]
@@ -168,10 +154,8 @@ function ForceGraph(
       onNodeClick?.(null);
     });
 
-    // ── deep-copy data (filter hidden nodes) ──────────────────────────────
-    const simNodes: OldGraphNode[] = nodes
-      .filter((n) => !hiddenIds.has(n.id))
-      .map((n) => ({ ...n }));
+    // ── deep-copy data ─────────────────────────────────────────────────────
+    const simNodes: OldGraphNode[] = nodes.map((n) => ({ ...n }));
     const nodeById = new Map(simNodes.map((n) => [n.id, n]));
     const simEdges: SimLink[] = edges.map((e) => ({
       ...e,
@@ -442,22 +426,9 @@ function ForceGraph(
       .on("click", (event: MouseEvent, d) => {
         event.stopPropagation();
         hideTip();
-        setCtxMenu(null);
         setPopup(adaptNode(d));
         // Still fire legacy callback so parent can do other things
         handleClick(d);
-      })
-      .on("contextmenu", (event: MouseEvent, d) => {
-        event.preventDefault();
-        event.stopPropagation();
-        hideTip();
-        setPopup(null);
-        const rect = svgEl.getBoundingClientRect();
-        setCtxMenu({
-          node: d,
-          x: event.clientX - rect.left,
-          y: event.clientY - rect.top,
-        });
       });
 
     // ── simulation ─────────────────────────────────────────────────────────
@@ -494,7 +465,7 @@ function ForceGraph(
 
     simRef.current = sim;
     return () => { sim.stop(); };
-  }, [nodes, edges, handleClick, onNodeClick, visualConfig, hiddenIds]);
+  }, [nodes, edges, handleClick, onNodeClick, visualConfig]);
 
   // ── Style-only effect: update edge styles when connectionSettings changes ──
   // This updates colors/opacity/thickness WITHOUT restarting the simulation.
@@ -547,53 +518,8 @@ function ForceGraph(
     },
   };
 
-  // ── Context menu action handlers ───────────────────────────────────────────
-  const handleCtxPin = (nodeId: string) => {
-    const sim = simRef.current;
-    if (!sim) return;
-    const target = sim.nodes().find((n) => n.id === nodeId);
-    if (!target) return;
-    if (target.fx != null) {
-      // Unpin
-      target.fx = null;
-      target.fy = null;
-      setPinnedIds((prev) => { const s = new Set(prev); s.delete(nodeId); return s; });
-    } else {
-      // Pin at current position
-      target.fx = target.x;
-      target.fy = target.y;
-      setPinnedIds((prev) => new Set(prev).add(nodeId));
-    }
-    sim.alpha(0.1).restart();
-  };
-
-  const handleCtxHide = (nodeId: string) => {
-    setHiddenIds((prev) => new Set(prev).add(nodeId));
-    // If the hidden node was expanded, also clear it from the popup
-    setPopup((prev) => (prev?.id === nodeId ? null : prev));
-  };
-
-  const handleCtxCopyLink = (node: OldGraphNode) => {
-    const base = typeof window !== "undefined" ? window.location.origin : "";
-    let path = "";
-    if (node.type === "official")  path = `/officials/${node.id}`;
-    else if (node.type === "proposal") path = `/proposals/${node.id}`;
-    else path = `/graph?entity=${node.id}`;
-    navigator.clipboard.writeText(base + path).catch(() => {
-      // Fallback: do nothing silently
-    });
-  };
-
-  // Measure container for context menu flip logic
-  const containerSize = containerRef.current
-    ? {
-        width:  containerRef.current.offsetWidth,
-        height: containerRef.current.offsetHeight,
-      }
-    : { width: 800, height: 600 };
-
   return (
-    <div ref={containerRef} className={`relative w-full h-full ${className ?? ""}`}>
+    <div className={`relative w-full h-full ${className ?? ""}`}>
       <svg
         ref={svgRef}
         id="force-graph-canvas"
@@ -614,26 +540,6 @@ function ForceGraph(
         actions={nodeActions}
         vizType="force"
       />
-
-      {ctxMenu && (
-        <NodeContextMenu
-          node={ctxMenu.node as unknown as import("./types").GraphNode}
-          x={ctxMenu.x}
-          y={ctxMenu.y}
-          containerWidth={containerSize.width}
-          containerHeight={containerSize.height}
-          isPinned={pinnedIds.has(ctxMenu.node.id)}
-          onClose={() => setCtxMenu(null)}
-          onExpand={() => {
-            nodeActions.expandNode(ctxMenu.node.id);
-            setCtxMenu(null);
-          }}
-          onPin={() => handleCtxPin(ctxMenu.node.id)}
-          onHide={() => handleCtxHide(ctxMenu.node.id)}
-          onViewProfile={() => {/* handled inside NodeContextMenu via window.open */}}
-          onCopyLink={() => handleCtxCopyLink(ctxMenu.node)}
-        />
-      )}
     </div>
   );
 });

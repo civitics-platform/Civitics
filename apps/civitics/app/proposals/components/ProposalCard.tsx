@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { CommentPeriodBadge } from "./CommentPeriodBadge";
 import { SubmitCommentButton } from "./SubmitCommentButton";
@@ -48,10 +50,12 @@ const TYPE_LABEL: Record<string, string> = {
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
+  // timeZone: "UTC" ensures server (Node UTC) and browser produce identical output
   return new Date(iso).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone: "UTC",
   });
 }
 
@@ -84,7 +88,10 @@ export function ProposalCard({ proposal }: { proposal: ProposalCardData }) {
 
   return (
     <Link href={`/proposals/${proposal.id}`} className="block group">
+      {/* suppressHydrationWarning: border color derives from isOpenForComment(new Date()),
+          which is virtually always identical between SSR and hydration but needs the guard. */}
       <div
+        suppressHydrationWarning
         className={`flex flex-col h-full rounded-lg border bg-white p-5 transition-all group-hover:shadow-md group-hover:border-gray-300 cursor-pointer ${
           open ? "border-amber-200" : "border-gray-200"
         }`}
@@ -92,6 +99,7 @@ export function ProposalCard({ proposal }: { proposal: ProposalCardData }) {
         {/* Badge row */}
         <div className="flex flex-wrap items-center gap-1.5 mb-3">
           <span
+            suppressHydrationWarning
             className={`rounded border px-2 py-0.5 text-xs font-medium ${statusBadge.color}`}
           >
             {open ? "⏰ " : ""}{statusBadge.label}

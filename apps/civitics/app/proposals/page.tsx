@@ -3,7 +3,6 @@ export const dynamic = "force-dynamic";
 import { cookies } from "next/headers";
 import { createServerClient } from "@civitics/db";
 import { ProposalCard, type ProposalCardData } from "./components/ProposalCard";
-import { FeaturedSection } from "./components/FeaturedSection";
 import { AGENCY_FULL_NAMES } from "./components/agencyNames";
 import type { EntityTag } from "../components/tags/EntityTags";
 import { PageViewTracker } from "../components/PageViewTracker";
@@ -100,7 +99,7 @@ export default async function ProposalsPage({
 
   const now = new Date().toISOString();
 
-  // ─── Featured section queries (all three tabs) ────────────────────────────
+  // ─── Open-now featured section ────────────────────────────────────────────
   const openFeaturedQuery = supabase
     .from("proposals")
     .select("id,title,type,status,regulations_gov_id,congress_gov_url,comment_period_end,summary_plain,summary_model,introduced_at,metadata")
@@ -108,41 +107,6 @@ export default async function ProposalsPage({
     .gt("comment_period_end", now)
     .order("comment_period_end", { ascending: true })
     .limit(6);
-
-  // Congressional Bills tab — newest bills regardless of status
-  const billsQuery = supabase
-    .from("proposals")
-    .select("id,title,type,status,regulations_gov_id,congress_gov_url,comment_period_end,summary_plain,summary_model,introduced_at,metadata")
-    .eq("type", "bill")
-    .order("introduced_at", { ascending: false, nullsFirst: false })
-    .limit(6);
-
-  // Most Viewed tab — look up top proposal IDs from page_views then fetch them
-  const sbAny2 = supabase as any;
-  const topViewedIdsRes = await sbAny2
-    .from("page_views")
-    .select("entity_id")
-    .eq("entity_type", "proposal")
-    .limit(200);
-
-  // Count views per proposal and take top 6
-  const viewCounts: Record<string, number> = {};
-  for (const row of topViewedIdsRes.data ?? []) {
-    const id = row.entity_id as string;
-    viewCounts[id] = (viewCounts[id] ?? 0) + 1;
-  }
-  const topProposalIds = Object.entries(viewCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 6)
-    .map(([id]) => id);
-
-  const mostViewedQuery =
-    topProposalIds.length > 0
-      ? supabase
-          .from("proposals")
-          .select("id,title,type,status,regulations_gov_id,congress_gov_url,comment_period_end,summary_plain,summary_model,introduced_at,metadata")
-          .in("id", topProposalIds)
-      : Promise.resolve({ data: [] as any[], error: null });
 
   // ─── Filtered main list ───────────────────────────────────────────────────
   let mainQuery = supabase
@@ -189,17 +153,13 @@ export default async function ProposalsPage({
     .order("comment_period_end", { ascending: true, nullsFirst: false })
     .range(offset, offset + PAGE_SIZE - 1);
 
-  const [openFeaturedRes, billsRes, mostViewedRes, mainRes] = await Promise.all([
+  const [openFeaturedRes, mainRes] = await Promise.all([
     openFeaturedQuery,
-    billsQuery,
-    mostViewedQuery,
     mainQuery,
   ]);
 
-  const rawOpenFeatured   = (openFeaturedRes.data  ?? []) as ProposalCardData[];
-  const rawBills          = (billsRes.data          ?? []) as ProposalCardData[];
-  const rawMostViewed     = (mostViewedRes.data     ?? []) as ProposalCardData[];
-  const rawMainProposals  = (mainRes.data           ?? []) as ProposalCardData[];
+  const rawOpenFeatured = (openFeaturedRes.data ?? []) as ProposalCardData[];
+  const rawMainProposals = (mainRes.data ?? []) as ProposalCardData[];
   const totalCount = mainRes.count ?? 0;
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
@@ -207,10 +167,8 @@ export default async function ProposalsPage({
   // Fetch cached summaries for all proposals on this page in one query
   const allProposalIds = [
     ...rawOpenFeatured.map((p) => p.id),
-    ...rawBills.map((p) => p.id),
-    ...rawMostViewed.map((p) => p.id),
     ...rawMainProposals.map((p) => p.id),
-  ].filter((id, i, arr) => arr.indexOf(id) === i); // dedupe
+  ];
 
   // ai_summary_cache may not be in generated types — cast to bypass
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -255,12 +213,7 @@ export default async function ProposalsPage({
     };
   }
 
-  const openFeatured  = rawOpenFeatured.map(enrich);
-  const featuredBills = rawBills.map(enrich);
-  // Restore view-count rank order (DB .in() doesn't guarantee order)
-  const featuredMostViewed = rawMostViewed
-    .map(enrich)
-    .sort((a, b) => (viewCounts[b.id] ?? 0) - (viewCounts[a.id] ?? 0));
+  const openFeatured = rawOpenFeatured.map(enrich);
   const mainProposals = rawMainProposals.map(enrich);
 
   const showFeaturedSection =
@@ -296,13 +249,24 @@ export default async function ProposalsPage({
 
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
 
-        {/* ─── Featured — tabbed: Closing Soon / Bills / Most Viewed ──────── */}
-        {showFeaturedSection && (openFeatured.length > 0 || featuredBills.length > 0 || featuredMostViewed.length > 0) && (
-          <FeaturedSection
-            closingSoon={openFeatured}
-            bills={featuredBills}
-            mostViewed={featuredMostViewed}
-          />
+        {/* ─── Open Now Featured ─────────────────────────────────────────── */}
+        {showFeaturedSection && openFeatured.length > 0 && (
+          <section aria-labelledby="featured-heading" className="mb-12">
+            <div className="mb-4 flex items-center gap-3">
+              <span aria-hidden="true" className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+              <h2 id="featured-heading" className="text-lg font-semibold text-gray-900">
+                ⏰ Comment Period Open Now
+              </h2>
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                {openFeatured.length} closing soonest
+              </span>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {openFeatured.map((p) => (
+                <ProposalCard key={p.id} proposal={p} />
+              ))}
+            </div>
+          </section>
         )}
 
         {/* ─── Topic filter pills ──────────────────────────────────────── */}

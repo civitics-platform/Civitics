@@ -64,8 +64,8 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## PROPOSALS
 
-- [x] 🟡 M — **Improve "6 closing soonest" header section** — replaced 2026-04-16 with 3-tab `FeaturedSection.tsx` client component: "Closing Soon" (open_comment ordered by deadline) / "Congressional Bills" (type=bill, newest first) / "Most Viewed" (page_views count join); tab state is client-side, data all server-fetched
-- [x] 🟡 M — **Make congressional bills more prominent** — addressed 2026-04-16: "Congressional Bills" is now a dedicated tab in the featured section on the proposals list page
+- [ ] 🟡 M — **Improve "6 closing soonest" header section** — replace or augment with tabs: "Closing Soon" / "Trending" (by comment count) / "Most Commented"; this section is prime real estate
+- [ ] 🟡 M — **Make congressional bills more prominent** — separate or visually elevate `congress.gov`-sourced proposals (bills) from regulatory proposals; these are likely the biggest user draw; consider a dedicated "Active Bills" tab or featured section
 - [ ] 🟡 M — **Better filtering** — add source filter (congressional bill vs. regulation), status filter, topic/issue area tag filter (entity_tags), date range filter
 - [ ] 🟢 S — **Share button on proposal cards and detail page**
 
@@ -89,7 +89,7 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## AGENCIES
 
-- [x] 🟡 M — **Improve agency card design** — implemented 2026-04-16: sector tags inferred from name/acronym (15-rule regex table), graph CTA link, website link in footer strip, flex-column layout for consistent alignment. Employee count/budget/year require USASpending pipeline (future work)
+- [ ] 🟡 M — **Improve agency card design** — add employee count, annual budget, year created, and sector tags to each card; data may need to come from a new pipeline or manual seed (USASpending has some of this)
 - [ ] 🟡 M — **Agency visual / hierarchy view** — a simple tree or budget bar chart showing relative size and parent/sub-agency relationships would make the page far more useful; could use D3 or a simple horizontal bar chart
 - [ ] 🟡 M — **Agency Officials search** — ability to search/filter officials within an agency context; relevant for regulatory agency heads and appointed officials
 - [ ] 🟡 M — **Inline preview on card click** — clicking an agency card should expand it inline (like an officials side panel) without full page redirect, for faster browsing
@@ -101,9 +101,9 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 ## GRAPH
 
 - [ ] 🟠 L — **USER node** — show the signed-in user as a node; connect to their district's representatives; visually indicate alignment score (votes/priorities match); requires auth integration + per-user graph state
-- [x] 🟠 M — **Node right-click / options menu** — implemented 2026-04-16: `NodeContextMenu.tsx` with expand, pin/unpin (D3 fx/fy), hide (local hiddenIds), view profile/proposal, copy link; positional with container-bound flip logic
+- [ ] 🟠 M — **Node right-click / options menu** — nodes currently have no context menu; connections do; add equivalent options to nodes (expand, pin, hide, view profile, copy link)
 - [ ] 🟡 M — **Procedural vote filter in graph panel** — toggle to hide/show procedural votes in the connection graph (the toggle exists in FocusTree; verify it's also surfaced in the main graph filter UI and working end-to-end)
-- [x] 🟢 S — **Graph: share button / copy link** — implemented 2026-04-16: "Link" button added to `GraphConfigPanel.tsx` footer alongside "Save preset"; copies `window.location.href` to clipboard with 2s "Copied ✓" flash state
+- [ ] 🟢 S — **Graph: share button / copy link** — quick copy of current graph URL/share code to clipboard from within the graph panel
 
 ---
 

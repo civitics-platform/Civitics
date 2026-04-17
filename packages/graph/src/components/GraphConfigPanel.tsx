@@ -9,7 +9,6 @@
  * Keyboard shortcut: ] toggles right panel (managed by GraphPage)
  */
 
-import { useState } from 'react';
 import type { GraphView, VizType } from '../types';
 import type { UseGraphViewReturn } from '../hooks/useGraphView';
 import type { GraphMeta } from '../hooks/useGraphData';
@@ -390,14 +389,6 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
   const vizType       = view.style.vizType;
   const activePreset  = view.meta?.presetId ?? null;
   const isDirty       = view.meta?.isDirty  ?? false;
-  const [copied, setCopied] = useState(false);
-
-  function handleCopyLink() {
-    navigator.clipboard.writeText(window.location.href).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }
 
   // Only show presets that match the active viz type (or 'any') and have relevant data.
   const relevantPresets = BUILT_IN_PRESETS.filter(p => {
@@ -564,34 +555,13 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
       </div>
 
       {/* Footer */}
-      <div className="border-t border-gray-100 px-3 py-2 shrink-0 flex gap-2">
+      <div className="border-t border-gray-100 px-3 py-2 shrink-0">
         <button
           onClick={onSavePreset}
-          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-medium rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors border border-indigo-100"
+          className="w-full flex items-center justify-center gap-1.5 py-1.5 text-xs font-medium rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors border border-indigo-100"
         >
           <span>💾</span>
           <span>{isDirty ? 'Save changes' : 'Save preset'}</span>
-        </button>
-        <button
-          onClick={handleCopyLink}
-          title="Copy link to this graph"
-          className="flex items-center justify-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-gray-50 hover:bg-gray-100 text-gray-600 transition-colors border border-gray-200"
-        >
-          {copied ? (
-            <>
-              <svg className="h-3 w-3 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-              <span className="text-emerald-600">Copied</span>
-            </>
-          ) : (
-            <>
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-              </svg>
-              <span>Link</span>
-            </>
-          )}
         </button>
       </div>
     </div>

@@ -2,48 +2,6 @@
 
 ---
 
-## 2026-04-16 (session 3)
-
-**Done:**
-- Git ghost lock workaround documented in `CLAUDE.md` — full explanation of Windows NTFS mount issue, PowerShell command for Craig's side, and the temp-index plumbing command sequence for Claude's side
-- Graph: "Link" copy button added to `GraphConfigPanel.tsx` footer alongside "Save preset" — copies `window.location.href`, 2s "Copied ✓" flash; added `useState` import
-- Proposals: Featured section replaced with 3-tab `FeaturedSection.tsx` client component:
-  - "Closing Soon" tab — open_comment proposals ordered by deadline (existing data)
-  - "Congressional Bills" tab — type=bill ordered by introduced_at desc (newest first)
-  - "Most Viewed" tab — page_views aggregated server-side, top 6 by view count, rank-ordered
-  - Tab state is client-side `useState`; all data server-fetched in parallel in `page.tsx`
-  - Also marks the "Make congressional bills more prominent" FIXES item done
-
-**Up next:**
-- Header/footer consistency audit (🟢 S) — Initiatives link missing from header
-- Officials: filtering improvements (chamber / state / issue filter — 🟡 M)
-- Community commenting UI on proposals (🟠 L — `civic_comments` table exists)
-
----
-
-## 2026-04-16 (session 2)
-
-**Done:**
-- Graph node right-click context menu (`NodeContextMenu.tsx` + `ForceGraph.tsx`):
-  - Right-click any node → positional menu near cursor with: Expand, Pin/Unpin, View profile/proposal, Copy link, Hide
-  - Pin: toggles `fx`/`fy` on D3 simulation node to fix position; `📍` icon when pinned
-  - Hide: adds node to local `hiddenIds` Set; filtered before simulation builds; resets when graph data changes
-  - Copy link: copies `/officials/{id}`, `/proposals/{id}`, or `/graph?entity={id}` to clipboard
-  - Menu flips to stay inside container bounds; closes on Escape or backdrop click
-  - Container ref wired for precise flip calculations
-- Agency card improvements (`AgenciesList.tsx`):
-  - Smart sector tags inferred from agency name/acronym via 15-rule regex table (Environment, Defense, Health, Finance, Transportation, Energy, Education, Labor, Agriculture, Justice, Housing, Immigration, Space, Commerce, Communications); max 2 tags per card
-  - Footer action strip: "Graph" link → `/graph?entity={id}`; "Website" link → external if `website_url` present
-  - Cards are now flex-column so footer always aligns at bottom
-  - `toLocaleString()` formatting on proposal counts
-
-**Up next:**
-- Quick wins: Header/footer consistency audit (🟢 S)
-- Graph: share button / copy link in graph panel (🟢 S)
-- Proposals: "6 closing soonest" header improvements (🟡 M)
-
----
-
 ## 2026-04-16
 
 **Done:**

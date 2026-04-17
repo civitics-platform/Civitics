@@ -34,7 +34,7 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 - [x] 🟠 M — **Mobile responsiveness audit** — fixed 2026-04-12: hamburger nav (NavBar component, all pages), Proposals filter flex-col on mobile, Graph panels auto-collapse at <768px, Official profile header flex-col on mobile, Initiatives inline navs replaced with shared NavBar
 - [x] 🟠 M — **Accessibility (a11y) audit** — completed 2026-04-13: skip-to-content link in NavBar; aria-label on all nav landmarks; focus-visible rings on all interactive elements; aria-label + aria-pressed on filter pills; htmlFor/id on all proposal filter labels; main landmark + id="main-content" on officials/proposals/initiatives/home pages; aria-live search status region; combobox ARIA on GlobalSearch; role="switch" + aria-checked on graph toggles; aria-label on all graph sliders/selects; aria-hidden on decorative SVGs; aria-current on breadcrumb + active filters + pagination; aria-labelledby on featured section; pagination nav landmark
-- [ ] 🟠 M — **SEO / Open Graph metadata** — add `<meta og:*>` and Twitter card tags to Officials, Proposals, and Initiatives detail pages; add JSON-LD structured data for officials and proposals
+- [x] 🟠 M — **SEO / Open Graph metadata** — OG tags added 2026-04-13 (TASK-19); JSON-LD added 2026-04-16: `schema.org/Person` on Officials, `schema.org/Legislation` on Proposals
 - [ ] 🟡 M — **Consistent loading/skeleton states** — audit all data-fetching pages; replace any raw spinners with skeleton cards that match the final layout
 - [ ] 🟡 S — **Consistent empty states** — every list page needs a clear, helpful "no results" message with suggested actions (clear filters, try search)
 - [ ] 🟡 M — **404 and error pages** — design a helpful 404 with search + quick links to Officials/Proposals/Agencies; custom 500 page with status link
@@ -116,7 +116,7 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## INFRASTRUCTURE & PERFORMANCE
 
-- [ ] 🟠 M — **Rate limiting on public API routes** — `/api/search`, `/api/graph/*`, and AI summary routes need per-IP rate limits; use Vercel Edge middleware or an upstash-redis rate limiter
+- [x] 🟠 M — **Rate limiting on public API routes** — implemented 2026-04-16 in `middleware.ts`: sliding-window in-memory limiter (30/min search, 5/min graph/narrative, 60/min graph); 429 + Retry-After; Upstash upgrade path documented
 - [ ] 🟡 M — **Core Web Vitals / performance budget** — set up Vercel Analytics alerts for LCP > 2.5s and CLS > 0.1; identify and fix the worst offenders (likely graph page initial load and Officials list)
 - [ ] 🟡 M — **API response caching headers** — add `Cache-Control` headers to read-only API routes (officials list, proposals list, agencies); edge-cacheable routes can dramatically reduce DB load
 - [ ] 🟡 M — **Vote backfill completion** — 51k/227k vote connections live; full backfill pending IO recovery; complete this before Phase 1 closes

@@ -39,6 +39,7 @@ export function VotesTab({
     id: string;
     vote: string;
     title: string;
+    proposalId?: string;
     date?: string;
   }>;
 }) {
@@ -268,9 +269,18 @@ export function VotesTab({
                 >
                   {isYes ? "YEA" : isNo ? "NAY" : "ABS"}
                 </span>
-                <p className="flex-1 text-xs text-gray-700 truncate">
-                  {v.title || "Procedural vote"}
-                </p>
+                {v.proposalId ? (
+                  <a
+                    href={`/proposals/${v.proposalId}`}
+                    className="flex-1 text-xs text-gray-700 truncate hover:text-indigo-600 hover:underline transition-colors"
+                  >
+                    {v.title || "Procedural vote"}
+                  </a>
+                ) : (
+                  <p className="flex-1 text-xs text-gray-700 truncate">
+                    {v.title || "Procedural vote"}
+                  </p>
+                )}
                 {v.date && (
                   <span className="shrink-0 text-[10px] text-gray-400">
                     {new Date(v.date).toLocaleDateString("en-US", {

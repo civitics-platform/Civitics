@@ -449,6 +449,8 @@ export default async function OfficialProfilePage({
     vote: v.vote,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     title: (v.proposals as any)?.title ?? "",
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    proposalId: (v.proposals as any)?.id as string | undefined,
     date: v.voted_at ?? undefined,
   }));
 
@@ -788,7 +790,16 @@ export default async function OfficialProfilePage({
                           <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${vs.cls}`}>
                             {vs.label}
                           </span>
-                          <p className="flex-1 truncate text-xs text-gray-700">{label}</p>
+                          {proposal?.id ? (
+                            <a
+                              href={`/proposals/${proposal.id}`}
+                              className="flex-1 truncate text-xs text-gray-700 hover:text-indigo-600 hover:underline transition-colors"
+                            >
+                              {label}
+                            </a>
+                          ) : (
+                            <p className="flex-1 truncate text-xs text-gray-700">{label}</p>
+                          )}
                         </div>
                       );
                     })}

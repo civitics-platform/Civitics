@@ -2,6 +2,29 @@
 
 ---
 
+## 2026-04-16
+
+**Done:**
+- Verified migration `20260415223406_official_community_comments.sql` applied ✓
+- Rate limiting on public API routes (`middleware.ts`):
+  - `/api/search` — 30 req/min per IP
+  - `/api/graph/narrative` — 5 req/min per IP (AI/Claude calls, stricter)
+  - `/api/graph/*` — 60 req/min per IP
+  - Returns 429 + `Retry-After` header; in-memory sliding window with 5-min cleanup
+  - No new services; documented Upstash upgrade path in comments
+- JSON-LD structured data on detail pages (SEO):
+  - Officials: `schema.org/Person` (name, jobTitle, affiliation, party, image, sameAs)
+  - Proposals: `schema.org/Legislation` (name, description, legislationType, publisher, datePublished, sameAs)
+  - Both use `NEXT_PUBLIC_SITE_URL` env var for canonical URLs (falls back to `https://civitics.com`)
+
+**Up next:**
+- Clickable links audit (🟢 S) — pass across all pages, ensure every name/title/tag routes correctly
+- Add Initiatives link to main header nav (🟢 S)
+- Node right-click / options menu in graph (🟠 M)
+- Agencies card improvements (🟡 M)
+
+---
+
 ## 2026-04-15
 
 **Done:**

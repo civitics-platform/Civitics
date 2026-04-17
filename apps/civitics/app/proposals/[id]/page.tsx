@@ -66,6 +66,7 @@ type Vote = {
   vote: string;
   voted_at: string | null;
   official: {
+    id: string;
     full_name: string;
     party: string | null;
     district_name: string | null;
@@ -174,7 +175,7 @@ export default async function ProposalDetailPage({
   const votesPromise = p.type === "bill"
     ? supabase
         .from("votes")
-        .select("id,vote,voted_at,official:officials(full_name,party,district_name,role_title)")
+        .select("id,vote,voted_at,official:officials(id,full_name,party,district_name,role_title)")
         .eq("proposal_id", p.id)
         .order("voted_at", { ascending: false })
         .limit(100)
@@ -400,9 +401,18 @@ export default async function ProposalDetailPage({
                       <div key={v.id} className="flex items-center justify-between px-4 py-2.5 gap-4">
                         <div className="flex items-center gap-2 min-w-0">
                           <span className={`h-2 w-2 rounded-full flex-shrink-0 ${dot}`} />
-                          <span className="text-sm text-gray-900 truncate">
-                            {v.official?.full_name ?? "Unknown"}
-                          </span>
+                          {v.official?.id ? (
+                            <a
+                              href={`/officials/${v.official.id}`}
+                              className="text-sm text-gray-900 truncate hover:text-indigo-600 hover:underline transition-colors"
+                            >
+                              {v.official.full_name}
+                            </a>
+                          ) : (
+                            <span className="text-sm text-gray-900 truncate">
+                              {v.official?.full_name ?? "Unknown"}
+                            </span>
+                          )}
                           {v.official?.district_name && (
                             <span className="text-xs text-gray-400">{v.official.district_name}</span>
                           )}

@@ -86,10 +86,16 @@ export function ProposalCard({ proposal }: { proposal: ProposalCardData }) {
       : summaryText
     : null;
 
+  // ── Overlay pattern ───────────────────────────────────────────────────────
+  // SubmitCommentButton renders as <a>, so wrapping the whole card in <Link>
+  // (also <a>) creates nested <a> tags — invalid HTML that browsers auto-correct,
+  // breaking hydration. Instead: card content lives in a plain <div>; an
+  // absolutely-positioned invisible <Link> covers the whole card surface.
+  // Action buttons use `relative z-10` to sit above the overlay and receive
+  // their own clicks normally.
   return (
-    <Link href={`/proposals/${proposal.id}`} className="block group">
-      {/* suppressHydrationWarning: border color derives from isOpenForComment(new Date()),
-          which is virtually always identical between SSR and hydration but needs the guard. */}
+    <div className="relative group h-full">
+      {/* Card content — NOT inside any <a> */}
       <div
         suppressHydrationWarning
         className={`flex flex-col h-full rounded-lg border bg-white p-5 transition-all group-hover:shadow-md group-hover:border-gray-300 cursor-pointer ${
@@ -172,8 +178,8 @@ export function ProposalCard({ proposal }: { proposal: ProposalCardData }) {
             </p>
           )}
 
-          {/* Action row: submit + share — stopPropagation so card click still navigates */}
-          <div className="flex items-center gap-2">
+          {/* Action row — relative z-10 lifts these above the card overlay link */}
+          <div className="relative z-10 flex items-center gap-2">
             {open && (
               <SubmitCommentButton
                 regulationsGovId={proposal.regulations_gov_id}
@@ -186,6 +192,14 @@ export function ProposalCard({ proposal }: { proposal: ProposalCardData }) {
           </div>
         </div>
       </div>
-    </Link>
+
+      {/* Invisible full-card link overlay. Positioned after content so it
+          stacks above the static card div; action buttons (z-10) stay on top. */}
+      <Link
+        href={`/proposals/${proposal.id}`}
+        className="absolute inset-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+        aria-label={proposal.title}
+      />
+    </div>
   );
 }

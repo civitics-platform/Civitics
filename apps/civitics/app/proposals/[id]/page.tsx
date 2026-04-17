@@ -229,8 +229,37 @@ export default async function ProposalDetailPage({
     return acc;
   }, {});
 
+  // ── JSON-LD structured data (schema.org/Legislation) ─────────────────────
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://civitics.com";
+  const proposalJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Legislation",
+    name: p.title,
+    description: p.summary_plain
+      ? p.summary_plain.slice(0, 300)
+      : `${typeLabel} · ${statusBadge.label}`,
+    url: `${baseUrl}/proposals/${p.id}`,
+    legislationType: typeLabel,
+    ...(p.introduced_at ? { datePublished: p.introduced_at } : {}),
+    ...(p.comment_period_end ? { expires: p.comment_period_end } : {}),
+    ...(agencyFullName
+      ? {
+          publisher: {
+            "@type": "GovernmentOrganization",
+            name: agencyFullName,
+            ...(agencyAcronym ? { alternateName: agencyAcronym } : {}),
+          },
+        }
+      : {}),
+    ...(p.congress_gov_url ? { sameAs: p.congress_gov_url } : {}),
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(proposalJsonLd) }}
+      />
       <PageViewTracker entityType="proposal" entityId={params.id} />
 
       {/* ─── Header ─────────────────────────────────────────────────────────── */}

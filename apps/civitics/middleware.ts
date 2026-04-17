@@ -1,6 +1,10 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+// ---------------------------------------------------------------------------
+// Bot pattern filtering
+// ---------------------------------------------------------------------------
+
 const BOT_PATTERNS = [
   /\.php$/i,
   /wp-content/i,
@@ -19,10 +23,156 @@ const BOT_PATTERNS = [
   /shell\.php/i,
 ];
 
+// ---------------------------------------------------------------------------
+// In-memory rate limiter (sliding window, per-IP)
+//
+// Vercel Edge instances share memory within a single instance but not across
+// instances. This gives meaningful per-IP protection in practice — a single
+// client hammering the API will always hit the same edge region.
+//
+// To upgrade to a distributed rate limiter (multi-region / multi-instance),
+// swap this for @upstash/ratelimit + @upstash/redis.
+// ---------------------------------------------------------------------------
+
+interface RateLimitEntry {
+  count: number;
+  resetAt: number; // ms timestamp
+}
+
+// Map key: `${ip}:${bucket}` where bucket groups routes into limit tiers
+const rateLimitStore = new Map<string, RateLimitEntry>();
+
+// Periodically clean up expired entries to prevent unbounded memory growth.
+// Edge workers run continuously so this timer stays alive.
+let lastCleanup = Date.now();
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+function pruneExpiredEntries() {
+  const now = Date.now();
+  if (now - lastCleanup < CLEANUP_INTERVAL_MS) return;
+  lastCleanup = now;
+  for (const [key, entry] of rateLimitStore) {
+    if (entry.resetAt < now) rateLimitStore.delete(key);
+  }
+}
+
+interface RateLimitConfig {
+  /** Maximum requests allowed per window */
+  limit: number;
+  /** Window duration in milliseconds */
+  windowMs: number;
+}
+
+/**
+ * Check rate limit for the given key.
+ * Returns { allowed: true } or { allowed: false, retryAfterSec }.
+ */
+function checkRateLimit(
+  key: string,
+  config: RateLimitConfig
+): { allowed: boolean; remaining: number; retryAfterSec?: number } {
+  pruneExpiredEntries();
+
+  const now = Date.now();
+  const entry = rateLimitStore.get(key);
+
+  if (!entry || entry.resetAt < now) {
+    // New window
+    rateLimitStore.set(key, { count: 1, resetAt: now + config.windowMs });
+    return { allowed: true, remaining: config.limit - 1 };
+  }
+
+  if (entry.count >= config.limit) {
+    const retryAfterSec = Math.ceil((entry.resetAt - now) / 1000);
+    return { allowed: false, remaining: 0, retryAfterSec };
+  }
+
+  entry.count++;
+  return { allowed: true, remaining: config.limit - entry.count };
+}
+
+// ---------------------------------------------------------------------------
+// Rate limit tiers
+// ---------------------------------------------------------------------------
+
+/**
+ * Classify a pathname into a rate-limit bucket.
+ * Returns null if the path should not be rate-limited.
+ */
+type RateLimitBucket = "search" | "graph_ai" | "graph";
+
+function getRateLimitBucket(path: string): RateLimitBucket | null {
+  if (path.startsWith("/api/search")) return "search";
+  // AI narrative route is more expensive — stricter limit
+  if (path.startsWith("/api/graph/narrative")) return "graph_ai";
+  if (path.startsWith("/api/graph")) return "graph";
+  return null;
+}
+
+const RATE_LIMIT_CONFIGS: Record<RateLimitBucket, RateLimitConfig> = {
+  // Search: 30 requests per minute per IP
+  search: { limit: 30, windowMs: 60_000 },
+  // Graph AI narrative: 5 requests per minute per IP (Claude API calls)
+  graph_ai: { limit: 5, windowMs: 60_000 },
+  // Other graph routes: 60 requests per minute per IP
+  graph: { limit: 60, windowMs: 60_000 },
+};
+
+function getClientIp(request: NextRequest): string {
+  // Vercel sets x-forwarded-for; fall back to a generic key if unavailable
+  return (
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    request.headers.get("x-real-ip") ??
+    "unknown"
+  );
+}
+
+function rateLimitResponse(retryAfterSec: number): NextResponse {
+  return new NextResponse(
+    JSON.stringify({ error: "Too many requests. Please slow down." }),
+    {
+      status: 429,
+      headers: {
+        "Content-Type": "application/json",
+        "Retry-After": String(retryAfterSec),
+        "X-RateLimit-Limit": "see bucket",
+        "X-RateLimit-Remaining": "0",
+      },
+    }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Middleware
+// ---------------------------------------------------------------------------
+
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
+
+  // ── Bot pattern filtering ──────────────────────────────────────────────────
   if (BOT_PATTERNS.some((p) => p.test(path))) {
     return new NextResponse(null, { status: 404 });
+  }
+
+  // ── Rate limiting on public API routes ────────────────────────────────────
+  const bucket = getRateLimitBucket(path);
+  if (bucket) {
+    const ip = getClientIp(request);
+    const key = `${ip}:${bucket}`;
+    const config = RATE_LIMIT_CONFIGS[bucket];
+    const result = checkRateLimit(key, config);
+
+    if (!result.allowed) {
+      return rateLimitResponse(result.retryAfterSec!);
+    }
+  }
+
+  // ── Auth routes: pass through untouched ───────────────────────────────────
+  // Never refresh the session or modify cookies on /auth/* routes.
+  // The PKCE code verifier cookie must reach the callback handler intact —
+  // any Supabase client call here can overwrite it and break the exchange.
+  if (path.startsWith("/auth/")) {
+    return NextResponse.next({ request: { headers: request.headers } });
   }
 
   // ── PKCE code intercept ────────────────────────────────────────────────────
@@ -31,7 +181,7 @@ export async function middleware(request: NextRequest) {
   // and appends ?code= there instead. Intercept it here and forward to the
   // callback route which knows how to exchange it for a session.
   const code = request.nextUrl.searchParams.get("code");
-  if (code && !path.startsWith("/auth/")) {
+  if (code) {
     const callbackUrl = request.nextUrl.clone();
     callbackUrl.pathname = "/auth/callback";
     // Pass the original path as `next` so the user lands back where they were

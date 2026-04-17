@@ -550,8 +550,40 @@ export default async function OfficialProfilePage({
   const party = PARTY_STYLES[official.party ?? ""] ?? DEFAULT_PARTY;
   const recentVotes = (votesRes.data ?? []) as VoteRow[];
 
+  // ── JSON-LD structured data (schema.org/Person) ───────────────────────────
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://civitics.com";
+  const officialJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    name: official.full_name,
+    jobTitle: official.role_title,
+    url: `${baseUrl}/officials/${params.id}`,
+    ...(official.photo_url ? { image: official.photo_url } : {}),
+    ...(official.email ? { email: official.email } : {}),
+    ...(official.website_url ? { sameAs: official.website_url } : {}),
+    ...(official.district_name ? { description: official.district_name } : {}),
+    affiliation: {
+      "@type": "Organization",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      name: (official as any).governing_bodies?.short_name ?? "U.S. Government",
+    },
+    ...(official.party
+      ? {
+          memberOf: {
+            "@type": "Organization",
+            name:
+              official.party.charAt(0).toUpperCase() + official.party.slice(1),
+          },
+        }
+      : {}),
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(officialJsonLd) }}
+      />
       <PageViewTracker entityType="official" entityId={params.id} />
       {/* Nav */}
       <header className="border-b border-gray-200 bg-white">

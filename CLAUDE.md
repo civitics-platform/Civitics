@@ -185,6 +185,51 @@ apps/civitics/src/app/   ← INACTIVE — silently ignored by Next.js
 
 ---
 
+## Git Lock File Workaround (Windows NTFS Mount)
+
+**Symptom:** `fatal: cannot lock ref 'HEAD': Unable to create '.git/HEAD.lock': File exists`
+or `fatal: Unable to create '.git/index.lock': File exists` — even though Craig's PowerShell
+can't find or delete the file (`Remove-Item` says "does not exist").
+
+**Root cause:** Windows NTFS mount allows the sandbox to create files but not delete or rename
+them. Git creates `.lock` files, writes them, then can't clean up → stale ghost locks accumulate.
+The files are visible to the sandbox `ls` but invisible to Windows.
+
+**Craig's side:** Run this in PowerShell from repo root to clear Windows-visible locks:
+```powershell
+Get-ChildItem -Path .git -Filter *.lock -Recurse | Remove-Item -Force
+```
+
+**Claude's side — temp-index plumbing workaround:**
+When `git add`, `git commit`, or `git update-ref` fail due to lock files, use this sequence
+which keeps all lock files in `/tmp` (sandbox-writable, no NTFS mount):
+
+```bash
+# 1. Copy current index to /tmp (fully writable by sandbox)
+cp .git/index /tmp/civitics_idx
+
+# 2. Stage files using the temp index
+GIT_INDEX_FILE=/tmp/civitics_idx git add <file1> <file2> ...
+
+# 3. Write tree object from temp index
+TREE=$(GIT_INDEX_FILE=/tmp/civitics_idx git write-tree)
+
+# 4. Create commit object (adjust -p flag and branch name as needed)
+COMMIT=$(git commit-tree "$TREE" -p HEAD -m "your commit message")
+
+# 5. Write ref directly — bypasses update-ref's own lock requirement
+echo "$COMMIT" > .git/refs/heads/<branch-name>
+```
+
+For `main` branch: `echo "$COMMIT" > .git/refs/heads/main`
+For `qwen/phase1`: `echo "$COMMIT" > .git/refs/heads/qwen/phase1`
+
+This works because `/tmp` is not on the NTFS mount, so lock files are created and cleaned up
+normally. Git object writes (trees, commits) don't require locks — only refs do, which is why
+we write the ref file directly.
+
+---
+
 ## Deployment
 
 Run `pnpm build` locally before every push. Vercel uses strict TypeScript. Build must pass clean.

@@ -2,6 +2,25 @@
 
 ---
 
+## 2026-04-16 (session 3)
+
+**Done:**
+- Git ghost lock workaround documented in `CLAUDE.md` — full explanation of Windows NTFS mount issue, PowerShell command for Craig's side, and the temp-index plumbing command sequence for Claude's side
+- Graph: "Link" copy button added to `GraphConfigPanel.tsx` footer alongside "Save preset" — copies `window.location.href`, 2s "Copied ✓" flash; added `useState` import
+- Proposals: Featured section replaced with 3-tab `FeaturedSection.tsx` client component:
+  - "Closing Soon" tab — open_comment proposals ordered by deadline (existing data)
+  - "Congressional Bills" tab — type=bill ordered by introduced_at desc (newest first)
+  - "Most Viewed" tab — page_views aggregated server-side, top 6 by view count, rank-ordered
+  - Tab state is client-side `useState`; all data server-fetched in parallel in `page.tsx`
+  - Also marks the "Make congressional bills more prominent" FIXES item done
+
+**Up next:**
+- Header/footer consistency audit (🟢 S) — Initiatives link missing from header
+- Officials: filtering improvements (chamber / state / issue filter — 🟡 M)
+- Community commenting UI on proposals (🟠 L — `civic_comments` table exists)
+
+---
+
 ## 2026-04-16 (session 2)
 
 **Done:**

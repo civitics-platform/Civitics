@@ -139,10 +139,10 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## DOCUMENTATION (Open Source Readiness)
 
-- [ ] 🟡 M — **Visual architecture overview** — a single diagram (Mermaid or Figma export) showing the monorepo packages, data flow, pages, and key tables; embed in root README <!--id:FIX-058-->
-- [ ] 🟡 M — **API documentation** — document all public `/api/*` routes with request/response shapes; required for institutional API partners; could use a simple `API.md` or OpenAPI spec <!--id:FIX-059-->
-- [ ] 🟡 S — **Contributing guide** — `CONTRIBUTING.md` with setup steps, branch conventions, PR process, and the `[skip vercel]` commit convention <!--id:FIX-060-->
-- [ ] 🟢 S — **Public roadmap** — a simplified, public-facing version of PHASE_GOALS.md for the homepage or GitHub; builds trust with early users and grant reviewers <!--id:FIX-061-->
+- [x] 🟡 M — **Visual architecture overview** — a single diagram (Mermaid or Figma export) showing the monorepo packages, data flow, pages, and key tables; embed in root README <!--id:FIX-058-->
+- [x] 🟡 M — **API documentation** — document all public `/api/*` routes with request/response shapes; required for institutional API partners; could use a simple `API.md` or OpenAPI spec <!--id:FIX-059-->
+- [x] 🟡 S — **Contributing guide** — `CONTRIBUTING.md` with setup steps, branch conventions, PR process, and the `[skip vercel]` commit convention <!--id:FIX-060-->
+- [x] 🟢 S — **Public roadmap** — a simplified, public-facing version of PHASE_GOALS.md for the homepage or GitHub; builds trust with early users and grant reviewers <!--id:FIX-061-->
 
 ---
 

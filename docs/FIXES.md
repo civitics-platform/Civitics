@@ -35,39 +35,40 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 - [x] 🟠 M — **Mobile responsiveness audit** — fixed 2026-04-12: hamburger nav (NavBar component, all pages), Proposals filter flex-col on mobile, Graph panels auto-collapse at <768px, Official profile header flex-col on mobile, Initiatives inline navs replaced with shared NavBar
 - [x] 🟠 M — **Accessibility (a11y) audit** — completed 2026-04-13: skip-to-content link in NavBar; aria-label on all nav landmarks; focus-visible rings on all interactive elements; aria-label + aria-pressed on filter pills; htmlFor/id on all proposal filter labels; main landmark + id="main-content" on officials/proposals/initiatives/home pages; aria-live search status region; combobox ARIA on GlobalSearch; role="switch" + aria-checked on graph toggles; aria-label on all graph sliders/selects; aria-hidden on decorative SVGs; aria-current on breadcrumb + active filters + pagination; aria-labelledby on featured section; pagination nav landmark
 - [x] 🟠 M — **SEO / Open Graph metadata** — OG tags added 2026-04-13 (TASK-19); JSON-LD added 2026-04-16: `schema.org/Person` on Officials, `schema.org/Legislation` on Proposals
-- [ ] 🟡 M — **Consistent loading/skeleton states** — audit all data-fetching pages; replace any raw spinners with skeleton cards that match the final layout
-- [ ] 🟡 S — **Consistent empty states** — every list page needs a clear, helpful "no results" message with suggested actions (clear filters, try search)
-- [ ] 🟡 M — **404 and error pages** — design a helpful 404 with search + quick links to Officials/Proposals/Agencies; custom 500 page with status link
-- [ ] 🟢 S — **Clickable links audit** — do a pass across all pages: every official name, proposal title, agency name, and tag should be clickable and route correctly; flag any dead text links
-- [ ] 🟢 S — **Header/footer consistency** — audit nav links and footer across all pages; Initiatives link is missing from header (see Homepage section); ensure footer links are consistent
+- [x] 🟡 M — **Consistent loading/skeleton states** — done 2026-04-17: all 4 main route `loading.tsx` files (officials, proposals, agencies, initiatives) have proper skeleton layouts matching the final page structure
+- [x] 🟡 S — **Consistent empty states** — done 2026-04-13 (TASK-20): empty states on Officials, Proposals, Agencies list pages
+- [x] 🟡 M — **404 and error pages** — done 2026-04-15 (TASK-24): `not-found.tsx` (branded 404, 4 quick-link cards) + `error.tsx` (error boundary, Try Again + Go Home)
+- [x] 🟢 S — **Clickable links audit** — done 2026-04-17: agency chips in ProposalCard and proposal detail page now link to `/proposals?agency=…`; `href="#"` "Submit comment" on agency detail fixed to `/proposals/${rule.id}`; bill number and regulations.gov ID chips on agency detail now linked; agency acronym in search results now linked
+- [x] 🟢 S — **Header/footer consistency** — done 2026-04-17: `Footer.tsx` component created and added to root layout (universal); NavBar added to proposals list, proposals detail, officials detail, dashboard, and profile pages; graph/embed and agencies/officials full-screen pages intentionally keep their specialized chrome
 
 ---
 
 ## HOMEPAGE
 
-- [ ] 🟢 S — **Add Initiatives link to main header nav** — route to `/initiatives`
+- [x] 🟢 S — **Add Initiatives link to main header nav** — done 2026-04-13 (TASK-17): Initiatives in NavBar NAV_ITEMS, routes to `/initiatives`
 - [ ] 🟡 M — **Civic Initiatives featured section** — add a section to the homepage (alongside Officials / Proposals) showing 3–4 trending or recently active initiatives
 
 ---
 
 ## OFFICIALS
 
-- [ ] 🟢 S — **Show federal vs. state indicator on cards and profile** — source field (`congress_gov` vs `openstates`) can drive this; add a subtle badge ("Federal" / "State") to the official card and detail header
-- [ ] 🟡 M — **Votes / Donors / Raised as tabs on profile page** — currently stacked sections; tabbing would reduce scroll and make the page feel less overwhelming
-- [ ] 🟡 M — **Individual votes: add description and expand on click** — each vote row should show the bill title/summary and expand to show more context (vote question, bill summary, related proposals link); pull from `metadata->>'vote_question'` and linked proposal AI summary
-- [ ] 🟢 S — **"View full profile" button prominence** — make it a more visible primary CTA (larger, colored button vs. current subdued link)
-- [ ] 🟡 L — **Current term duration + upcoming election status** — show when the official's current term ends, and if there's a known next election, show the date and any known opponents; requires data pipeline addition (Ballotpedia or OpenStates elections data)
-- [ ] 🟡 S — **Improve filtering options** — add chamber filter (House / Senate), state filter, and issue area filter (already tagged via entity_tags) to the officials list page
-- [ ] 🟢 S — **Share button on official profile** — copy-to-clipboard link or native share API
+- [x] 🟢 S — **Show federal vs. state indicator on cards and profile** — done 2026-04-18: badge in OfficialsList rows, OfficialCard, and detail page header; driven by `source_ids->>'congress_gov'`
+- [x] 🟡 M — **Votes / Donors / Raised as tabs on profile page** — already done (ProfileTabs with Overview/Votes/Donations/Connections)
+- [x] 🟡 M — **Individual votes: add description and expand on click** — done 2026-04-18: vote rows in VotesTab expand on click; shows `vote_question` from metadata and "View proposal →" link; `metadata` added to votes select in profile page
+- [x] 🟢 S — **"View full profile" button prominence** — done 2026-04-18: `bg-indigo-600 text-white` primary button in OfficialCard
+- [ ] 🟡 L — **Current term duration + upcoming election status** — requires Ballotpedia/OpenStates elections data pipeline; deferred to Phase 2
+- [x] 🟡 S — **Improve filtering options** — already done (chamber/party/state/issue-area/donor-pattern filters in OfficialsList)
+- [x] 🟢 S — **Share button on official profile** — already done (ShareButton on profile detail page)
 
 ---
 
 ## PROPOSALS
 
-- [ ] 🟡 M — **Improve "6 closing soonest" header section** — replace or augment with tabs: "Closing Soon" / "Trending" (by comment count) / "Most Commented"; this section is prime real estate
-- [ ] 🟡 M — **Make congressional bills more prominent** — separate or visually elevate `congress.gov`-sourced proposals (bills) from regulatory proposals; these are likely the biggest user draw; consider a dedicated "Active Bills" tab or featured section
-- [ ] 🟡 M — **Better filtering** — add source filter (congressional bill vs. regulation), status filter, topic/issue area tag filter (entity_tags), date range filter
-- [ ] 🟢 S — **Share button on proposal cards and detail page**
+- [x] 🟡 M — **Improve "6 closing soonest" header section** — replaced 2026-04-16 with 3-tab `FeaturedSection.tsx` client component: "Closing Soon" / "Congressional Bills" / "Most Viewed"; tab state client-side, data server-fetched in parallel
+- [x] 🟡 M — **Make congressional bills more prominent** — addressed 2026-04-16: "Congressional Bills" is now a dedicated tab in FeaturedSection on the proposals list page
+- [ ] 🟡 M — **Better filtering** — add source filter (congressional bill vs. regulation), status filter, topic/issue area tag filter (entity_tags), date range filter, sort by dropdown
+- [x] 🟢 S — **Share button on proposal cards and detail page** — done 2026-04-15 (TASK-22): `ProposalShareButton` on detail page header and each `ProposalCard`
+- [ ] 🟢 S — **Add "Trending", "Most Commented", "New" tabs** — add to FeaturedSection, pending data pipelines and comments
 
 ---
 
@@ -89,11 +90,11 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## AGENCIES
 
-- [ ] 🟡 M — **Improve agency card design** — add employee count, annual budget, year created, and sector tags to each card; data may need to come from a new pipeline or manual seed (USASpending has some of this)
-- [ ] 🟡 M — **Agency visual / hierarchy view** — a simple tree or budget bar chart showing relative size and parent/sub-agency relationships would make the page far more useful; could use D3 or a simple horizontal bar chart
-- [ ] 🟡 M — **Agency Officials search** — ability to search/filter officials within an agency context; relevant for regulatory agency heads and appointed officials
-- [ ] 🟡 M — **Inline preview on card click** — clicking an agency card should expand it inline (like an officials side panel) without full page redirect, for faster browsing
-- [ ] 🟡 M — **White House featured card** — pin the White House / Executive Office of the President as a prominent featured card at the top of `/agencies` (visually distinct from the grid); give it a rich detail page; it's the most-recognizable entity on the platform
+- [x] 🟡 M — **Improve agency card design** — completed 2026-04-16/17: sector tags inferred from name/acronym (15-rule regex table), graph CTA link, website link in footer strip, flex-column layout, sector filter dropdown added. Employee count/budget/year requires USASpending pipeline (⬜ future).
+- [x] 🟡 M — **Agency visual / hierarchy view** — implemented 2026-04-17: `AgencyActivityChart.tsx` CSS bar chart showing top 12 agencies by proposal count, rendered above the grid on `/agencies`. Full hierarchy graph (⬜ XL) deferred — `parent_agency_id` data not yet populated.
+- [x] 🟡 M — **Agency Officials search** — implemented 2026-04-17: officials section on agency detail page; only ~10 official→agency connections in entity_connections currently; revisit when data is richer
+- [x] 🟡 M — **Inline preview on card click** — implemented 2026-04-17: `AgencySlideOver` panel in `AgenciesList.tsx`; card click opens a right-side drawer with stats, description, quick links, and "View full agency profile" CTA; Escape + backdrop to close; `aria-modal` + focus management
+- [x] 🟡 M — **White House featured card** — implemented 2026-04-17: migration `20260417000000_insert_whitehouse_eop.sql` inserts EOP as a featured agency; `WhiteHouseFeaturedCard` component pinned above the grid with gradient border styling; hidden when filters are active
 - [ ] ⬜ XL — **Agency hierarchy graph** — visualize parent/sub-agency relationships as a graph or org-chart; requires hierarchy data pipeline
 
 ---
@@ -101,9 +102,9 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 ## GRAPH
 
 - [ ] 🟠 L — **USER node** — show the signed-in user as a node; connect to their district's representatives; visually indicate alignment score (votes/priorities match); requires auth integration + per-user graph state
-- [ ] 🟠 M — **Node right-click / options menu** — nodes currently have no context menu; connections do; add equivalent options to nodes (expand, pin, hide, view profile, copy link)
+- [x] 🟠 M — **Node right-click / options menu** — implemented 2026-04-16: `NodeContextMenu.tsx` with expand, pin/unpin (D3 fx/fy), hide (local hiddenIds), view profile/proposal, copy link; positional with container-bound flip logic
 - [ ] 🟡 M — **Procedural vote filter in graph panel** — toggle to hide/show procedural votes in the connection graph (the toggle exists in FocusTree; verify it's also surfaced in the main graph filter UI and working end-to-end)
-- [ ] 🟢 S — **Graph: share button / copy link** — quick copy of current graph URL/share code to clipboard from within the graph panel
+- [x] 🟢 S — **Graph: share button / copy link** — implemented 2026-04-16: "Link" button added to `GraphConfigPanel.tsx` footer; copies `window.location.href` to clipboard with 2s "Copied ✓" flash state
 
 ---
 

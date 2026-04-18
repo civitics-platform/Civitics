@@ -89,7 +89,7 @@ export async function GET(
     for (const a of enriched) {
       if (a.parent_id) {
         if (!byParent[a.parent_id]) byParent[a.parent_id] = [];
-        byParent[a.parent_id].push(a);
+        byParent[a.parent_id]!.push(a);
       }
     }
 

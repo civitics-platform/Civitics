@@ -51,6 +51,86 @@ Changes to `src/app/` are silently ignored at build time and will never appear o
 
 ---
 
+## Hydration Safety
+
+React hydration errors mean the server-rendered HTML doesn't match what the client renders.
+They are silent in dev builds but break production. Always check for these before shipping.
+
+### The three common traps
+
+**1. Interactive elements nested inside `<Link>` / `<a>`**
+
+`<Link>` renders as `<a>`. Putting `<a>`, `<button>`, or `<input>` inside it is invalid HTML.
+Browsers auto-correct the DOM, which diverges from what React expects → hydration mismatch.
+
+Bad:
+```tsx
+<Link href="/proposals/123">
+  <div>
+    <button>Share</button>   {/* button inside a — invalid */}
+    <a href="...">Submit</a> {/* a inside a — invalid */}
+  </div>
+</Link>
+```
+
+Fix — use the **stretched link** pattern instead:
+```tsx
+<div className="relative group ...">
+  {/* Covers entire card, sits below interactive content */}
+  <Link href="/proposals/123" className="absolute inset-0 z-0" aria-label={title} />
+
+  {/* Content sits above — buttons and links receive clicks normally */}
+  <div className="relative z-10">
+    <h3>...</h3>
+    <button>Share</button>
+    <a href="...">Submit</a>
+  </div>
+</div>
+```
+
+`group-hover:` still works — put `group` on the outer `<div>`, not the `<Link>`.
+
+---
+
+**2. `new Date()` / `Date.now()` / `Math.random()` called during render**
+
+Server renders at request time; client re-renders at hydration time. If the value changes
+between the two, the output differs → hydration mismatch. Conditional branches (`isOpen`,
+`isExpired`) are especially dangerous because they affect DOM structure, not just text.
+
+Bad:
+```tsx
+const open = new Date(endDate) > new Date(); // different on server vs client
+return open ? <CommentBadge /> : null;       // structural mismatch
+```
+
+Fix: pass a pre-computed boolean from the Server Component, or use `suppressHydrationWarning`
+only for leaf text nodes that genuinely can't be made deterministic.
+
+---
+
+**3. Browser APIs (`window`, `navigator`, `localStorage`) accessed during render**
+
+Server Components have no `window`. If the access is in a Server Component it throws; if it's
+in a Client Component it runs on the server during SSR and returns `undefined`, then differs
+on the client → hydration mismatch.
+
+Fix: always guard with `useEffect` (runs client-only, after hydration):
+```tsx
+const [url, setUrl] = useState<string | null>(null);
+useEffect(() => { setUrl(window.location.href); }, []);
+```
+
+---
+
+### Quick checklist before shipping a new component
+
+- [ ] No `<Link>` or `<a>` wrapping another `<a>`, `<button>`, `<input>`, or `<select>`
+- [ ] No `new Date()` / `Math.random()` called at render time in a component that conditionally renders structure
+- [ ] No `window` / `navigator` / `localStorage` read outside a `useEffect`
+
+---
+
 ## Build Rule
 
 **`pnpm build` must pass locally before every push.**

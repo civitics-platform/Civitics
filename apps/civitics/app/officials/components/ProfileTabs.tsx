@@ -18,6 +18,8 @@ interface ProfileTabsProps {
     vote: string;
     title: string;
     date?: string;
+    proposalId?: string;
+    voteQuestion?: string | null;
   }>;
 }
 

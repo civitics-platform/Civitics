@@ -83,12 +83,20 @@ export function ProposalCard({ proposal }: { proposal: ProposalCardData }) {
     : null;
 
   return (
-    <Link href={`/proposals/${proposal.id}`} className="block group">
-      <div
-        className={`flex flex-col h-full rounded-lg border bg-white p-5 transition-all group-hover:shadow-md group-hover:border-gray-300 cursor-pointer ${
-          open ? "border-amber-200" : "border-gray-200"
-        }`}
-      >
+    <div
+      className={`group relative flex flex-col h-full rounded-lg border bg-white p-5 transition-all hover:shadow-md hover:border-gray-300 cursor-pointer ${
+        open ? "border-amber-200" : "border-gray-200"
+      }`}
+    >
+      {/* Stretched link — covers whole card, sits below interactive content */}
+      <Link
+        href={`/proposals/${proposal.id}`}
+        className="absolute inset-0 rounded-lg z-0"
+        aria-label={proposal.title}
+      />
+
+      {/* All card content sits above the stretched link */}
+      <div className="relative z-10 flex flex-col h-full">
         {/* Badge row */}
         <div className="flex flex-wrap items-center gap-1.5 mb-3">
           <span
@@ -164,20 +172,19 @@ export function ProposalCard({ proposal }: { proposal: ProposalCardData }) {
             </p>
           )}
 
-          {/* Action row: submit + share — stopPropagation so card click still navigates */}
+          {/* Action row — these are above the stretched link, so clicks work normally */}
           <div className="flex items-center gap-2">
             {open && (
               <SubmitCommentButton
                 regulationsGovId={proposal.regulations_gov_id}
                 congressGovUrl={proposal.congress_gov_url}
                 size="sm"
-                stopPropagation
               />
             )}
-            <ProposalShareButton title={proposal.title} id={proposal.id} stopPropagation />
+            <ProposalShareButton title={proposal.title} id={proposal.id} />
           </div>
         </div>
       </div>
-    </Link>
+    </div>
   );
 }

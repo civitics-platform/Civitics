@@ -2,6 +2,56 @@
 
 ---
 
+## 2026-04-17 (session 2)
+
+**Done:**
+- GENERAL / CROSS-CUTTING FIXES sweep — all 5 remaining items cleared:
+  - Marked already-completed items: loading/skeleton states (all 4 `loading.tsx` files), empty states (TASK-20), 404/error pages (TASK-24), Initiatives nav link (TASK-17) — checkboxes updated
+  - **Clickable links audit**: agency chips in `ProposalCard` and proposal detail now link to `/proposals?agency=…`; dead `href="#"` "Submit comment" on agency detail page fixed to `/proposals/${rule.id}`; bill number and regulations.gov ID chips on agency detail are now `<a>` tags; agency acronym in search results `ProposalCard` now links to `/proposals?agency=…`
+  - **Footer**: `Footer.tsx` created (`app/components/Footer.tsx`) — Civitics wordmark + mission tagline, all 6 nav links, copyright line, Privacy + Terms legal links; added to root `layout.tsx` (universal, appears on all scrollable pages; invisible below fold on full-screen layouts like officials/graph)
+  - **Header consistency**: NavBar added to: `proposals/page.tsx`, `proposals/[id]/page.tsx`, `officials/[id]/page.tsx` (replaced custom breadcrumb header), `dashboard/page.tsx`, `profile/page.tsx`; full-screen layouts (`officials/page`, `agencies/page`, `graph/page`) retain specialized chrome; search page retains its custom search-form header
+
+**Up next:**
+- Officials: filtering improvements (chamber / state / issue area filter — 🟡 M)
+- Community commenting UI on proposals (🟠 L — `civic_comments` table exists)
+- Proposals: better filtering (source, status, topic, date range — 🟡 M)
+
+---
+
+## 2026-04-17
+
+**Done:**
+- Agency activity bar chart (`AgencyActivityChart.tsx`): CSS bar chart showing top 12 agencies by proposal count, rendered above the agency grid on `/agencies`; no D3 needed — Tailwind width-percentage bars
+- White House / EOP featured card: migration `20260417000000_insert_whitehouse_eop.sql` inserts EOP with `is_whitehouse: true` in metadata; `WhiteHouseFeaturedCard` component pinned above the grid with gradient border; hidden when filters are active
+- Sector filter: `AgenciesList.tsx` now has a "All sectors" dropdown that filters using the same 15-rule SECTOR_RULES inference already used for tags
+- Agency inline slide-over panel: card clicks now open `AgencySlideOver` right-side drawer (stats, description, open-comment callout, graph + website links, "View full profile" CTA); Escape + backdrop to close; `aria-modal` + focus management
+
+**⚠️ Action needed:**
+- Run `supabase migration up --local` to apply `20260417000000_insert_whitehouse_eop.sql` (inserts the White House / EOP agency record)
+
+**Up next:**
+- Header/footer consistency audit (🟢 S) — Initiatives link still missing from header nav
+
+---
+
+## 2026-04-18
+
+**Done — Officials FIXES sweep:**
+
+- **"View full profile" button**: `OfficialCard.tsx` button changed from subdued gray to `bg-indigo-600 text-white` primary style.
+- **Federal/State badge**: Added to OfficialsList list item rows (compact "Fed"/"State") and officials detail page header (`[id]/page.tsx` — `source_ids` added to the DB select, badge placed beside the chamber badge). OfficialCard right-panel already had it.
+- **Individual votes expand on click** (`VotesTab.tsx`): Vote rows with a `proposalId` or `voteQuestion` now show a ▼ chevron and expand on click. Expanded panel shows the `vote_question` from metadata and a "View proposal →" link. `metadata` added to the votes select in `[id]/page.tsx`; `voteQuestion` threaded through `allVotesForTab` → `ProfileTabs` type → `VotesTab` type.
+- **Pre-existing TypeScript fix**: `byParent[a.parent_id]!.push(a)` in `api/initiatives/[id]/arguments/route.ts` (non-null assertion to satisfy `noUncheckedIndexedAccess`).
+- **FIXES.md**: Ticked Federal/State badge, tabs (already done), votes expand, "View full profile" button, filtering (already done), share button (already done). Only "Current term + election status" (🟡 L) remains — requires data pipeline.
+
+**⚠️ Action needed — none** (no migrations)
+
+**Up next:**
+- `PromoteSolutionButton` + `POST /api/initiatives/from-comment` (solution → initiative UI — 🟠 M)
+- Community commenting UI on proposals (🟠 L — `civic_comments` table exists)
+
+---
+
 ## 2026-04-16
 
 **Done:**

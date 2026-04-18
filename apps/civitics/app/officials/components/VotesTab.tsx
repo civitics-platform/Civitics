@@ -41,9 +41,11 @@ export function VotesTab({
     title: string;
     proposalId?: string;
     date?: string;
+    voteQuestion?: string | null;
   }>;
 }) {
   const [userPriorities, setUserPriorities] = useState<UserPriority[]>([]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -256,39 +258,61 @@ export function VotesTab({
           {recentVotes.slice(0, 15).map((v, i) => {
             const isYes = v.vote === "yes" || v.vote === "paired_yes";
             const isNo = v.vote === "no" || v.vote === "paired_no";
+            const isExpanded = expandedId === v.id;
+            const hasDetail = !!(v.voteQuestion || v.proposalId);
             return (
-              <div key={i} className="flex items-center gap-3 px-4 py-2.5">
-                <span
-                  className={`shrink-0 w-8 text-center rounded px-1 py-0.5 text-[10px] font-bold ${
-                    isYes
-                      ? "bg-emerald-100 text-emerald-700"
-                      : isNo
-                      ? "bg-red-100 text-red-700"
-                      : "bg-gray-100 text-gray-600"
-                  }`}
+              <div key={i}>
+                <button
+                  type="button"
+                  onClick={() => hasDetail && setExpandedId(isExpanded ? null : v.id)}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${hasDetail ? "hover:bg-gray-50" : "cursor-default"} ${isExpanded ? "bg-gray-50" : ""}`}
                 >
-                  {isYes ? "YEA" : isNo ? "NAY" : "ABS"}
-                </span>
-                {v.proposalId ? (
-                  <a
-                    href={`/proposals/${v.proposalId}`}
-                    className="flex-1 text-xs text-gray-700 truncate hover:text-indigo-600 hover:underline transition-colors"
+                  <span
+                    className={`shrink-0 w-8 text-center rounded px-1 py-0.5 text-[10px] font-bold ${
+                      isYes
+                        ? "bg-emerald-100 text-emerald-700"
+                        : isNo
+                        ? "bg-red-100 text-red-700"
+                        : "bg-gray-100 text-gray-600"
+                    }`}
                   >
-                    {v.title || "Procedural vote"}
-                  </a>
-                ) : (
-                  <p className="flex-1 text-xs text-gray-700 truncate">
-                    {v.title || "Procedural vote"}
-                  </p>
-                )}
-                {v.date && (
-                  <span className="shrink-0 text-[10px] text-gray-400">
-                    {new Date(v.date).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      year: "2-digit",
-                    })}
+                    {isYes ? "YEA" : isNo ? "NAY" : "ABS"}
                   </span>
+                  <span className="flex-1 text-xs text-gray-700 truncate">
+                    {v.title || "Procedural vote"}
+                  </span>
+                  {v.date && (
+                    <span className="shrink-0 text-[10px] text-gray-400">
+                      {new Date(v.date).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "2-digit",
+                      })}
+                    </span>
+                  )}
+                  {hasDetail && (
+                    <span className="shrink-0 text-[10px] text-gray-400 ml-1" aria-hidden="true">
+                      {isExpanded ? "▲" : "▼"}
+                    </span>
+                  )}
+                </button>
+                {isExpanded && (
+                  <div className="px-4 pb-3 pt-1 bg-gray-50 border-t border-gray-100 space-y-1.5">
+                    {v.voteQuestion && (
+                      <p className="text-[11px] text-gray-500">
+                        <span className="font-medium text-gray-700">Question: </span>
+                        {v.voteQuestion}
+                      </p>
+                    )}
+                    {v.proposalId && (
+                      <a
+                        href={`/proposals/${v.proposalId}`}
+                        className="inline-flex items-center gap-1 text-[11px] text-indigo-600 hover:underline font-medium"
+                      >
+                        View proposal →
+                      </a>
+                    )}
+                  </div>
                 )}
               </div>
             );

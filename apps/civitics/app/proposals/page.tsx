@@ -43,9 +43,16 @@ type SearchParams = {
   type?: string;
   agency?: string;
   topics?: string;
+  sort?: string;
   q?: string;
   page?: string;
 };
+
+const SORT_OPTIONS = [
+  { value: "closing_soon", label: "Closing soon" },
+  { value: "newest",       label: "Newest" },
+  { value: "title",        label: "A–Z" },
+];
 
 function buildUrl(base: SearchParams, updates: Partial<SearchParams>): string {
   // Merge — only reset page to "1" when the update is a filter change (no explicit page)
@@ -56,6 +63,7 @@ function buildUrl(base: SearchParams, updates: Partial<SearchParams>): string {
   if (merged.type)   params.set("type",   merged.type);
   if (merged.agency) params.set("agency", merged.agency);
   if (merged.topics) params.set("topics", merged.topics);
+  if (merged.sort)   params.set("sort",   merged.sort);
   if (merged.q)      params.set("q",      merged.q);
   if (merged.page && merged.page !== "1") params.set("page", merged.page);
   const qs = params.toString();
@@ -93,6 +101,7 @@ export default async function ProposalsPage({
   const typeFilter   = searchParams.type   ?? "";
   const agencyFilter = searchParams.agency ?? "";
   const topicsFilter = searchParams.topics ?? "";
+  const sortFilter   = searchParams.sort   ?? "closing_soon";
   const searchQ      = searchParams.q      ?? "";
   const page         = Math.max(1, parseInt(searchParams.page ?? "1", 10));
   const offset       = (page - 1) * PAGE_SIZE;
@@ -184,9 +193,15 @@ export default async function ProposalsPage({
   }
 
   // Sort and paginate
-  mainQuery = mainQuery
-    .order("comment_period_end", { ascending: true, nullsFirst: false })
-    .range(offset, offset + PAGE_SIZE - 1);
+  if (sortFilter === "newest") {
+    mainQuery = mainQuery.order("introduced_at", { ascending: false, nullsFirst: false });
+  } else if (sortFilter === "title") {
+    mainQuery = mainQuery.order("title", { ascending: true });
+  } else {
+    // Default: closing soonest first (but open periods still come before nulls)
+    mainQuery = mainQuery.order("comment_period_end", { ascending: true, nullsFirst: false });
+  }
+  mainQuery = mainQuery.range(offset, offset + PAGE_SIZE - 1);
 
   const [openFeaturedRes, billsRes, mostViewedRes, mainRes] = await Promise.all([
     openFeaturedQuery,
@@ -269,6 +284,7 @@ export default async function ProposalsPage({
     type: typeFilter || undefined,
     agency: agencyFilter || undefined,
     topics: topicsFilter || undefined,
+    sort: sortFilter !== "closing_soon" ? sortFilter : undefined,
     q: searchQ || undefined,
   };
 
@@ -393,6 +409,23 @@ export default async function ProposalsPage({
               </select>
             </div>
 
+            {/* Sort */}
+            <div className="flex flex-col gap-1 w-full sm:w-auto">
+              <label htmlFor="filter-sort" className="text-xs font-medium text-gray-500">Sort by</label>
+              <select
+                id="filter-sort"
+                name="sort"
+                defaultValue={sortFilter}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              >
+                {SORT_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {/* Search */}
             <div className="flex flex-col gap-1 w-full sm:flex-1 sm:min-w-[180px]">
               <label htmlFor="filter-search" className="text-xs font-medium text-gray-500">Search</label>
@@ -413,7 +446,7 @@ export default async function ProposalsPage({
               Filter
             </button>
 
-            {(statusFilter !== "open" || typeFilter || agencyFilter || topicsFilter || searchQ) && (
+            {(statusFilter !== "open" || typeFilter || agencyFilter || topicsFilter || sortFilter !== "closing_soon" || searchQ) && (
               <a
                 href="/proposals"
                 className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"

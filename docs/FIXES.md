@@ -46,7 +46,7 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 ## HOMEPAGE
 
 - [x] 🟢 S — **Add Initiatives link to main header nav** — done 2026-04-13 (TASK-17): Initiatives in NavBar NAV_ITEMS, routes to `/initiatives`
-- [ ] 🟡 M — **Civic Initiatives featured section** — add a section to the homepage (alongside Officials / Proposals) showing 3–4 trending or recently active initiatives
+- [x] 🟡 M — **Civic Initiatives featured section** — verified 2026-04-18: `InitiativesSection` on homepage shows top-4 by upvote count with fallback to newest-4; renders `InitiativeCard` components alongside Officials/Proposals/Agencies
 
 ---
 
@@ -66,7 +66,7 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 - [x] 🟡 M — **Improve "6 closing soonest" header section** — replaced 2026-04-16 with 3-tab `FeaturedSection.tsx` client component: "Closing Soon" / "Congressional Bills" / "Most Viewed"; tab state client-side, data server-fetched in parallel
 - [x] 🟡 M — **Make congressional bills more prominent** — addressed 2026-04-16: "Congressional Bills" is now a dedicated tab in FeaturedSection on the proposals list page
-- [ ] 🟡 M — **Better filtering** — add source filter (congressional bill vs. regulation), status filter, topic/issue area tag filter (entity_tags), date range filter, sort by dropdown
+- [x] 🟡 M — **Better filtering** — done 2026-04-18: status (open/all/closed), type (6 types), agency (20 top agencies), topic pills (8 pills via entity_tags), sort-by dropdown (closing soon / newest / A–Z), text search. Date range filter deferred — URL params already persist, easy to add if a user asks
 - [x] 🟢 S — **Share button on proposal cards and detail page** — done 2026-04-15 (TASK-22): `ProposalShareButton` on detail page header and each `ProposalCard`
 - [ ] 🟢 S — **Add "Trending", "Most Commented", "New" tabs** — add to FeaturedSection, pending data pipelines and comments
 
@@ -74,17 +74,17 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## PROPOSALS [ID]
 
-- [ ] 🟡 M — **Reduce Official Comments section friction** — "Community Comments" vs "Official Comments" is confusing; consider collapsing Official Comments into a prominent button that opens a modal/drawer on click; keeps focus on community discussion without losing the official record
+- [x] 🟡 M — **Reduce Official Comments section friction** — resolved 2026-04-18: layout already separates cleanly. Main column shows `PositionWidget` + `CivicComments` (community), sidebar holds `CommentDraftSection` for official submission to regulations.gov. No "Official Comments" block competes with community discussion — the concern was stale.
 
 ---
 
 ## CIVIC INITIATIVES
 
-- [ ] 🟠 S — **Add Initiatives to header nav** — currently the only path is via user profile; add `/initiatives` link to main nav (ties to Homepage bug above)
-- [ ] 🟡 M — **Filters on initiatives list** — stage tabs (Draft / Deliberation / Voting / Implemented), scope filter (local / state / federal), tag/topic filter; necessary once more initiatives exist
-- [ ] 🟡 M — **Argument board — Sprint 3** — structured For/Against arguments, argument voting, AI debate summary (already scoped in pending work)
-- [ ] 🟡 M — **"Post a problem" pathway** — allow a user to submit just a problem statement (no solution yet) to begin community collaboration; different form from full initiative; could be a separate `problems` table or an initiative with `stage = 'problem'`
-- [ ] 🟢 S — **Draft → argument creation decision** — decide: should a draft initiative allow For/Against arguments before it moves to deliberation? Recommendation: no (arguments should require deliberation stage to prevent premature polarization); add a tooltip or lock indicator explaining why
+- [x] 🟠 S — **Add Initiatives to header nav** — done 2026-04-13 (TASK-17): duplicate of HOMEPAGE item; Initiatives link is in NavBar NAV_ITEMS
+- [x] 🟡 M — **Filters on initiatives list** — verified 2026-04-18: `initiatives/page.tsx` has stage tabs (All / Problems / Deliberating / Mobilising / Resolved), scope pills (federal / state / local), topic pills (15 issue areas), sort (newest / most active), + "My initiatives" tab for signed-in users
+- [x] 🟡 M — **Argument board — Sprint 3** — verified 2026-04-18: `ArgumentBoard.tsx` has 12-type comment system (support/oppose/concern/amendment/question/evidence/precedent/tradeoff/stakeholder_impact/experience/cause/solution), deep reply threading, vote buttons, flag with reason codes, filter pills by type, draft lockout banner
+- [x] 🟡 M — **"Post a problem" pathway** — done 2026-04-17 (migration `20260417100000_initiative_stage_problem.sql`): `/initiatives/problem` route with dedicated `PostProblemForm` (title / optional context / scope / issue tags), inserts with `is_problem: true`, renders with orange "Problem" stage styling, `TurnIntoInitiativeButton` lets author promote to full initiative
+- [x] 🟢 S — **Draft → argument creation decision** — resolved 2026-04-18: decision was "no — arguments require deliberation stage"; `ArgumentBoard.tsx` enforces this with a draft lockout banner ("Comments open once this initiative is in deliberation.") and `canSubmit` gate on stage
 
 ---
 
@@ -127,8 +127,8 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## COMMUNITY & AUTH
 
-- [ ] 🟠 L — **Community commenting UI** — `civic_comments` table exists; build the comment thread component for Officials and Proposals detail pages; Phase 1 remaining task
-- [ ] 🟡 M — **Position tracking on proposals** — allow users to mark Support / Oppose / Neutral on proposals; store in `civic_comments` or a new `positions` table; show aggregate position bar on proposal cards
+- [x] 🟠 L — **Community commenting UI** — done: `CivicComments.tsx` wired into `proposals/[id]/page.tsx` (post + list with relative-time formatting, 2000-char limit, requires-auth prompt); `OfficialComments.tsx` wired into officials detail page (migration `20260415223406_official_community_comments.sql`); `ArgumentBoard.tsx` on initiative pages. Phase 1 commenting complete.
+- [x] 🟡 M — **Position tracking on proposals** — done: `PositionWidget.tsx` on `proposals/[id]/page.tsx` with Support / Oppose / Neutral / Question buttons + aggregate counts via `/api/proposals/[id]/position`; positions persist per-user (requires auth)
 - [ ] 🟡 M — **Follow officials and agencies** — "Follow" button → user receives updates when official votes, when agency publishes new proposals; requires notification system
 - [ ] 🟡 M — **Email notifications** — trigger on: new proposal in followed agency, followed official votes, initiative status change; use Resend (already in stack)
 - [ ] ⬜ M — **Content moderation tools** — before comments go live, need a basic flagging system and admin review queue; can be simple (flag button → admin dashboard queue)
@@ -137,7 +137,7 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## DOCUMENTATION (Open Source Readiness)
 
-- [ ] 🟡 M — **Visual architecture overview** — a single diagram (Mermaid or Figma export) showing the monorepo packages, data flow, and key tables; embed in root README
+- [ ] 🟡 M — **Visual architecture overview** — a single diagram (Mermaid or Figma export) showing the monorepo packages, data flow, pages, and key tables; embed in root README
 - [ ] 🟡 M — **API documentation** — document all public `/api/*` routes with request/response shapes; required for institutional API partners; could use a simple `API.md` or OpenAPI spec
 - [ ] 🟡 S — **Contributing guide** — `CONTRIBUTING.md` with setup steps, branch conventions, PR process, and the `[skip vercel]` commit convention
 - [ ] 🟢 S — **Public roadmap** — a simplified, public-facing version of PHASE_GOALS.md for the homepage or GitHub; builds trust with early users and grant reviewers

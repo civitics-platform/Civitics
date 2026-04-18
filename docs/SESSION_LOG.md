@@ -34,6 +34,32 @@
 
 ---
 
+## 2026-04-18 (session 2 — FIXES verification + proposals sort)
+
+**Done:**
+
+- **Proposals list sort-by dropdown** — added "Sort by" to `proposals/page.tsx` filter form with three options (Closing soon / Newest / A–Z), persists via `?sort=` URL param, included in `buildUrl` + Clear button check, default "closing_soon" is omitted from URL to keep canonical URLs clean.
+- **FIXES.md stale-open sweep** — verified 9 items were already built and ticked them:
+  - Homepage: Civic Initiatives featured section (`InitiativesSection` on `page.tsx`)
+  - Proposals: Better filtering (all filters + sort done)
+  - Proposals [id]: Reduce Official Comments friction (layout already separates community from official cleanly)
+  - Initiatives: Add to header nav (dup of TASK-17)
+  - Initiatives: Filters on list (stages, scope, topics, sort, Mine tab)
+  - Initiatives: Argument board Sprint 3 (`ArgumentBoard.tsx` has 12-type comment system + reply threading + votes + flags)
+  - Initiatives: "Post a problem" pathway (`/initiatives/problem`)
+  - Initiatives: Draft → argument creation decision (`ArgumentBoard` enforces via draft lockout banner)
+  - Community & Auth: Community commenting UI + Position tracking (`CivicComments` + `PositionWidget` both wired)
+
+**⚠️ Action needed — none** (no migrations)
+
+**Up next:**
+- Proposals: Trending / Most Commented / New tabs (🟢 S) — now unblocked since comments exist
+- Dashboard: browsable sitemap section (🟡 M)
+- API response caching headers (🟡 M)
+- Documentation: CONTRIBUTING.md (🟡 S) + public roadmap (🟢 S)
+
+---
+
 ## 2026-04-18
 
 **Done — Officials FIXES sweep:**

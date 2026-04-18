@@ -33,6 +33,15 @@ type SpendingGroup = {
   fiscalYear: string;
 };
 
+type ConnectedOfficial = {
+  id: string;
+  full_name: string;
+  role_title: string | null;
+  party: string | null;
+  photo_url: string | null;
+  connection_type: string;
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const AGENCY_TYPE_LABELS: Record<string, string> = {
@@ -162,13 +171,14 @@ export default async function AgencyProfilePage({
   // Step 2: use agency key for proposal queries (metadata->>agency_id stores acronym or name)
   const agencyKey = agency.acronym ?? agency.name;
 
-  // All proposal/spending fetches in parallel
+  // All proposal/spending/officials fetches in parallel
   const [
     activeRulesRes,
     recentRulesRes,
     spendingRes,
     totalCountRes,
     openCountRes,
+    officialsRes,
   ] = await Promise.all([
     supabase
       .from("proposals")
@@ -204,12 +214,49 @@ export default async function AgencyProfilePage({
       .filter("metadata->>agency_id", "eq", agencyKey)
       .eq("status", "open_comment")
       .gt("comment_period_end", now),
+
+    // Connected officials: step 1 — get connection rows (from_id is polymorphic, no FK)
+    supabase
+      .from("entity_connections")
+      .select("from_id, connection_type")
+      .eq("from_type", "official")
+      .eq("to_type", "agency")
+      .eq("to_id", agency.id)
+      .limit(30),
   ]);
 
   const activeRules: Proposal[] = (activeRulesRes.data ?? []) as Proposal[];
   const recentRules: Proposal[] = (recentRulesRes.data ?? []) as Proposal[];
   const totalRules  = totalCountRes.count ?? 0;
   const openRules   = openCountRes.count ?? 0;
+
+  // Step 2: fetch official details for each connected ID
+  const connectionRows = officialsRes.data ?? [];
+  const officialIdToConnectionType = new Map(
+    connectionRows.map((r) => [r.from_id, r.connection_type])
+  );
+  const officialIds = [...officialIdToConnectionType.keys()];
+
+  let connectedOfficials: ConnectedOfficial[] = [];
+  if (officialIds.length > 0) {
+    const { data: officialRows } = await supabase
+      .from("officials")
+      .select("id, full_name, role_title, party, photo_url")
+      .in("id", officialIds);
+
+    // Sort: appointment → oversight → revolving_door
+    const ORDER: Record<string, number> = { appointment: 0, oversight: 1, revolving_door: 2 };
+    connectedOfficials = (officialRows ?? [])
+      .map((o) => ({
+        id: o.id,
+        full_name: o.full_name,
+        role_title: o.role_title ?? null,
+        party: o.party ?? null,
+        photo_url: o.photo_url ?? null,
+        connection_type: officialIdToConnectionType.get(o.id) ?? "oversight",
+      }))
+      .sort((a, b) => (ORDER[a.connection_type] ?? 9) - (ORDER[b.connection_type] ?? 9));
+  }
 
   const spendingGroups = aggregateSpending(
     (spendingRes.data ?? []) as SpendingRow[]
@@ -472,30 +519,51 @@ export default async function AgencyProfilePage({
           {/* ── RIGHT COLUMN ─────────────────────────────────────────────────── */}
           <div className="flex flex-col gap-6">
 
-            {/* ── 3. LEADERSHIP ─────────────────────────────────────────────── */}
+            {/* ── 3. CONNECTED OFFICIALS ────────────────────────────────────── */}
             <section>
-              <SectionHeader title="Leadership" />
-              <div className="rounded-lg border border-gray-200 bg-white p-4">
-                <p className="text-sm text-gray-400">
-                  Leadership data syncs from official sources.
-                </p>
-                <button
-                  disabled
-                  className="mt-3 w-full cursor-not-allowed rounded border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-300"
-                >
-                  ✦ Director history — Phase 2
-                </button>
-              </div>
-            </section>
+              <SectionHeader
+                title="Connected Officials"
+                subtitle="Appointments, oversight, and revolving door"
+              />
+              {connectedOfficials.length === 0 ? (
+                <div className="rounded-lg border border-gray-200 bg-white p-4">
+                  <p className="text-sm text-gray-400">
+                    No official connections indexed yet. This section populates automatically as the data pipeline runs.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {connectedOfficials.map((official) => (
+                    <a
+                      key={official.id}
+                      href={`/officials/${official.id}`}
+                      className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5 hover:border-indigo-300 hover:bg-indigo-50/30 transition-colors"
+                    >
+                      {/* Avatar */}
+                      {official.photo_url ? (
+                        <img
+                          src={official.photo_url}
+                          alt={official.full_name}
+                          className="h-8 w-8 shrink-0 rounded-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-500">
+                          {official.full_name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
+                        </div>
+                      )}
 
-            {/* ── 7. LEADERSHIP HISTORY ──────────────────────────────────────── */}
-            <section>
-              <SectionHeader title="Past Officials" subtitle="Secretaries and directors" />
-              <div className="rounded-lg border border-gray-200 bg-white p-4">
-                <p className="text-sm text-gray-400">
-                  Career history and revolving door tracking loads as data is ingested.
-                </p>
-              </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-gray-900">
+                          {official.full_name}
+                        </p>
+                        <p className="truncate text-xs text-gray-500">{official.role_title ?? ""}</p>
+                      </div>
+
+                      <ConnectionTypeBadge type={official.connection_type} />
+                    </a>
+                  ))}
+                </div>
+              )}
             </section>
 
             {/* Comment banner */}
@@ -576,5 +644,20 @@ function EmptyState({ message }: { message: string }) {
     <div className="rounded-lg border border-gray-200 bg-white px-5 py-8 text-center">
       <p className="text-sm text-gray-400">{message}</p>
     </div>
+  );
+}
+
+const CONNECTION_TYPE_STYLES: Record<string, { label: string; color: string }> = {
+  appointment:   { label: "Appointed",      color: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+  oversight:     { label: "Oversight",      color: "bg-blue-50 text-blue-700 border-blue-200" },
+  revolving_door:{ label: "Revolving door", color: "bg-amber-50 text-amber-700 border-amber-200" },
+};
+
+function ConnectionTypeBadge({ type }: { type: string }) {
+  const style = CONNECTION_TYPE_STYLES[type] ?? { label: type, color: "bg-gray-50 text-gray-600 border-gray-200" };
+  return (
+    <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold ${style.color}`}>
+      {style.label}
+    </span>
   );
 }

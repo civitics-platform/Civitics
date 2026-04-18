@@ -7,7 +7,10 @@
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
-    "clean": "turbo run clean"
+    "clean": "turbo run clean",
+    "fixes:sync": "node scripts/fixes-sync.mjs",
+    "fixes:sync:dry": "node scripts/fixes-sync.mjs --dry-run",
+    "fixes:check": "node scripts/fixes-sync.mjs --check"
   },
   "devDependencies": {
     "supabase": "latest",

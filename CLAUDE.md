@@ -12,16 +12,88 @@ Starting a new session? Read these files before touching any code:
 | File | What it tells you |
 |---|---|
 | `docs/SESSION_LOG.md` | What happened last session, what's unblocked, what's next |
-| `docs/FIXES.md` | Bug and improvement backlog, priority-labelled with checkboxes |
+| `docs/FIXES.md` | Bug and improvement backlog, each bullet has a stable `FIX-NNN` ID |
+| `docs/done.log` | Source of truth for what's actually shipped (append-only) |
 | `docs/PHASE_GOALS.md` | Phase 1 completion picture |
 
-These three files are the fastest path to current project state. Git log and code
-exploration are for verification, not orientation.
+These are the fastest path to current project state. Git log and code exploration
+are for verification, not orientation.
+
+**First step of every session:** run `pnpm fixes:sync` to pick up any new
+commit-trailer completions since last session, then read `docs/FIXES.md` for the
+current queue.
 
 > **Workflow note (as of 2026-04-15):** Qwen Code is no longer part of the workflow.
 > Claude handles all implementation directly. `docs/QWEN_PROMPTS.md` is preserved as
 > historical task archive only — do not queue new tasks there or write Qwen prompts.
 > Work through `docs/FIXES.md` items directly.
+
+---
+
+## FIXES Workflow
+
+Craig keeps `docs/FIXES.md` open in VSCode as a live backlog. Claude keeps a
+separate source of truth in `docs/done.log` to avoid editor collisions, revert
+drift, and duplicate-commit shuffles.
+
+**The contract:**
+
+| File | Owner | Direction |
+|---|---|---|
+| `docs/FIXES.md` | Craig (adds, edits, reprioritises) | Claude **only appends new items** or lets `fixes:sync` flip `[ ]` → `[x]` |
+| `docs/done.log` | Claude / `fixes:sync` | **Append-only**, never rewritten |
+| Git commit trailer `Fixes: FIX-NNN` | Claude (when code lands a fix) | Feeds done.log via `fixes:sync` |
+
+**When you (Claude) complete a FIX item:**
+
+1. Find the item's ID in FIXES.md — the `<!--id:FIX-NNN-->` marker at the end of
+   the bullet.
+2. Include a trailer in the commit message. Multiple IDs allowed, comma-separated:
+   ```
+   feat(proposals): add sort-by dropdown
+   
+   Longer body if needed.
+   
+   Fixes: FIX-027
+   ```
+   ```
+   Fixes: FIX-020, FIX-021, FIX-024
+   ```
+3. After committing, run `pnpm fixes:sync`. The script:
+   - Scans all `Fixes:` trailers across git history
+   - Appends new `(FIX-ID, sha)` pairs to `docs/done.log` (deduplicated)
+   - Flips matching `[ ]` bullets in FIXES.md to `[x]` (only ever one direction)
+4. Commit the resulting FIXES.md + done.log diff as its own status commit, e.g.
+   `chore(fixes): sync status after FIX-027`. Keep status commits separate from
+   code commits so reverts don't drag status with them.
+
+**Do NOT:**
+
+- Rewrite FIXES.md bullet text mid-session (causes the N-insertion / N-1 deletion
+  churn pattern from editor collisions). Only the checkbox character changes.
+- Remove, renumber, or reassign `FIX-NNN` IDs — they're permanent handles.
+- Rewrite existing lines in `done.log`. If an item was reopened, **append** a new
+  line with `sha: reopen` and hand-uncheck FIXES.md. The sync script treats
+  `reopen` as "remove from completed set".
+- Use `git filter-branch`, `git reset --hard`, or force-pushes on branches that
+  touch FIXES.md — these caused the status-duplicate commits visible in the April
+  reflog.
+
+**Scripts:**
+
+- `pnpm fixes:sync` — scan trailers, append to done.log, update FIXES.md checkboxes
+- `pnpm fixes:sync:dry` — show what would change, write nothing
+- `pnpm fixes:check` — CI-friendly; exits 1 if FIXES.md is out of sync with trailers
+
+**Adding a new FIX item (Craig, typically):**
+
+Append a bullet to the appropriate section of FIXES.md with the next free
+sequential ID. Easy way to find the highest in-use ID:
+```bash
+grep -oE 'FIX-[0-9]+' docs/FIXES.md | sort -u | tail -5
+```
+If Craig adds a bullet without an ID, Claude should assign the next free one
+before referencing it in a commit.
 
 ---
 

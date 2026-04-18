@@ -68,8 +68,11 @@ async function supabaseSelect(table, params = "") {
   return res.json();
 }
 
-async function supabaseUpsert(table, rows) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+async function supabaseUpsert(table, rows, onConflict) {
+  const url = onConflict
+    ? `${SUPABASE_URL}/rest/v1/${table}?on_conflict=${onConflict}`
+    : `${SUPABASE_URL}/rest/v1/${table}`;
+  const res = await fetch(url, {
     method: "POST",
     headers: { ...headers, Prefer: "resolution=ignore-duplicates,return=minimal" },
     body: JSON.stringify(rows),
@@ -188,7 +191,7 @@ async function run() {
   }
 
   console.log(`\nInserting ${toInsert.length} connections (skipped ${skipped})...`);
-  await supabaseUpsert("entity_connections", toInsert);
+  await supabaseUpsert("entity_connections", toInsert, "from_id,to_id,connection_type");
 
   console.log(`\nDone ✓`);
   console.log("\nVerify by visiting any agency page that has connected officials, e.g.:");

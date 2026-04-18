@@ -405,30 +405,30 @@ function CommentCard({
   stage,
   currentUserId,
   onReplySubmitted,
+  depth = 0,
 }: {
   comment: CommentRow;
   initiativeId: string;
   stage: Stage;
   currentUserId: string | null;
   onReplySubmitted: (parentId: string, newReply: CommentRow) => void;
+  depth?: number;
 }) {
   const [showReply, setShowReply] = useState(false);
   const canReply = stage === "problem" || stage === "deliberate" || stage === "mobilise";
+  const isNested = depth > 0;
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm hover:border-gray-300 transition-colors">
-      {/* Header: type badge */}
+    <div className={`rounded-lg border bg-white p-3 shadow-sm transition-colors ${isNested ? "border-gray-100 hover:border-gray-200" : "border-gray-200 hover:border-gray-300"}`}>
       <div className="mb-2 flex items-center justify-between">
         <TypeBadge type={comment.comment_type} />
         <span className="text-xs text-gray-300">{formatRelTime(comment.created_at)}</span>
       </div>
 
-      {/* Body */}
       <p className={`text-sm leading-relaxed ${comment.is_deleted ? "italic text-gray-400" : "text-gray-800"}`}>
         {comment.body}
       </p>
 
-      {/* Footer */}
       <div className="mt-2 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <VoteButton
@@ -456,7 +456,6 @@ function CommentCard({
         )}
       </div>
 
-      {/* Reply form */}
       {showReply && (
         <ReplyForm
           initiativeId={initiativeId}
@@ -470,37 +469,18 @@ function CommentCard({
         />
       )}
 
-      {/* Replies */}
       {comment.replies.length > 0 && (
         <div className="mt-3 space-y-2 border-l-2 border-gray-100 pl-3">
           {comment.replies.map((reply) => (
-            <div key={reply.id} className="rounded-md bg-gray-50 p-2">
-              {reply.comment_type && (
-                <div className="mb-1">
-                  <TypeBadge type={reply.comment_type} />
-                </div>
-              )}
-              <p className={`text-xs leading-relaxed ${reply.is_deleted ? "italic text-gray-400" : "text-gray-700"}`}>
-                {reply.body}
-              </p>
-              <div className="mt-1 flex items-center gap-2">
-                <VoteButton
-                  initiativeId={initiativeId}
-                  argId={reply.id}
-                  initialCount={reply.vote_count}
-                  isDeleted={reply.is_deleted}
-                />
-                <span className="text-xs text-gray-300">{formatRelTime(reply.created_at)}</span>
-                {!reply.is_deleted && (
-                  <FlagButton
-                    initiativeId={initiativeId}
-                    argId={reply.id}
-                    authorId={reply.author_id}
-                    currentUserId={currentUserId}
-                  />
-                )}
-              </div>
-            </div>
+            <CommentCard
+              key={reply.id}
+              comment={reply}
+              initiativeId={initiativeId}
+              stage={stage}
+              currentUserId={currentUserId}
+              onReplySubmitted={onReplySubmitted}
+              depth={depth + 1}
+            />
           ))}
         </div>
       )}
@@ -741,12 +721,16 @@ export function ArgumentBoard({ initiativeId, stage, currentUserId }: ArgumentBo
     setComments((prev) => [newComment, ...prev]);
   }
 
+  function addReplyToTree(comments: CommentRow[], parentId: string, newReply: CommentRow): CommentRow[] {
+    return comments.map((c) => {
+      if (c.id === parentId) return { ...c, replies: [...c.replies, newReply] };
+      if (c.replies.length > 0) return { ...c, replies: addReplyToTree(c.replies, parentId, newReply) };
+      return c;
+    });
+  }
+
   function handleReplySubmitted(parentId: string, newReply: CommentRow) {
-    setComments((prev) =>
-      prev.map((c) =>
-        c.id === parentId ? { ...c, replies: [...c.replies, newReply] } : c
-      )
-    );
+    setComments((prev) => addReplyToTree(prev, parentId, newReply));
   }
 
   const header = stageTyped === "problem" ? "Community input" : "Argument board";

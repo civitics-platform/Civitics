@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ResponsivenessData, ResponsivenessGrade } from "../../api/officials/[id]/responsiveness/route";
+import type { ResponsivenessData, ResponsivenessGrade } from "../../api/officials/[id]/responsiveness/_lib";
 
 // ─── Grade config ──────────────────────────────────────────────────────────────
 
@@ -128,7 +128,7 @@ export function ResponsivenessCard({ data }: ResponsivenessCardProps) {
             </p>
             <div className="space-y-2">
               {recent.map((r) => {
-                const rl     = RESPONSE_LABELS[r.response_type] ?? RESPONSE_LABELS.no_response;
+                const rl     = (RESPONSE_LABELS[r.response_type] ?? RESPONSE_LABELS.no_response)!;
                 const isOpen = !r.responded_at && new Date(r.window_closes_at) >= now;
                 const daysLeft = isOpen
                   ? Math.max(0, Math.ceil((new Date(r.window_closes_at).getTime() - now.getTime()) / 86_400_000))

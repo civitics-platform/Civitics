@@ -148,12 +148,12 @@ export async function computeGate(
   }
 
   if (population === null && context?.scope) {
-    population = SCOPE_DEFAULT_POPULATION[context.scope] ?? SCOPE_DEFAULT_POPULATION.local;
+    population = (SCOPE_DEFAULT_POPULATION[context.scope] ?? SCOPE_DEFAULT_POPULATION.local) as number;
   }
 
   // Final fallback — no scope provided (shouldn't happen in practice)
   if (population === null) {
-    population = SCOPE_DEFAULT_POPULATION.local;
+    population = (SCOPE_DEFAULT_POPULATION.local as number);
   }
 
   const { upvotes: upvoteRequired, label: tierLabel } = getUpvoteTier(population);
@@ -185,9 +185,12 @@ export async function computeGate(
 
   // ── Signals 3 & 4: argument quality ───────────────────────────────────────
 
+  // Read both `comment_type` (new schema) and `side` (legacy) so the gate keeps
+  // working across the migration boundary. New rows have side=null and use
+  // comment_type='support'/'oppose'; legacy rows may lack comment_type.
   const { data: args } = await supabase
     .from("civic_initiative_arguments")
-    .select("id,side,is_deleted")
+    .select("id,side,comment_type,is_deleted")
     .eq("initiative_id", initiativeId)
     .is("parent_id", null)
     .eq("is_deleted", false);
@@ -210,8 +213,12 @@ export async function computeGate(
 
     for (const arg of args ?? []) {
       const votes = voteCounts[arg.id] ?? 0;
-      if (arg.side === "for")     forBestVotes     = Math.max(forBestVotes,     votes);
-      if (arg.side === "against") againstBestVotes = Math.max(againstBestVotes, votes);
+      // Effective sentiment: prefer comment_type, fall back to side for legacy rows.
+      const effective =
+        arg.comment_type ??
+        (arg.side === "for" ? "support" : arg.side === "against" ? "oppose" : null);
+      if (effective === "support") forBestVotes     = Math.max(forBestVotes,     votes);
+      if (effective === "oppose")  againstBestVotes = Math.max(againstBestVotes, votes);
     }
   }
 

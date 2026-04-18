@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 type InitiativeRow = Database["public"]["Tables"]["civic_initiatives"]["Row"];
 
-const VALID_STAGES = ["draft", "deliberate", "mobilise", "resolved"] as const;
+const VALID_STAGES = ["problem", "draft", "deliberate", "mobilise", "resolved"] as const;
 const VALID_SCOPES = ["federal", "state", "local"] as const;
 
 // ─── GET /api/initiatives ─────────────────────────────────────────────────────
@@ -37,10 +37,10 @@ export async function GET(request: NextRequest) {
       );
 
     if (stage && VALID_STAGES.includes(stage as (typeof VALID_STAGES)[number])) {
-      query = query.eq("stage", stage);
+      query = query.eq("stage", stage as (typeof VALID_STAGES)[number]);
     }
     if (scope && VALID_SCOPES.includes(scope as (typeof VALID_SCOPES)[number])) {
-      query = query.eq("scope", scope);
+      query = query.eq("scope", scope as (typeof VALID_SCOPES)[number]);
     }
     if (tag) {
       query = query.contains("issue_area_tags", [tag]);
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { title, summary, body_md, scope, issue_area_tags, linked_proposal_id } = body;
+    const { title, summary, body_md, scope, issue_area_tags, linked_proposal_id, is_problem } = body;
 
     // Validation
     if (!title || typeof title !== "string") {
@@ -103,7 +103,8 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (!body_md || typeof body_md !== "string" || body_md.trim().length === 0) {
+    // body_md is required for full initiatives, optional for problem statements
+    if (!is_problem && (!body_md || typeof body_md !== "string" || body_md.trim().length === 0)) {
       return NextResponse.json(
         { error: "Body text is required" },
         { status: 400 }
@@ -122,6 +123,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const initiativeStage = is_problem ? "problem" : "draft";
+
     // Use supabase (authenticated server client) — not createAdminClient.
     // RLS civic_initiatives_insert_own enforces primary_author_id = auth.uid() at DB level.
     const { data, error } = await supabase
@@ -129,12 +132,12 @@ export async function POST(request: NextRequest) {
       .insert({
         title: title.trim(),
         summary: summary?.trim() ?? null,
-        body_md: body_md.trim(),
+        body_md: body_md?.trim() ?? "",
         scope,
         issue_area_tags: Array.isArray(issue_area_tags) ? issue_area_tags : [],
         linked_proposal_id: linked_proposal_id ?? null,
         primary_author_id: user.id,
-        stage: "draft",
+        stage: initiativeStage,
         authorship_type: "individual",
       })
       .select("id,title,stage")

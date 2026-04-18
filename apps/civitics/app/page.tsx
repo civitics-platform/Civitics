@@ -3,11 +3,20 @@ export const dynamic = "force-dynamic";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerClient, agencyFullName } from "@civitics/db";
-import { DistrictMap } from "./components/DistrictMap";
+import nextDynamic from "next/dynamic";
+const DistrictMap = nextDynamic(
+  () => import("./components/DistrictMap").then((m) => m.DistrictMap),
+  { ssr: false }
+);
 import { GlobalSearch } from "./components/GlobalSearch";
-import { AuthButton } from "./components/AuthButton";
 import { NavBar } from "./components/NavBar";
 import { PageViewTracker } from "./components/PageViewTracker";
+import { HomeOfficialCard, type HomeOfficialCardData } from "./components/HomeOfficialCard";
+import { ProposalCard, type ProposalCardData } from "./proposals/components/ProposalCard";
+import { InitiativeCard, type InitiativeCardData } from "./initiatives/components/InitiativeCard";
+import { AgencyCard } from "./agencies/components/AgencyCard";
+import type { AgencyRow } from "./agencies/page";
+import type { EntityTag } from "./components/tags/EntityTags";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,70 +27,7 @@ type Stats = {
   spending: number;
 };
 
-type FeaturedOfficial = {
-  id: string;
-  name: string;
-  role: string;
-  party: string | null;
-  state: string | null;
-  district: string | null;
-  voteCount: number;
-};
-
-type FeaturedProposal = {
-  id: string;
-  identifier: string;
-  title: string;
-  status: string;
-  type: string;
-  introducedAt: string | null;
-  commentDeadline: string | null;
-  summary: string | null;
-  openForComment: boolean;
-  agencyId: string | null;
-  agencyName: string | null;
-};
-
-type FeaturedAgency = {
-  id: string;
-  acronym: string;
-  name: string;
-  totalProposals: number;
-  openProposals: number;
-};
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const PARTY_STYLES: Record<string, { border: string; badge: string; label: string }> = {
-  democrat:    { border: "border-blue-400",   badge: "bg-blue-100 text-blue-800",     label: "D" },
-  republican:  { border: "border-red-400",    badge: "bg-red-100 text-red-800",       label: "R" },
-  independent: { border: "border-purple-400", badge: "bg-purple-100 text-purple-800", label: "I" },
-};
-const DEFAULT_PARTY = { border: "border-gray-300", badge: "bg-gray-100 text-gray-700", label: "?" };
-
-const PROPOSAL_STATUS: Record<string, { color: string; label: string }> = {
-  open_comment:           { color: "bg-emerald-100 text-emerald-800", label: "Open Comment" },
-  introduced:             { color: "bg-amber-100 text-amber-800",     label: "Introduced" },
-  in_committee:           { color: "bg-amber-100 text-amber-800",     label: "In Committee" },
-  passed_committee:       { color: "bg-blue-100 text-blue-800",       label: "Passed Committee" },
-  floor_vote:             { color: "bg-blue-100 text-blue-800",       label: "Floor Vote" },
-  passed_chamber:         { color: "bg-blue-100 text-blue-800",       label: "Passed Chamber" },
-  passed_both_chambers:   { color: "bg-indigo-100 text-indigo-800",   label: "Passed Both Chambers" },
-  signed:                 { color: "bg-green-100 text-green-800",     label: "Signed" },
-  enacted:                { color: "bg-green-100 text-green-800",     label: "Enacted" },
-  failed:                 { color: "bg-red-100 text-red-800",         label: "Failed" },
-  withdrawn:              { color: "bg-gray-100 text-gray-700",       label: "Withdrawn" },
-  comment_closed:         { color: "bg-gray-100 text-gray-700",       label: "Comment Closed" },
-};
-
-const PROPOSAL_TYPE_LABELS: Record<string, string> = {
-  regulation:     "Federal Regulation",
-  bill:           "Congress",
-  executive_order: "Executive Order",
-  treaty:         "Treaty",
-  referendum:     "Referendum",
-  resolution:     "Resolution",
-};
 
 function formatStat(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -89,28 +35,7 @@ function formatStat(n: number): string {
   return String(n);
 }
 
-function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0])
-    .join("")
-    .toUpperCase();
-}
-
 // ─── Sub-components ───────────────────────────────────────────────────────────
-
-// NavBar extracted to components/NavBar.tsx (client component for mobile menu state)
 
 function Hero({ stats }: { stats: Stats }) {
   const statItems = [
@@ -195,92 +120,7 @@ function SectionHeader({
   );
 }
 
-function OfficialsSection({ officials }: { officials: FeaturedOfficial[] }) {
-  if (officials.length === 0) {
-    return (
-      <section>
-        <SectionHeader
-          title="Officials"
-          description="Every elected and appointed official — votes, donors, and promises on record."
-          href="/officials"
-          linkLabel="Browse all officials"
-        />
-        <p className="mt-4 text-sm text-gray-500">Loading officials data…</p>
-      </section>
-    );
-  }
-
-  return (
-    <section>
-      <SectionHeader
-        title="Officials"
-        description="Every elected and appointed official — votes, donors, and promises on record."
-        href="/officials"
-        linkLabel="Browse all officials"
-      />
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {officials.map((official) => {
-          const party = PARTY_STYLES[official.party ?? ""] ?? DEFAULT_PARTY;
-          const location = [official.state, official.district].filter(Boolean).join(" · ");
-          return (
-            <a
-              key={official.id}
-              href={`/officials?selected=${official.id}`}
-              className="group block rounded-lg border border-gray-200 bg-white p-4 hover:border-indigo-300 hover:shadow-sm transition-all"
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 bg-gray-100 text-xs font-semibold text-gray-600 ${party.border}`}
-                >
-                  {initials(official.name)}
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-gray-900 group-hover:text-indigo-700">
-                    {official.name}
-                  </p>
-                  <p className="truncate text-xs text-gray-500">{official.role}</p>
-                </div>
-              </div>
-              {location && <p className="mt-2 text-xs text-gray-400">{location}</p>}
-              <div className="mt-3 grid grid-cols-3 gap-2 border-t border-gray-100 pt-3">
-                <div className="text-center">
-                  <p className={`text-xs font-bold rounded px-1 ${party.badge}`}>{party.label}</p>
-                  <p className="text-[10px] text-gray-400 mt-0.5">Party</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-semibold text-gray-900">
-                    {official.voteCount.toLocaleString()}
-                  </p>
-                  <p className="text-[10px] text-gray-400">Votes</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-semibold text-gray-900">0</p>
-                  <p className="text-[10px] text-gray-400">Donors</p>
-                </div>
-              </div>
-            </a>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-function ProposalsSection({ proposals }: { proposals: FeaturedProposal[] }) {
-  if (proposals.length === 0) {
-    return (
-      <section>
-        <SectionHeader
-          title="Proposals"
-          description="Bills, regulations, and rules open for public comment — submit your position for free."
-          href="/proposals"
-          linkLabel="Browse all proposals"
-        />
-        <p className="mt-4 text-sm text-gray-500">No open comment periods right now. Check back soon.</p>
-      </section>
-    );
-  }
-
+function ProposalsSection({ proposals }: { proposals: ProposalCardData[] }) {
   return (
     <section>
       <SectionHeader
@@ -289,90 +129,71 @@ function ProposalsSection({ proposals }: { proposals: FeaturedProposal[] }) {
         href="/proposals"
         linkLabel="Browse all proposals"
       />
-      <div className="mt-4 flex flex-col gap-3">
-        {proposals.map((proposal) => {
-          const statusStyle = PROPOSAL_STATUS[proposal.status] ?? {
-            color: "bg-gray-100 text-gray-700",
-            label: proposal.status,
-          };
-          const typeLabel = PROPOSAL_TYPE_LABELS[proposal.type] ?? proposal.type;
-
-          return (
-            <a
-              key={proposal.id}
-              href={`/proposals/${proposal.id}`}
-              className="group block rounded-lg border border-gray-200 bg-white p-5 hover:border-indigo-300 hover:shadow-sm transition-all"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  {proposal.identifier !== proposal.type && (
-                    <span className="rounded bg-gray-100 px-2 py-0.5 font-mono text-xs text-gray-600">
-                      {proposal.identifier.length > 30
-                        ? proposal.identifier.slice(0, 30) + "…"
-                        : proposal.identifier}
-                    </span>
-                  )}
-                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusStyle.color}`}>
-                    {statusStyle.label}
-                  </span>
-                  {proposal.openForComment && (
-                    <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-                      Comment open
-                    </span>
-                  )}
-                </div>
-                {proposal.commentDeadline && (
-                  <span className="text-xs text-gray-400">
-                    Deadline: {formatDate(proposal.commentDeadline)}
-                  </span>
-                )}
-              </div>
-              <h3 className="mt-2 text-sm font-semibold text-gray-900 group-hover:text-indigo-700 line-clamp-2">
-                {proposal.title}
-              </h3>
-              {proposal.summary ? (
-                <p className="mt-1.5 text-sm text-gray-500 leading-relaxed line-clamp-2">
-                  {proposal.summary}
-                </p>
-              ) : null}
-              <div className="mt-3 flex items-center gap-4 text-xs text-gray-400">
-                <span>{typeLabel}</span>
-                {(proposal.agencyName ?? proposal.agencyId) && (
-                  <>
-                    <span>·</span>
-                    <span>{proposal.agencyName ?? proposal.agencyId}</span>
-                  </>
-                )}
-                {proposal.introducedAt && (
-                  <>
-                    <span>·</span>
-                    <span>Introduced {formatDate(proposal.introducedAt)}</span>
-                  </>
-                )}
-              </div>
-            </a>
-          );
-        })}
-      </div>
+      {proposals.length === 0 ? (
+        <p className="mt-4 text-sm text-gray-500">
+          No open comment periods right now. Check back soon.
+        </p>
+      ) : (
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {proposals.map((p) => (
+            <ProposalCard key={p.id} proposal={p} />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
 
-function AgenciesSection({ agencies }: { agencies: FeaturedAgency[] }) {
-  if (agencies.length === 0) {
-    return (
-      <section>
-        <SectionHeader
-          title="Agencies"
-          description="Federal agencies, their active rulemaking, and open comment periods."
-          href="/agencies"
-          linkLabel="Browse all agencies"
-        />
-        <p className="mt-4 text-sm text-gray-500">Loading agency data…</p>
-      </section>
-    );
-  }
+function InitiativesSection({ initiatives }: { initiatives: InitiativeCardData[] }) {
+  return (
+    <section>
+      <SectionHeader
+        title="Civic Initiatives"
+        description="Citizen-led proposals — from deliberation to official accountability."
+        href="/initiatives"
+        linkLabel="Browse all initiatives"
+      />
+      {initiatives.length === 0 ? (
+        <p className="mt-4 text-sm text-gray-500">
+          No initiatives yet.{" "}
+          <a href="/initiatives/new" className="text-indigo-600 hover:underline">
+            Start one →
+          </a>
+        </p>
+      ) : (
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          {initiatives.map((i) => (
+            <InitiativeCard key={i.id} initiative={i} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
 
+function OfficialsSection({ officials }: { officials: HomeOfficialCardData[] }) {
+  return (
+    <section>
+      <SectionHeader
+        title="Officials"
+        description="Every elected and appointed official — votes, donors, and promises on record."
+        href="/officials"
+        linkLabel="Browse all officials"
+      />
+      {officials.length === 0 ? (
+        <p className="mt-4 text-sm text-gray-500">Loading officials data…</p>
+      ) : (
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {officials.map((o) => (
+            <HomeOfficialCard key={o.id} official={o} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AgenciesSection({ agencies }: { agencies: AgencyRow[] }) {
   return (
     <section>
       <SectionHeader
@@ -381,39 +202,15 @@ function AgenciesSection({ agencies }: { agencies: FeaturedAgency[] }) {
         href="/agencies"
         linkLabel="Browse all agencies"
       />
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {agencies.map((agency) => (
-          <a
-            key={agency.id}
-            href={`/agencies/${agency.id}`}
-            className="group block rounded-lg border border-gray-200 bg-white p-4 hover:border-indigo-300 hover:shadow-sm transition-all"
-          >
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded border border-gray-200 bg-gray-50 font-mono text-xs font-bold text-gray-600">
-                {agency.acronym.slice(0, 5)}
-              </div>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-gray-900 group-hover:text-indigo-700">
-                  {agencyFullName(agency.acronym) ?? agency.name}
-                </p>
-                <p className="truncate text-xs text-gray-500">{agency.acronym}</p>
-              </div>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2 border-t border-gray-100 pt-3">
-              <div className="text-center">
-                <p className="text-sm font-semibold text-gray-900">{agency.totalProposals}</p>
-                <p className="text-[10px] text-gray-400">Total rules</p>
-              </div>
-              <div className="text-center">
-                <p className={`text-sm font-semibold ${agency.openProposals > 0 ? "text-emerald-600" : "text-gray-400"}`}>
-                  {agency.openProposals}
-                </p>
-                <p className="text-[10px] text-gray-400">Open now</p>
-              </div>
-            </div>
-          </a>
-        ))}
-      </div>
+      {agencies.length === 0 ? (
+        <p className="mt-4 text-sm text-gray-500">Loading agency data…</p>
+      ) : (
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {agencies.map((a) => (
+            <AgencyCard key={a.id} agency={a} />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -426,9 +223,7 @@ function GraphBanner() {
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm font-semibold text-white">
-            Connection Graph
-          </p>
+          <p className="text-sm font-semibold text-white">Connection Graph</p>
           <p className="mt-0.5 text-sm text-gray-400">
             Explore how officials, agencies, donors, and legislation are connected — visualized as a live force graph.
           </p>
@@ -483,7 +278,9 @@ export default async function HomePage({
   const cookieStore = await cookies();
   const supabase = createServerClient(cookieStore);
 
-  // Wave 1: stats + open proposals + agency list (all parallel)
+  const now = new Date().toISOString();
+
+  // ── Wave 1: stats + featured rows (all parallel) ────────────────────────────
   const [
     officialsCountRes,
     activeProposalsRes,
@@ -491,6 +288,7 @@ export default async function HomePage({
     spendingCountRes,
     openProposalsRes,
     agencyRowsRes,
+    upvotesRes,
   ] = await Promise.all([
     supabase
       .from("officials")
@@ -509,133 +307,254 @@ export default async function HomePage({
     supabase
       .from("proposals")
       .select(
-        "id,title,status,type,bill_number,regulations_gov_id,introduced_at,comment_period_end,summary_plain,metadata"
+        "id,title,type,status,regulations_gov_id,congress_gov_url,comment_period_end,summary_plain,summary_model,introduced_at,metadata"
       )
       .eq("status", "open_comment")
-      .gt("comment_period_end", new Date().toISOString())
+      .gt("comment_period_end", now)
       .order("comment_period_end", { ascending: true })
       .limit(3),
     supabase
       .from("agencies")
-      .select("id,name,acronym")
+      .select("id,name,short_name,acronym,agency_type,website_url,description,metadata")
       .eq("is_active", true)
       .order("name")
       .limit(4),
+    // Top initiatives by upvote count — fetch all upvote rows, count client-side,
+    // then fetch the top-N initiative rows. Small table, fine for now.
+    supabase
+      .from("civic_initiative_upvotes")
+      .select("initiative_id")
+      .limit(5000),
   ]);
 
-  const officialsTotal = officialsCountRes.count ?? 0;
-  const agencyRows = agencyRowsRes.data ?? [];
-
-  // Proposal fallback: if no open comment periods, show most recent
-  let proposalData = openProposalsRes.data ?? [];
-  if (proposalData.length === 0) {
+  // ── Proposal fallback: if no open comment periods, show most recent ────────
+  let rawProposals = (openProposalsRes.data ?? []) as ProposalCardData[];
+  if (rawProposals.length === 0) {
     const { data: fallback } = await supabase
       .from("proposals")
       .select(
-        "id,title,status,type,bill_number,regulations_gov_id,introduced_at,comment_period_end,summary_plain,metadata"
+        "id,title,type,status,regulations_gov_id,congress_gov_url,comment_period_end,summary_plain,summary_model,introduced_at,metadata"
       )
-      .order("introduced_at", { ascending: false })
+      .order("introduced_at", { ascending: false, nullsFirst: false })
       .limit(3);
-    proposalData = fallback ?? [];
+    rawProposals = (fallback ?? []) as ProposalCardData[];
   }
 
-  // Agency names resolved from static map — DB stores name=acronym for many rows
+  // ── Initiatives ranked by upvote count ─────────────────────────────────────
+  const upvoteCountByInitiative: Record<string, number> = {};
+  for (const row of upvotesRes.data ?? []) {
+    const id = (row as { initiative_id: string }).initiative_id;
+    upvoteCountByInitiative[id] = (upvoteCountByInitiative[id] ?? 0) + 1;
+  }
+  const topInitiativeIds = Object.entries(upvoteCountByInitiative)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([id]) => id);
 
-  // Wave 2: federal officials (top 20 by vote count later) + agency proposal counts (all parallel)
-  const [officialsRes, ...agencyStatPairs] = await Promise.all([
+  // Fetch the top-4 rows, plus a fallback newest-4 if there aren't enough upvotes
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sbAny = supabase as any;
+  const initiativeSelect =
+    "id,title,summary,stage,scope,authorship_type,issue_area_tags,target_district,mobilise_started_at,created_at,resolved_at";
+  const [topInitiativesRes, fallbackInitiativesRes] = await Promise.all([
+    topInitiativeIds.length > 0
+      ? sbAny
+          .from("civic_initiatives")
+          .select(initiativeSelect)
+          .in("id", topInitiativeIds)
+          .neq("stage", "draft")
+      : Promise.resolve({ data: [] as InitiativeCardData[] }),
+    topInitiativeIds.length < 4
+      ? sbAny
+          .from("civic_initiatives")
+          .select(initiativeSelect)
+          .neq("stage", "draft")
+          .order("created_at", { ascending: false })
+          .limit(4)
+      : Promise.resolve({ data: [] as InitiativeCardData[] }),
+  ]);
+
+  // ── Wave 2: officials + agency stats + proposal enrichment (parallel) ──────
+  const proposalIds = rawProposals.map((p) => p.id);
+  const agencyRows = agencyRowsRes.data ?? [];
+
+  const [officialsRes, summaryRes, tagsRes, ...agencyStatPairs] = await Promise.all([
     supabase
       .from("officials")
       .select(
-        "id,full_name,role_title,party,district_name,jurisdictions!jurisdiction_id(name)"
+        "id,full_name,role_title,party,photo_url,district_name,source_ids,jurisdictions!jurisdiction_id(name),governing_bodies!governing_body_id(short_name)"
       )
       .eq("is_active", true)
       .in("role_title", ["Senator", "Representative"])
       .filter("source_ids->>congress_gov", "not.is", null)
       .limit(20),
-    ...agencyRows.map((agency) =>
-      Promise.all([
+    proposalIds.length > 0
+      ? sbAny
+          .from("ai_summary_cache")
+          .select("entity_id,summary_text")
+          .eq("entity_type", "proposal")
+          .in("entity_id", proposalIds)
+      : Promise.resolve({ data: [] as { entity_id: string; summary_text: string }[] }),
+    proposalIds.length > 0
+      ? sbAny
+          .from("entity_tags")
+          .select(
+            "entity_id,tag,tag_category,display_label,display_icon,visibility,confidence,generated_by,ai_model,metadata"
+          )
+          .eq("entity_type", "proposal")
+          .in("entity_id", proposalIds)
+      : Promise.resolve({ data: [] as EntityTag[] }),
+    ...agencyRows.map((agency) => {
+      const key = agency.acronym ?? agency.name;
+      return Promise.all([
         supabase
           .from("proposals")
           .select("id", { count: "exact", head: true })
-          .filter("metadata->>agency_id", "eq", agency.acronym ?? agency.name),
+          .filter("metadata->>agency_id", "eq", key),
         supabase
           .from("proposals")
           .select("id", { count: "exact", head: true })
-          .filter("metadata->>agency_id", "eq", agency.acronym ?? agency.name)
-          .eq("status", "open_comment"),
-      ])
-    ),
+          .filter("metadata->>agency_id", "eq", key)
+          .eq("status", "open_comment")
+          .gt("comment_period_end", now),
+      ]);
+    }),
   ]);
 
-  // Wave 3: vote counts for all fetched officials — sort by count, take top 4
+  // ── Wave 3: vote + donor stats for each official (parallel) ────────────────
   const rawOfficials = officialsRes.data ?? [];
-  const voteCounts = await Promise.all(
-    rawOfficials.map((o) =>
-      supabase
-        .from("votes")
-        .select("id", { count: "exact", head: true })
-        .eq("official_id", o.id)
-        .then((r) => ({ id: o.id as string, count: r.count ?? 0 }))
-    )
+  const officialStats = await Promise.all(
+    rawOfficials.map(async (o) => {
+      const id = o.id as string;
+      const [voteCountRes, donorCountRes, donationSumRes] = await Promise.all([
+        supabase
+          .from("votes")
+          .select("id", { count: "exact", head: true })
+          .eq("official_id", id),
+        supabase
+          .from("financial_relationships")
+          .select("id", { count: "exact", head: true })
+          .eq("official_id", id),
+        supabase
+          .from("financial_relationships")
+          .select("amount_cents")
+          .eq("official_id", id),
+      ]);
+      const totalCents =
+        (donationSumRes.data ?? []).reduce(
+          (sum: number, r: { amount_cents: number | null }) => sum + (r.amount_cents ?? 0),
+          0
+        ) ?? 0;
+      return {
+        id,
+        voteCount: voteCountRes.count ?? 0,
+        donorCount: donorCountRes.count ?? 0,
+        totalDonationsCents: totalCents,
+      };
+    })
   );
-  const voteCountMap = new Map(voteCounts.map((v) => [v.id, v.count]));
+  const statsById = new Map(officialStats.map((s) => [s.id, s]));
 
   // Sort by vote count desc, take top 4
-  rawOfficials.sort((a, b) => (voteCountMap.get(b.id) ?? 0) - (voteCountMap.get(a.id) ?? 0));
+  rawOfficials.sort(
+    (a, b) =>
+      (statsById.get(b.id as string)?.voteCount ?? 0) -
+      (statsById.get(a.id as string)?.voteCount ?? 0)
+  );
   const topOfficials = rawOfficials.slice(0, 4);
 
   // ─── Shape data ────────────────────────────────────────────────────────────
 
   const stats: Stats = {
-    officials: officialsTotal,
+    officials: officialsCountRes.count ?? 0,
     proposals: activeProposalsRes.count ?? 0,
     donors: donorCountRes.count ?? 0,
     spending: spendingCountRes.count ?? 0,
   };
 
-  const featuredOfficials: FeaturedOfficial[] = topOfficials.map((o) => {
+  // Officials → HomeOfficialCardData
+  const featuredOfficials: HomeOfficialCardData[] = topOfficials.map((o) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const jurisdiction = o.jurisdictions as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const govBody = o.governing_bodies as any;
+    const sources = (o.source_ids as Record<string, string> | null) ?? {};
+    const stats = statsById.get(o.id as string);
     return {
       id: o.id,
-      name: o.full_name,
-      role: o.role_title,
+      full_name: o.full_name,
+      role_title: o.role_title,
       party: o.party ?? null,
-      state: jurisdiction?.name ?? null,
-      district: o.district_name ?? null,
-      voteCount: voteCountMap.get(o.id) ?? 0,
+      photo_url: o.photo_url ?? null,
+      chamber: govBody?.short_name ?? null,
+      district_name: o.district_name ?? null,
+      state_name: jurisdiction?.name ?? null,
+      isFederal: !!sources["congress_gov"],
+      voteCount: stats?.voteCount ?? 0,
+      donorCount: stats?.donorCount ?? 0,
+      totalDonationsCents: stats?.totalDonationsCents ?? 0,
     };
   });
 
-  const featuredProposals: FeaturedProposal[] = proposalData.map((p) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const meta = p.metadata as any;
+  // Proposals → ProposalCardData (enrich with AI summary, tags, agency name)
+  const summaryMap: Record<string, string> = {};
+  for (const s of (summaryRes.data ?? []) as { entity_id: string; summary_text: string }[]) {
+    if (!summaryMap[s.entity_id]) summaryMap[s.entity_id] = s.summary_text;
+  }
+  const tagsMap: Record<string, EntityTag[]> = {};
+  for (const t of (tagsRes.data ?? []) as (EntityTag & { entity_id: string })[]) {
+    const eid = t.entity_id;
+    if (!tagsMap[eid]) tagsMap[eid] = [];
+    tagsMap[eid]!.push(t);
+  }
+  const featuredProposals: ProposalCardData[] = rawProposals.map((p) => {
+    const acronym = p.metadata?.agency_id ?? null;
     return {
-      id: p.id,
-      identifier: p.bill_number ?? p.regulations_gov_id ?? p.type ?? "—",
-      title: p.title,
-      status: p.status,
-      type: p.type,
-      introducedAt: p.introduced_at ?? null,
-      commentDeadline: p.comment_period_end ?? null,
-      summary: p.summary_plain ?? null,
-      openForComment: p.status === "open_comment",
-      agencyId: meta?.agency_id ?? null,
-      agencyName: agencyFullName(meta?.agency_id),
+      ...p,
+      agency_name: acronym ? agencyFullName(acronym) ?? null : null,
+      ai_summary: summaryMap[p.id] ?? null,
+      tags: tagsMap[p.id] ?? [],
     };
   });
 
-  const featuredAgencies: FeaturedAgency[] = agencyRows.map((agency, i) => {
-    const [totalRes, openRes] = (agencyStatPairs[i] as [{ count: number | null }, { count: number | null }]) ?? [
-      { count: 0 },
-      { count: 0 },
-    ];
+  // Initiatives → InitiativeCardData (attach upvote count)
+  const initiativeRows = [
+    ...((topInitiativesRes.data as InitiativeCardData[] | null) ?? []),
+    ...((fallbackInitiativesRes.data as InitiativeCardData[] | null) ?? []),
+  ];
+  // Dedupe by id, preserve insertion order (top-by-upvotes first)
+  const seenInit = new Set<string>();
+  const dedupedInitiatives = initiativeRows.filter((i) => {
+    if (seenInit.has(i.id)) return false;
+    seenInit.add(i.id);
+    return true;
+  });
+  // Sort by upvote count desc (fallback rows have 0 → appended at end)
+  dedupedInitiatives.sort(
+    (a, b) =>
+      (upvoteCountByInitiative[b.id] ?? 0) - (upvoteCountByInitiative[a.id] ?? 0)
+  );
+  const featuredInitiatives: InitiativeCardData[] = dedupedInitiatives
+    .slice(0, 4)
+    .map((i) => ({ ...i, upvoteCount: upvoteCountByInitiative[i.id] ?? 0 }));
+
+  // Agencies → AgencyRow[]
+  const featuredAgencies: AgencyRow[] = agencyRows.map((agency, i) => {
+    const pair = agencyStatPairs[i] as
+      | [{ count: number | null }, { count: number | null }]
+      | undefined;
+    const meta = agency.metadata as Record<string, unknown> | null;
     return {
       id: agency.id,
-      acronym: agency.acronym ?? agency.name,
-      name: agency.name,
-      totalProposals: totalRes.count ?? 0,
-      openProposals: openRes.count ?? 0,
+      name: agencyFullName(agency.acronym) ?? agency.name,
+      short_name: agency.short_name ?? null,
+      acronym: agency.acronym ?? null,
+      agency_type: agency.agency_type,
+      website_url: agency.website_url ?? null,
+      description: agency.description ?? null,
+      totalProposals: pair?.[0]?.count ?? 0,
+      openProposals: pair?.[1]?.count ?? 0,
+      isFeatured: meta?.["is_whitehouse"] === true,
     };
   });
 
@@ -651,8 +570,9 @@ export default async function HomePage({
           <CommentBanner />
           <DistrictMap />
           <GraphBanner />
-          <OfficialsSection officials={featuredOfficials} />
           <ProposalsSection proposals={featuredProposals} />
+          <InitiativesSection initiatives={featuredInitiatives} />
+          <OfficialsSection officials={featuredOfficials} />
           <AgenciesSection agencies={featuredAgencies} />
         </div>
       </main>

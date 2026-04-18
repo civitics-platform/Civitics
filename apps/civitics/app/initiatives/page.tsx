@@ -5,63 +5,45 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@civitics/db";
 import { NavBar } from "../components/NavBar";
 import { PageViewTracker } from "../components/PageViewTracker";
+import { InitiativeCard, type InitiativeCardData } from "./components/InitiativeCard";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type InitiativeRow = {
-  id: string;
-  title: string;
-  summary: string | null;
-  stage: "draft" | "deliberate" | "mobilise" | "resolved";
-  scope: "federal" | "state" | "local";
-  authorship_type: "individual" | "community";
-  issue_area_tags: string[];
-  target_district: string | null;
-  mobilise_started_at: string | null;
-  created_at: string;
-  resolved_at: string | null;
-};
+type InitiativeRow = InitiativeCardData;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const STAGE_STYLES: Record<string, { label: string; color: string }> = {
-  draft:       { label: "Draft",           color: "bg-gray-100 text-gray-600 border-gray-200" },
-  deliberate:  { label: "Deliberating",    color: "bg-amber-100 text-amber-700 border-amber-200" },
-  mobilise:    { label: "Mobilising",      color: "bg-indigo-100 text-indigo-700 border-indigo-200" },
-  resolved:    { label: "Resolved",        color: "bg-green-100 text-green-700 border-green-200" },
-};
-
-const SCOPE_STYLES: Record<string, string> = {
-  federal: "bg-blue-50 text-blue-700",
-  state:   "bg-violet-50 text-violet-700",
-  local:   "bg-teal-50 text-teal-700",
-};
-
 const STAGE_TABS = [
   { value: "",           label: "All" },
+  { value: "problem",    label: "Problems" },
   { value: "deliberate", label: "Deliberating" },
   { value: "mobilise",   label: "Mobilising" },
   { value: "resolved",   label: "Resolved" },
 ];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const ISSUE_TAG_OPTIONS = [
+  "climate", "healthcare", "education", "housing", "immigration", "finance",
+  "energy", "agriculture", "transportation", "labor", "civil_rights",
+  "foreign_policy", "criminal_justice", "technology", "consumer_protection",
+];
 
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
+const SORT_OPTIONS = [
+  { value: "",         label: "Newest" },
+  { value: "active",   label: "Most active" },
+];
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function InitiativesPage({
   searchParams,
 }: {
-  searchParams: { stage?: string; scope?: string; tag?: string; page?: string; mine?: string };
+  searchParams: { stage?: string; scope?: string; tag?: string; sort?: string; page?: string; mine?: string };
 }) {
   const params = searchParams;
   const stage = params.stage ?? "";
   const scope = params.scope ?? "";
   const tag   = params.tag   ?? "";
+  const sort  = params.sort  ?? "";
   const mine  = params.mine  === "1";
   const page  = Math.max(1, parseInt(params.page ?? "1") || 1);
   const PAGE_SIZE = 20;
@@ -85,19 +67,27 @@ export default async function InitiativesPage({
     // "My initiatives" view: author's own rows (includes drafts — RLS allows it)
     query = query.eq("primary_author_id", user!.id);
     // Still allow stage filtering within own initiatives
-    if (stage) query = query.eq("stage", stage);
+    if (stage) query = query.eq("stage", stage as "problem" | "draft" | "deliberate" | "mobilise" | "resolved");
   } else {
     // Public view: never show drafts
     query = query.neq("stage", "draft");
-    if (stage) query = query.eq("stage", stage);
+    if (stage) query = query.eq("stage", stage as "problem" | "draft" | "deliberate" | "mobilise" | "resolved");
   }
 
-  if (scope) query = query.eq("scope", scope);
+  if (scope) query = query.eq("scope", scope as "local" | "federal" | "state");
   if (tag)   query = query.contains("issue_area_tags", [tag]);
 
+  // Sort
+  if (sort === "active") {
+    query = query
+      .order("mobilise_started_at", { ascending: false, nullsFirst: false })
+      .order("updated_at", { ascending: false });
+  } else {
+    // Default: newest first
+    query = query.order("created_at", { ascending: false });
+  }
+
   const { data, count } = await query
-    .order("mobilise_started_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false })
     .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
 
   const initiatives = (data ?? []) as InitiativeRow[];
@@ -106,10 +96,11 @@ export default async function InitiativesPage({
 
   function buildUrl(updates: Record<string, string>) {
     const p = new URLSearchParams();
-    const merged = { stage, scope, tag, mine: isMine ? "1" : "", ...updates };
+    const merged = { stage, scope, tag, sort, page: String(page), mine: isMine ? "1" : "", ...updates };
     if (merged.stage) p.set("stage", merged.stage);
     if (merged.scope) p.set("scope", merged.scope);
     if (merged.tag)   p.set("tag", merged.tag);
+    if (merged.sort)  p.set("sort", merged.sort);
     if (merged.mine === "1") p.set("mine", "1");
     if (merged.page && merged.page !== "1") p.set("page", merged.page);
     const qs = p.toString();
@@ -131,12 +122,20 @@ export default async function InitiativesPage({
               Citizen-led proposals — from deliberation to official accountability.
             </p>
           </div>
-          <Link
-            href="/initiatives/new"
-            className="flex-shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-            + New initiative
-          </Link>
+          <div className="flex flex-shrink-0 items-center gap-2">
+            <Link
+              href="/initiatives/problem"
+              className="rounded-lg border border-orange-300 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700 shadow-sm hover:bg-orange-100 focus:outline-none focus:ring-2 focus:ring-orange-400"
+            >
+              Post a problem
+            </Link>
+            <Link
+              href="/initiatives/new"
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              + New initiative
+            </Link>
+          </div>
         </div>
 
         {/* ── Stage / view tabs ────────────────────────────────────────── */}
@@ -191,6 +190,53 @@ export default async function InitiativesPage({
           ))}
         </div>
 
+        {/* ── Sort row ─────────────────────────────────────────────────── */}
+        <div className="mb-4 flex items-center gap-3">
+          <span className="text-xs font-medium text-gray-500">Sort by</span>
+          <div className="flex gap-1">
+            {SORT_OPTIONS.map((opt) => (
+              <Link
+                key={opt.value}
+                href={buildUrl({ sort: opt.value, page: "1" })}
+                className={`rounded-lg border px-3 py-1 text-xs font-medium transition-colors ${
+                  sort === opt.value
+                    ? "border-indigo-400 bg-indigo-50 text-indigo-700"
+                    : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:text-gray-900"
+                }`}
+              >
+                {opt.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Topic filter pills ───────────────────────────────────────── */}
+        <div className="mb-6 flex flex-wrap gap-1.5">
+          <Link
+            href={buildUrl({ tag: "", page: "1" })}
+            className={`rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors ${
+              !tag
+                ? "border-indigo-400 bg-indigo-50 text-indigo-700"
+                : "border-gray-200 bg-white text-gray-500 hover:border-gray-300 hover:text-gray-900"
+            }`}
+          >
+            All topics
+          </Link>
+          {ISSUE_TAG_OPTIONS.map((t) => (
+            <Link
+              key={t}
+              href={buildUrl({ tag: t, page: "1" })}
+              className={`rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize transition-colors ${
+                tag === t
+                  ? "border-indigo-400 bg-indigo-50 text-indigo-700"
+                  : "border-gray-200 bg-white text-gray-500 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+              }`}
+            >
+              {t.replace(/_/g, " ")}
+            </Link>
+          ))}
+        </div>
+
         {/* ── Results header ───────────────────────────────────────────── */}
         <div className="mb-4 flex items-center justify-between text-sm text-gray-500">
           <span>
@@ -224,58 +270,9 @@ export default async function InitiativesPage({
           </div>
         ) : (
           <div className="space-y-4">
-            {initiatives.map((initiative) => {
-              const stage_style = STAGE_STYLES[initiative.stage] ?? STAGE_STYLES.draft;
-              return (
-                <Link
-                  key={initiative.id}
-                  href={`/initiatives/${initiative.id}`}
-                  className="block rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1">
-                      {/* Tags row */}
-                      <div className="mb-2 flex flex-wrap items-center gap-2">
-                        <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${stage_style.color}`}>
-                          {stage_style.label}
-                        </span>
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${SCOPE_STYLES[initiative.scope] ?? "bg-gray-50 text-gray-600"}`}>
-                          {initiative.scope}
-                        </span>
-                        {initiative.authorship_type === "community" && (
-                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                            Community
-                          </span>
-                        )}
-                        {initiative.issue_area_tags.slice(0, 3).map((t) => (
-                          <span key={t} className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 capitalize">
-                            {t.replace(/_/g, " ")}
-                          </span>
-                        ))}
-                      </div>
-                      {/* Title */}
-                      <h2 className="text-base font-semibold text-gray-900 leading-snug line-clamp-2">
-                        {initiative.title}
-                      </h2>
-                      {/* Summary */}
-                      {initiative.summary && (
-                        <p className="mt-1 text-sm text-gray-500 line-clamp-2">{initiative.summary}</p>
-                      )}
-                    </div>
-                  </div>
-                  {/* Footer */}
-                  <div className="mt-3 flex items-center gap-4 text-xs text-gray-400">
-                    <span>Started {formatDate(initiative.created_at)}</span>
-                    {initiative.mobilise_started_at && (
-                      <span>Mobilising since {formatDate(initiative.mobilise_started_at)}</span>
-                    )}
-                    {initiative.target_district && (
-                      <span>{initiative.target_district}</span>
-                    )}
-                  </div>
-                </Link>
-              );
-            })}
+            {initiatives.map((initiative) => (
+              <InitiativeCard key={initiative.id} initiative={initiative} />
+            ))}
           </div>
         )}
 

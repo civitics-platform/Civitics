@@ -1,50 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@civitics/db";
+import { gradeFromRate, type ResponsivenessData } from "./_lib";
 
 export const dynamic = "force-dynamic";
-
-// ─── Types ─────────────────────────────────────────────────────────────────────
-
-export type ResponsivenessGrade = "A" | "B" | "C" | "D" | "F";
-
-export type ResponsivenessData = {
-  responded:     number;         // windows where responded_at IS NOT NULL
-  no_response:   number;         // windows where closed + no response
-  open:          number;         // windows still within deadline
-  total_closed:  number;         // responded + no_response
-  response_rate: number | null;  // 0–100, null if no closed windows yet
-  grade:         ResponsivenessGrade | null;
-  recent: Array<{
-    initiative_id:    string;
-    initiative_title: string;
-    scope:            string;
-    response_type:    string;
-    responded_at:     string | null;
-    window_closes_at: string;
-    window_opened_at: string;
-  }>;
-};
-
-// ─── Grade helper ──────────────────────────────────────────────────────────────
-
-export function gradeFromRate(rate: number): ResponsivenessGrade {
-  if (rate >= 90) return "A";
-  if (rate >= 70) return "B";
-  if (rate >= 50) return "C";
-  if (rate >= 30) return "D";
-  return "F";
-}
-
-// ─── GET /api/officials/[id]/responsiveness ────────────────────────────────────
-// Returns the official's responsiveness score across all civic initiative
-// response windows. Used by the official profile page and graph overlays.
-//
-// Scoring:
-//   responded   = rows with responded_at IS NOT NULL
-//   no_response = rows with responded_at IS NULL AND window_closes_at < NOW()
-//   open        = rows with responded_at IS NULL AND window_closes_at >= NOW()
-//   rate        = responded / (responded + no_response) × 100
 
 export async function GET(
   _request: NextRequest,

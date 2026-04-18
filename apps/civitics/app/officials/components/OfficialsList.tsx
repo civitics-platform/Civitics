@@ -104,14 +104,20 @@ export function OfficialsList({
   );
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden bg-gray-50">
-      {/* Slim sub-header — page title + live count */}
-      <div className="shrink-0 border-b border-gray-100 bg-white px-5 py-2.5 flex items-center gap-2">
-        <span className="text-sm font-semibold text-gray-900">Officials</span>
-        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
-          {officials.length.toLocaleString()} members
-        </span>
-      </div>
+    <div className="flex h-screen flex-col overflow-hidden bg-gray-50">
+      {/* Top bar */}
+      <header className="shrink-0 border-b border-gray-200 bg-white px-5 py-3">
+        <div className="flex items-center gap-3">
+          <a href="/" className="text-sm font-medium text-gray-400 hover:text-gray-700 transition-colors">
+            ← Civitics
+          </a>
+          <span className="text-gray-200">/</span>
+          <span className="text-sm font-semibold text-gray-900">Officials</span>
+          <span className="ml-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
+            {officials.length.toLocaleString()} members
+          </span>
+        </div>
+      </header>
 
       {/* Two-panel body */}
       <div className="flex flex-1 overflow-hidden">

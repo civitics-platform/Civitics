@@ -88,7 +88,7 @@ function CommentPanelInner({
   const [confirmNum,  setConfirmNum]  = useState<string | null>(null);
   const [fallbackUrl, setFallbackUrl] = useState<string | null>(null);
 
-  const selected    = proposals[selectedIdx];
+  const selected    = proposals[selectedIdx]!;
   const submitHref  = selected.regulations_gov_id
     ? `https://www.regulations.gov/commenton/${selected.regulations_gov_id}`
     : selected.congress_gov_url;

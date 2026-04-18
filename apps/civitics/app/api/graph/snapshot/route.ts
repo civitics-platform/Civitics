@@ -1282,7 +1282,8 @@ export async function GET(request: Request) {
       return Response.json({ error: "Snapshot not found" }, { status: 404 });
     }
 
-    void supabase.rpc("increment_snapshot_view", { p_code: code });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    void (supabase as any).rpc("increment_snapshot_view", { p_code: code });
 
     return Response.json(data);
   } catch (err) {

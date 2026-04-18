@@ -77,7 +77,8 @@ export async function POST(
       // Always persist the latest gate score
       await admin
         .from("civic_initiatives")
-        .update({ quality_gate_score: gate as unknown as Record<string, unknown> })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .update({ quality_gate_score: gate as any })
         .eq("id", params.id);
 
       if (!gate.can_advance) {
@@ -96,7 +97,7 @@ export async function POST(
         .update({
           stage: "mobilise",
           mobilise_started_at: new Date().toISOString(),
-          quality_gate_score: gate as unknown as Record<string, unknown>,
+          quality_gate_score: gate as any // eslint-disable-line @typescript-eslint/no-explicit-any,
         })
         .eq("id", params.id)
         .select("id,stage,mobilise_started_at")

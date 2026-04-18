@@ -14,6 +14,7 @@ import { SignaturePanel } from "./components/SignaturePanel";
 import { ResponseWindowStatus, type ResponseRow } from "./components/ResponseWindowStatus";
 import { FollowButton } from "./components/FollowButton";
 import { InitiativeCommentPanel, type CommentableProposal } from "./components/InitiativeCommentPanel";
+import { TurnIntoInitiativeButton } from "./components/TurnIntoInitiativeButton";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +57,7 @@ type InitiativeDetail = {
   title: string;
   summary: string | null;
   body_md: string;
-  stage: "draft" | "deliberate" | "mobilise" | "resolved";
+  stage: "problem" | "draft" | "deliberate" | "mobilise" | "resolved";
   scope: "federal" | "state" | "local";
   authorship_type: "individual" | "community";
   primary_author_id: string | null;
@@ -74,6 +75,7 @@ type InitiativeDetail = {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STAGE_STYLES: Record<string, { label: string; color: string; description: string }> = {
+  problem:    { label: "Problem",      color: "bg-orange-100 text-orange-700 border-orange-200", description: "Open problem — seeking community input" },
   draft:      { label: "Draft",        color: "bg-gray-100 text-gray-700 border-gray-200",   description: "Private draft — only visible to you" },
   deliberate: { label: "Deliberating", color: "bg-amber-100 text-amber-700 border-amber-200", description: "Open for community deliberation" },
   mobilise:   { label: "Mobilising",   color: "bg-indigo-100 text-indigo-700 border-indigo-200", description: "Gathering signatures" },
@@ -158,8 +160,8 @@ export default async function InitiativeDetailPage({
 
   const initiative = initiativeRes.data as InitiativeDetail;
   const isAuthor = user?.id === initiative.primary_author_id;
-  const canEdit = isAuthor && (initiative.stage === "draft" || initiative.stage === "deliberate");
-  const stageStyle = STAGE_STYLES[initiative.stage] ?? STAGE_STYLES.draft;
+  const canEdit = isAuthor && (initiative.stage === "draft" || initiative.stage === "deliberate" || initiative.stage === "problem");
+  const stageStyle = (STAGE_STYLES[initiative.stage] ?? STAGE_STYLES.draft)!;
   const upvoteCount   = upvoteRes.count ?? 0;
   const followCount   = followRes.count ?? 0;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -269,6 +271,27 @@ export default async function InitiativeDetailPage({
               </div>
             )}
 
+            {/* Problem stage — public but no solution yet */}
+            {initiative.stage === "problem" && (
+              <div className="mb-6 rounded-lg border border-orange-200 bg-orange-50 px-4 py-4">
+                <div className="flex items-start gap-3">
+                  <svg className="mt-0.5 h-4 w-4 flex-shrink-0 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.347.347A3.977 3.977 0 0112 15.75a3.977 3.977 0 01-2.79-1.153l-.347-.347z" />
+                  </svg>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-orange-800">Open problem — community input welcome</p>
+                    <p className="mt-0.5 text-xs text-orange-700">
+                      This is a problem statement, not a full proposal. The community can discuss
+                      causes, share experiences, and help develop solutions.
+                    </p>
+                    {isAuthor && (
+                      <TurnIntoInitiativeButton initiativeId={initiative.id} />
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Quality gate — shown to author on draft + deliberate stages */}
             {isAuthor && (initiative.stage === "draft" || initiative.stage === "deliberate") && (
               <QualityGate
@@ -277,10 +300,10 @@ export default async function InitiativeDetailPage({
               />
             )}
 
-            {/* Proposal body */}
+            {/* Proposal / problem body */}
             <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
               <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-400">
-                Proposal
+                {initiative.stage === "problem" ? "Problem description" : "Proposal"}
               </h2>
               <div
                 className="prose prose-sm max-w-none"

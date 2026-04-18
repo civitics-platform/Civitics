@@ -44,7 +44,7 @@ export function RelatedInitiatives({ initiatives }: RelatedInitiativesProps) {
       </p>
       <div className="space-y-2">
         {initiatives.map((init) => {
-          const ss = STAGE_STYLES[init.stage] ?? STAGE_STYLES.draft;
+          const ss = (STAGE_STYLES[init.stage] ?? STAGE_STYLES.draft)!;
           return (
             <Link
               key={init.id}

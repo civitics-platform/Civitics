@@ -37,6 +37,8 @@ function loadEnv(filePath) {
   }
 }
 
+// Check root first, then apps/civitics as fallback
+loadEnv(resolve(__dirname, "../.env.local"));
 loadEnv(resolve(__dirname, "../apps/civitics/.env.local"));
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;

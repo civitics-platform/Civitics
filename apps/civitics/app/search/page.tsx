@@ -129,7 +129,13 @@ function ProposalCard({ p, badge }: { p: SearchProposal; badge?: boolean }) {
           </span>
         )}
         {p.agency_acronym && (
-          <span className="font-mono text-[11px] text-gray-400">{p.agency_acronym}</span>
+          <a
+            href={`/proposals?agency=${encodeURIComponent(p.agency_acronym)}`}
+            className="font-mono text-[11px] text-gray-400 hover:text-indigo-600 transition-colors"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {p.agency_acronym}
+          </a>
         )}
       </div>
       <p className="mt-1.5 text-sm font-semibold text-gray-900 line-clamp-2 leading-snug">

@@ -14,6 +14,7 @@ import { OfficialComments } from "./components/OfficialComments";
 import { ResponsivenessCard } from "../components/ResponsivenessCard";
 import { gradeFromRate } from "../../api/officials/[id]/responsiveness/route";
 import { PageViewTracker } from "../../components/PageViewTracker";
+import { NavBar } from "../../components/NavBar";
 
 const CivicBadge = nextDynamic(
   () => import("@civitics/graph").then((m) => ({ default: m.CivicBadge })),
@@ -582,23 +583,12 @@ export default async function OfficialProfilePage({
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <NavBar />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(officialJsonLd) }}
       />
       <PageViewTracker entityType="official" entityId={params.id} />
-      {/* Nav */}
-      <header className="border-b border-gray-200 bg-white">
-        <div className="mx-auto max-w-5xl px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-2 text-sm text-gray-500">
-            <a href="/" className="hover:text-gray-900 transition-colors">Civitics</a>
-            <span className="text-gray-300">/</span>
-            <a href="/officials" className="hover:text-gray-900 transition-colors">Officials</a>
-            <span className="text-gray-300">/</span>
-            <span className="text-gray-900 font-medium truncate max-w-xs">{official.full_name}</span>
-          </div>
-        </div>
-      </header>
 
       <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
 

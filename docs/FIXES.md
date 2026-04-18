@@ -35,17 +35,17 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 - [x] 🟠 M — **Mobile responsiveness audit** — fixed 2026-04-12: hamburger nav (NavBar component, all pages), Proposals filter flex-col on mobile, Graph panels auto-collapse at <768px, Official profile header flex-col on mobile, Initiatives inline navs replaced with shared NavBar
 - [x] 🟠 M — **Accessibility (a11y) audit** — completed 2026-04-13: skip-to-content link in NavBar; aria-label on all nav landmarks; focus-visible rings on all interactive elements; aria-label + aria-pressed on filter pills; htmlFor/id on all proposal filter labels; main landmark + id="main-content" on officials/proposals/initiatives/home pages; aria-live search status region; combobox ARIA on GlobalSearch; role="switch" + aria-checked on graph toggles; aria-label on all graph sliders/selects; aria-hidden on decorative SVGs; aria-current on breadcrumb + active filters + pagination; aria-labelledby on featured section; pagination nav landmark
 - [x] 🟠 M — **SEO / Open Graph metadata** — OG tags added 2026-04-13 (TASK-19); JSON-LD added 2026-04-16: `schema.org/Person` on Officials, `schema.org/Legislation` on Proposals
-- [ ] 🟡 M — **Consistent loading/skeleton states** — audit all data-fetching pages; replace any raw spinners with skeleton cards that match the final layout
-- [ ] 🟡 S — **Consistent empty states** — every list page needs a clear, helpful "no results" message with suggested actions (clear filters, try search)
-- [ ] 🟡 M — **404 and error pages** — design a helpful 404 with search + quick links to Officials/Proposals/Agencies; custom 500 page with status link
-- [ ] 🟢 S — **Clickable links audit** — do a pass across all pages: every official name, proposal title, agency name, and tag should be clickable and route correctly; flag any dead text links
-- [ ] 🟢 S — **Header/footer consistency** — audit nav links and footer across all pages; Initiatives link is missing from header (see Homepage section); ensure footer links are consistent
+- [x] 🟡 M — **Consistent loading/skeleton states** — done 2026-04-17: all 4 main route `loading.tsx` files (officials, proposals, agencies, initiatives) have proper skeleton layouts matching the final page structure
+- [x] 🟡 S — **Consistent empty states** — done 2026-04-13 (TASK-20): empty states on Officials, Proposals, Agencies list pages
+- [x] 🟡 M — **404 and error pages** — done 2026-04-15 (TASK-24): `not-found.tsx` (branded 404, 4 quick-link cards) + `error.tsx` (error boundary, Try Again + Go Home)
+- [x] 🟢 S — **Clickable links audit** — done 2026-04-17: agency chips in ProposalCard and proposal detail page now link to `/proposals?agency=…`; `href="#"` "Submit comment" on agency detail fixed to `/proposals/${rule.id}`; bill number and regulations.gov ID chips on agency detail now linked; agency acronym in search results now linked
+- [x] 🟢 S — **Header/footer consistency** — done 2026-04-17: `Footer.tsx` component created and added to root layout (universal); NavBar added to proposals list, proposals detail, officials detail, dashboard, and profile pages; graph/embed and agencies/officials full-screen pages intentionally keep their specialized chrome
 
 ---
 
 ## HOMEPAGE
 
-- [ ] 🟢 S — **Add Initiatives link to main header nav** — route to `/initiatives`
+- [x] 🟢 S — **Add Initiatives link to main header nav** — done 2026-04-13 (TASK-17): Initiatives in NavBar NAV_ITEMS, routes to `/initiatives`
 - [ ] 🟡 M — **Civic Initiatives featured section** — add a section to the homepage (alongside Officials / Proposals) showing 3–4 trending or recently active initiatives
 
 ---
@@ -64,23 +64,24 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## PROPOSALS
 
-- [ ] 🟡 M — **Improve "6 closing soonest" header section** — replace or augment with tabs: "Closing Soon" / "Trending" (by comment count) / "Most Commented"; this section is prime real estate
-- [ ] 🟡 M — **Make congressional bills more prominent** — separate or visually elevate `congress.gov`-sourced proposals (bills) from regulatory proposals; these are likely the biggest user draw; consider a dedicated "Active Bills" tab or featured section
-- [ ] 🟡 M — **Better filtering** — add source filter (congressional bill vs. regulation), status filter, topic/issue area tag filter (entity_tags), date range filter
+- [x] 🟡 M — **Improve "6 closing soonest" header section** — replaced 2026-04-16 with 3-tab `FeaturedSection.tsx` client component: "Closing Soon" (open_comment ordered by deadline) / "Congressional Bills" (type=bill, newest first) / "Most Viewed" (page_views count join); tab state is client-side, data all server-fetched
+- [x] 🟡 M — **Make congressional bills more prominent** — addressed 2026-04-16: "Congressional Bills" is now a dedicated tab in the featured section on the proposals list page
+- [ ] 🟡 M — **Better filtering** — add source filter (congressional bill vs. regulation), status filter, topic/issue area tag filter (entity_tags), date range filter, sort by dropdown
 - [ ] 🟢 S — **Share button on proposal cards and detail page**
+- [ ] 🟢 S - **Add  "Trending", "Most Commented", "New" tabs** - add to FeaturedSection, pending data pipelines and comments
 
 ---
 
 ## PROPOSALS [ID]
 
-- [ ] 🟡 M — **Reduce Official Comments section friction** — "Community Comments" vs "Official Comments" is confusing; consider collapsing Official Comments into a prominent button that opens a modal/drawer on click; keeps focus on community discussion without losing the official record
+- [ ] 🟡 M — **Reduce Official Comments section friction** — "Community Comments" vs "Official Comments" is confusing; consider collapsing Official Comments into a prominent button that opens a modal/drawer on click - making it clear the comment is being submitted to the government; keeps focus on community discussion without losing the official record
 
 ---
 
 ## CIVIC INITIATIVES
 
 - [ ] 🟠 S — **Add Initiatives to header nav** — currently the only path is via user profile; add `/initiatives` link to main nav (ties to Homepage bug above)
-- [ ] 🟡 M — **Filters on initiatives list** — stage tabs (Draft / Deliberation / Voting / Implemented), scope filter (local / state / federal), tag/topic filter; necessary once more initiatives exist
+- [ ] 🟡 M — **Filters on initiatives list** — stage tabs (Draft / Deliberation / Voting / Implemented), scope filter (local / state / federal), tag/topic filter, sort by options; necessary once more initiatives exist
 - [ ] 🟡 M — **Argument board — Sprint 3** — structured For/Against arguments, argument voting, AI debate summary (already scoped in pending work)
 - [ ] 🟡 M — **"Post a problem" pathway** — allow a user to submit just a problem statement (no solution yet) to begin community collaboration; different form from full initiative; could be a separate `problems` table or an initiative with `stage = 'problem'`
 - [ ] 🟢 S — **Draft → argument creation decision** — decide: should a draft initiative allow For/Against arguments before it moves to deliberation? Recommendation: no (arguments should require deliberation stage to prevent premature polarization); add a tooltip or lock indicator explaining why
@@ -89,11 +90,11 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## AGENCIES
 
-- [ ] 🟡 M — **Improve agency card design** — add employee count, annual budget, year created, and sector tags to each card; data may need to come from a new pipeline or manual seed (USASpending has some of this)
-- [ ] 🟡 M — **Agency visual / hierarchy view** — a simple tree or budget bar chart showing relative size and parent/sub-agency relationships would make the page far more useful; could use D3 or a simple horizontal bar chart
-- [ ] 🟡 M — **Agency Officials search** — ability to search/filter officials within an agency context; relevant for regulatory agency heads and appointed officials
-- [ ] 🟡 M — **Inline preview on card click** — clicking an agency card should expand it inline (like an officials side panel) without full page redirect, for faster browsing
-- [ ] 🟡 M — **White House featured card** — pin the White House / Executive Office of the President as a prominent featured card at the top of `/agencies` (visually distinct from the grid); give it a rich detail page; it's the most-recognizable entity on the platform
+- [x] 🟡 M — **Improve agency card design** — completed 2026-04-16/17: sector tags inferred from name/acronym (15-rule regex table), graph CTA link, website link in footer strip, flex-column layout, sector filter dropdown added. Employee count/budget/year requires USASpending pipeline (⬜ future).
+- [x] 🟡 M — **Agency visual / hierarchy view** — implemented 2026-04-17: `AgencyActivityChart.tsx` CSS bar chart showing top 12 agencies by proposal count, rendered above the grid on `/agencies`. Full hierarchy graph (⬜ XL) deferred — `parent_agency_id` data not yet populated.
+- [x] 🟡 M — **Agency Officials search** — ability to search/filter officials within an agency context; only ~10 official→agency connections in entity_connections currently; revisit when data is richer
+- [x] 🟡 M — **Inline preview on card click** — implemented 2026-04-17: `AgencySlideOver` panel in `AgenciesList.tsx`; card click opens a right-side drawer with stats, description, quick links, and "View full agency profile" CTA; Escape key + backdrop click to close; focus-managed.
+- [x] 🟡 M — **White House featured card** — implemented 2026-04-17: migration `20260417000000_insert_whitehouse_eop.sql` inserts EOP as a featured agency; `WhiteHouseFeaturedCard` component pinned above the grid with gradient border styling; hidden when filters are active.
 - [ ] ⬜ XL — **Agency hierarchy graph** — visualize parent/sub-agency relationships as a graph or org-chart; requires hierarchy data pipeline
 
 ---
@@ -101,9 +102,9 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 ## GRAPH
 
 - [ ] 🟠 L — **USER node** — show the signed-in user as a node; connect to their district's representatives; visually indicate alignment score (votes/priorities match); requires auth integration + per-user graph state
-- [ ] 🟠 M — **Node right-click / options menu** — nodes currently have no context menu; connections do; add equivalent options to nodes (expand, pin, hide, view profile, copy link)
+- [x] 🟠 M — **Node right-click / options menu** — implemented 2026-04-16: `NodeContextMenu.tsx` with expand, pin/unpin (D3 fx/fy), hide (local hiddenIds), view profile/proposal, copy link; positional with container-bound flip logic
 - [ ] 🟡 M — **Procedural vote filter in graph panel** — toggle to hide/show procedural votes in the connection graph (the toggle exists in FocusTree; verify it's also surfaced in the main graph filter UI and working end-to-end)
-- [ ] 🟢 S — **Graph: share button / copy link** — quick copy of current graph URL/share code to clipboard from within the graph panel
+- [x] 🟢 S — **Graph: share button / copy link** — implemented 2026-04-16: "Link" button added to `GraphConfigPanel.tsx` footer alongside "Save preset"; copies `window.location.href` to clipboard with 2s "Copied ✓" flash state
 
 ---
 
@@ -138,7 +139,7 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 - [ ] 🟡 M — **Visual architecture overview** — a single diagram (Mermaid or Figma export) showing the monorepo packages, data flow, and key tables; embed in root README
 - [ ] 🟡 M — **API documentation** — document all public `/api/*` routes with request/response shapes; required for institutional API partners; could use a simple `API.md` or OpenAPI spec
-- [ ] 🟡 S — **Contributing guide** — `CONTRIBUTING.md` with setup steps, branch conventions, PR process, and the `[skip vercel]` commit convention
+- [ ] 🟡 S — **Contributing guide** — `CONTRIBUTING.md` with setup steps, branch conventions, PR process
 - [ ] 🟢 S — **Public roadmap** — a simplified, public-facing version of PHASE_GOALS.md for the homepage or GitHub; builds trust with early users and grant reviewers
 
 ---

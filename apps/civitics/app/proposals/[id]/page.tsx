@@ -7,6 +7,7 @@ import { CommentDraftSection } from "../components/CommentDraftSection";
 import { AGENCY_FULL_NAMES } from "../components/agencyNames";
 import { AiSummarySection } from "../components/AiSummarySection";
 import { PageViewTracker } from "../../components/PageViewTracker";
+import { NavBar } from "../../components/NavBar";
 import { CivicComments } from "./components/CivicComments";
 import { PositionWidget } from "./components/PositionWidget";
 import { RelatedInitiatives, type InitiativeLink } from "../components/RelatedInitiatives";
@@ -257,6 +258,7 @@ export default async function ProposalDetailPage({
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <NavBar />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(proposalJsonLd) }}
@@ -280,12 +282,16 @@ export default async function ProposalDetailPage({
               {open ? "⏰ " : ""}{statusBadge.label}
             </span>
             {agencyAcronym && (
-              <span className="inline-flex items-center gap-1.5 rounded border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs">
-                <span className="font-mono font-semibold text-gray-700">{agencyAcronym}</span>
+              <a
+                href={`/proposals?agency=${encodeURIComponent(agencyAcronym)}`}
+                className="inline-flex items-center gap-1.5 rounded border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs hover:border-indigo-300 hover:bg-indigo-50 transition-colors"
+                title={agencyFullName ? `View all ${agencyFullName} proposals` : `View all ${agencyAcronym} proposals`}
+              >
+                <span className="font-mono font-semibold text-gray-700 hover:text-indigo-700">{agencyAcronym}</span>
                 {agencyFullName && (
                   <span className="text-gray-400">· {agencyFullName}</span>
                 )}
-              </span>
+              </a>
             )}
             <span className="rounded border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-600">
               {docType ?? typeLabel}

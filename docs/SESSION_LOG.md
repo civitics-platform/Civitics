@@ -2,6 +2,82 @@
 
 ---
 
+## 2026-04-17 (session 2)
+
+**Done:**
+- GENERAL / CROSS-CUTTING FIXES sweep — all 5 remaining items cleared:
+  - Marked already-completed items: loading/skeleton states (all 4 `loading.tsx` files), empty states (TASK-20), 404/error pages (TASK-24), Initiatives nav link (TASK-17) — checkboxes updated
+  - **Clickable links audit**: agency chips in `ProposalCard` and proposal detail now link to `/proposals?agency=…`; dead `href="#"` "Submit comment" on agency detail page fixed to `/proposals/${rule.id}`; bill number and regulations.gov ID chips on agency detail are now `<a>` tags; agency acronym in search results `ProposalCard` now links to `/proposals?agency=…`
+  - **Footer**: `Footer.tsx` created (`app/components/Footer.tsx`) — Civitics wordmark + mission tagline, all 6 nav links, copyright line, Privacy + Terms legal links; added to root `layout.tsx` (universal, appears on all scrollable pages; invisible below fold on full-screen layouts like officials/graph)
+  - **Header consistency**: NavBar added to: `proposals/page.tsx`, `proposals/[id]/page.tsx`, `officials/[id]/page.tsx` (replaced custom breadcrumb header), `dashboard/page.tsx`, `profile/page.tsx`; full-screen layouts (`officials/page`, `agencies/page`, `graph/page`) retain specialized chrome; search page retains its custom search-form header
+
+**Up next:**
+- Officials: filtering improvements (chamber / state / issue area filter — 🟡 M)
+- Community commenting UI on proposals (🟠 L — `civic_comments` table exists)
+- Proposals: better filtering (source, status, topic, date range — 🟡 M)
+
+---
+
+## 2026-04-17
+
+**Done:**
+- Agency activity bar chart (`AgencyActivityChart.tsx`): CSS bar chart showing top 12 agencies by proposal count, rendered above the agency grid on `/agencies`; no D3 needed — Tailwind width-percentage bars
+- White House / EOP featured card: migration `20260417000000_insert_whitehouse_eop.sql` inserts EOP with `is_whitehouse: true` in metadata; `WhiteHouseFeaturedCard` component pinned above the grid with gradient border; hidden when filters are active
+- Sector filter: `AgenciesList.tsx` now has a "All sectors" dropdown that filters using the same 15-rule SECTOR_RULES inference already used for tags
+- Agency inline slide-over panel: card clicks now open `AgencySlideOver` right-side drawer (stats, description, open-comment callout, graph + website links, "View full profile" CTA); Escape + backdrop to close; `aria-modal` + focus management
+
+**⚠️ Action needed:**
+- Run `supabase migration up --local` to apply `20260417000000_insert_whitehouse_eop.sql` (inserts the White House / EOP agency record)
+
+**Up next:**
+- Header/footer consistency audit (🟢 S) — Initiatives link still missing from header nav
+- Officials: filtering improvements (chamber / state / issue area filter — 🟡 M)
+- Community commenting UI on proposals (🟠 L — `civic_comments` table exists)
+
+---
+
+## 2026-04-16 (session 3)
+
+**Done:**
+- Git ghost lock workaround documented in `CLAUDE.md` — full explanation of Windows NTFS mount issue, PowerShell command for Craig's side, and the temp-index plumbing command sequence for Claude's side
+- Graph: "Link" copy button added to `GraphConfigPanel.tsx` footer alongside "Save preset" — copies `window.location.href`, 2s "Copied ✓" flash; added `useState` import
+- Proposals: Featured section replaced with 3-tab `FeaturedSection.tsx` client component:
+  - "Closing Soon" tab — open_comment proposals ordered by deadline (existing data)
+  - "Congressional Bills" tab — type=bill ordered by introduced_at desc (newest first)
+  - "Most Viewed" tab — page_views aggregated server-side, top 6 by view count, rank-ordered
+  - Tab state is client-side `useState`; all data server-fetched in parallel in `page.tsx`
+  - Also marks the "Make congressional bills more prominent" FIXES item done
+
+**Up next:**
+- Header/footer consistency audit (🟢 S) — Initiatives link missing from header
+- Officials: filtering improvements (chamber / state / issue filter — 🟡 M)
+- Community commenting UI on proposals (🟠 L — `civic_comments` table exists)
+
+---
+
+## 2026-04-16 (session 2)
+
+**Done:**
+- Graph node right-click context menu (`NodeContextMenu.tsx` + `ForceGraph.tsx`):
+  - Right-click any node → positional menu near cursor with: Expand, Pin/Unpin, View profile/proposal, Copy link, Hide
+  - Pin: toggles `fx`/`fy` on D3 simulation node to fix position; `📍` icon when pinned
+  - Hide: adds node to local `hiddenIds` Set; filtered before simulation builds; resets when graph data changes
+  - Copy link: copies `/officials/{id}`, `/proposals/{id}`, or `/graph?entity={id}` to clipboard
+  - Menu flips to stay inside container bounds; closes on Escape or backdrop click
+  - Container ref wired for precise flip calculations
+- Agency card improvements (`AgenciesList.tsx`):
+  - Smart sector tags inferred from agency name/acronym via 15-rule regex table (Environment, Defense, Health, Finance, Transportation, Energy, Education, Labor, Agriculture, Justice, Housing, Immigration, Space, Commerce, Communications); max 2 tags per card
+  - Footer action strip: "Graph" link → `/graph?entity={id}`; "Website" link → external if `website_url` present
+  - Cards are now flex-column so footer always aligns at bottom
+  - `toLocaleString()` formatting on proposal counts
+
+**Up next:**
+- Quick wins: Header/footer consistency audit (🟢 S)
+- Graph: share button / copy link in graph panel (🟢 S)
+- Proposals: "6 closing soonest" header improvements (🟡 M)
+
+---
+
 ## 2026-04-16
 
 **Done:**

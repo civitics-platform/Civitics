@@ -3,8 +3,10 @@ export const dynamic = "force-dynamic";
 import { cookies } from "next/headers";
 import { createServerClient, agencyFullName } from "@civitics/db";
 import { AgenciesList } from "./components/AgenciesList";
+import { AgencyActivityChart } from "./components/AgencyActivityChart";
 import { PageViewTracker } from "../components/PageViewTracker";
 import { PageHeader } from "@civitics/ui";
+import { NavBar } from "../components/NavBar";
 
 export const metadata = { title: "Agencies" };
 
@@ -18,6 +20,7 @@ export type AgencyRow = {
   description: string | null;
   totalProposals: number;
   openProposals: number;
+  isFeatured?: boolean;
 };
 
 export default async function AgenciesPage() {
@@ -26,7 +29,7 @@ export default async function AgenciesPage() {
 
   const { data: agencyRows, error } = await supabase
     .from("agencies")
-    .select("id, name, short_name, acronym, agency_type, website_url, description")
+    .select("id, name, short_name, acronym, agency_type, website_url, description, metadata")
     .eq("is_active", true)
     .order("name")
     .limit(200);
@@ -57,6 +60,7 @@ export default async function AgenciesPage() {
 
   const agencies: AgencyRow[] = rows.map((agency, i) => {
     const pair = statPairs[i];
+    const meta = agency.metadata as Record<string, unknown> | null;
     return {
       id: agency.id,
       name: agencyFullName(agency.acronym) ?? agency.name,
@@ -67,23 +71,33 @@ export default async function AgenciesPage() {
       description: agency.description ?? null,
       totalProposals: pair?.[0]?.count ?? 0,
       openProposals: pair?.[1]?.count ?? 0,
+      isFeatured: meta?.["is_whitehouse"] === true,
     };
   });
 
+  // Top agencies by proposal count for the activity chart (exclude EOP/featured, min 1 proposal)
+  const chartRows = agencies
+    .filter((a) => !a.isFeatured && a.totalProposals > 0)
+    .sort((a, b) => b.totalProposals - a.totalProposals)
+    .slice(0, 12)
+    .map((a) => ({ name: a.name, acronym: a.acronym, count: a.totalProposals }));
+
   return (
     <div className="min-h-screen bg-gray-50">
+      <NavBar />
       <PageViewTracker entityType="agency_list" />
+      <main id="main-content">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <PageHeader
           title="Agencies"
           description="Federal agencies, their active rulemaking, and open comment periods."
-          breadcrumb={[
-            { label: "Civitics", href: "/" },
-            { label: "Agencies" },
-          ]}
         />
+        <div className="mt-6">
+          <AgencyActivityChart rows={chartRows} />
+        </div>
       </div>
       <AgenciesList agencies={agencies} />
+      </main>
     </div>
   );
 }

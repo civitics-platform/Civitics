@@ -1,5 +1,3 @@
-"use client";
-
 import Link from "next/link";
 import { CommentPeriodBadge } from "./CommentPeriodBadge";
 import { SubmitCommentButton } from "./SubmitCommentButton";
@@ -50,12 +48,10 @@ const TYPE_LABEL: Record<string, string> = {
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
-  // timeZone: "UTC" ensures server (Node UTC) and browser produce identical output
   return new Date(iso).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
-    timeZone: "UTC",
   });
 }
 
@@ -86,18 +82,9 @@ export function ProposalCard({ proposal }: { proposal: ProposalCardData }) {
       : summaryText
     : null;
 
-  // ── Overlay pattern ───────────────────────────────────────────────────────
-  // SubmitCommentButton renders as <a>, so wrapping the whole card in <Link>
-  // (also <a>) creates nested <a> tags — invalid HTML that browsers auto-correct,
-  // breaking hydration. Instead: card content lives in a plain <div>; an
-  // absolutely-positioned invisible <Link> covers the whole card surface.
-  // Action buttons use `relative z-10` to sit above the overlay and receive
-  // their own clicks normally.
   return (
-    <div className="relative group h-full">
-      {/* Card content — NOT inside any <a> */}
+    <Link href={`/proposals/${proposal.id}`} className="block group">
       <div
-        suppressHydrationWarning
         className={`flex flex-col h-full rounded-lg border bg-white p-5 transition-all group-hover:shadow-md group-hover:border-gray-300 cursor-pointer ${
           open ? "border-amber-200" : "border-gray-200"
         }`}
@@ -105,7 +92,6 @@ export function ProposalCard({ proposal }: { proposal: ProposalCardData }) {
         {/* Badge row */}
         <div className="flex flex-wrap items-center gap-1.5 mb-3">
           <span
-            suppressHydrationWarning
             className={`rounded border px-2 py-0.5 text-xs font-medium ${statusBadge.color}`}
           >
             {open ? "⏰ " : ""}{statusBadge.label}
@@ -118,17 +104,12 @@ export function ProposalCard({ proposal }: { proposal: ProposalCardData }) {
           )}
         </div>
 
-        {/* Agency — link filters proposals list to this agency */}
+        {/* Agency */}
         {agencyAcronym && (
-          <div className="flex items-center gap-1.5 mb-2 relative z-10">
-            <a
-              href={`/proposals?agency=${encodeURIComponent(agencyAcronym)}`}
-              className="rounded border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs font-mono font-semibold text-gray-700 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
-              title={proposal.agency_name ? `View all ${proposal.agency_name} proposals` : `View all ${agencyAcronym} proposals`}
-              onClick={(e) => e.stopPropagation()}
-            >
+          <div className="flex items-center gap-1.5 mb-2">
+            <span className="rounded border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs font-mono font-semibold text-gray-700">
               {agencyAcronym}
-            </a>
+            </span>
             {proposal.agency_name && (
               <span className="text-xs text-gray-400 truncate" title={proposal.agency_name}>
                 ·{" "}
@@ -183,8 +164,8 @@ export function ProposalCard({ proposal }: { proposal: ProposalCardData }) {
             </p>
           )}
 
-          {/* Action row — relative z-10 lifts these above the card overlay link */}
-          <div className="relative z-10 flex items-center gap-2">
+          {/* Action row: submit + share — stopPropagation so card click still navigates */}
+          <div className="flex items-center gap-2">
             {open && (
               <SubmitCommentButton
                 regulationsGovId={proposal.regulations_gov_id}
@@ -197,14 +178,6 @@ export function ProposalCard({ proposal }: { proposal: ProposalCardData }) {
           </div>
         </div>
       </div>
-
-      {/* Invisible full-card link overlay. Positioned after content so it
-          stacks above the static card div; action buttons (z-10) stay on top. */}
-      <Link
-        href={`/proposals/${proposal.id}`}
-        className="absolute inset-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
-        aria-label={proposal.title}
-      />
-    </div>
+    </Link>
   );
 }

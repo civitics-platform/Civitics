@@ -3,7 +3,6 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { createServerClient } from "@civitics/db";
-import { NavBar } from "../components/NavBar";
 import { PageViewTracker } from "../components/PageViewTracker";
 import { InitiativeCard, type InitiativeCardData } from "./components/InitiativeCard";
 
@@ -110,8 +109,6 @@ export default async function InitiativesPage({
   return (
     <div className="min-h-screen bg-gray-50">
       <PageViewTracker />
-
-      <NavBar />
 
       <main id="main-content" className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
         {/* ── Page header ──────────────────────────────────────────────── */}

@@ -9,7 +9,6 @@ const DistrictMap = nextDynamic(
   { ssr: false }
 );
 import { GlobalSearch } from "./components/GlobalSearch";
-import { NavBar } from "./components/NavBar";
 import { PageViewTracker } from "./components/PageViewTracker";
 import { HomeOfficialCard, type HomeOfficialCardData } from "./components/HomeOfficialCard";
 import { ProposalCard, type ProposalCardData } from "./proposals/components/ProposalCard";
@@ -563,7 +562,6 @@ export default async function HomePage({
   return (
     <div className="min-h-screen bg-gray-50">
       <PageViewTracker />
-      <NavBar />
       <Hero stats={stats} />
       <main id="main-content" className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-12">

@@ -14,7 +14,6 @@ import { OfficialComments } from "./components/OfficialComments";
 import { ResponsivenessCard } from "../components/ResponsivenessCard";
 import { gradeFromRate } from "../../api/officials/[id]/responsiveness/_lib";
 import { PageViewTracker } from "../../components/PageViewTracker";
-import { NavBar } from "../../components/NavBar";
 
 const CivicBadge = nextDynamic(
   () => import("@civitics/graph").then((m) => ({ default: m.CivicBadge })),
@@ -583,7 +582,6 @@ export default async function OfficialProfilePage({
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <NavBar />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(officialJsonLd) }}

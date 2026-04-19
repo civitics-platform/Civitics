@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 import { GlobalSearch } from "./GlobalSearch";
 import { AuthButton } from "./AuthButton";
 
@@ -14,7 +15,13 @@ const NAV_ITEMS = [
 ];
 
 export function NavBar() {
+  const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Routes that render their own chrome (graph views, auth flows).
+  if (pathname?.startsWith("/graph") || pathname?.startsWith("/auth/")) {
+    return null;
+  }
 
   return (
     <header className="border-b border-gray-200 bg-white">

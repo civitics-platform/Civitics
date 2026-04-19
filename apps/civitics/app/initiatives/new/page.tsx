@@ -3,7 +3,6 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@civitics/db";
 import { CreateInitiativeForm } from "./CreateInitiativeForm";
 import Link from "next/link";
-import { NavBar } from "../../components/NavBar";
 
 export const metadata = {
   title: "New Initiative",
@@ -23,8 +22,6 @@ export default async function NewInitiativePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <NavBar />
-
       <main className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
         {/* Breadcrumb */}
         <nav className="mb-6 flex items-center gap-2 text-sm text-gray-500">

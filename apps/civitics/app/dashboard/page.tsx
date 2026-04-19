@@ -7,7 +7,6 @@ import { DashboardClient } from "./DashboardClient";
 import { SitemapSection } from "./SitemapSection";
 import { BrowsingFlowsSection, type PathTransition, type EntryPage } from "./BrowsingFlowsSection";
 import { PageViewTracker } from "../components/PageViewTracker";
-import { NavBar } from "../components/NavBar";
 
 export const metadata = { title: "Platform Transparency | Civitics" };
 
@@ -139,7 +138,6 @@ export default async function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <NavBar />
       <PageViewTracker entityType="dashboard" />
       <main id="main-content">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">

@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { createServerClient } from "@civitics/db";
-import { NavBar } from "../../components/NavBar";
 import { PageViewTracker } from "../../components/PageViewTracker";
 import { UpvoteButton } from "./components/UpvoteButton";
 import { VersionHistory } from "./components/VersionHistory";
@@ -180,8 +179,6 @@ export default async function InitiativeDetailPage({
   return (
     <div className="min-h-screen bg-gray-50">
       <PageViewTracker entityType="initiative" entityId={id} />
-
-      <NavBar />
 
       <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
         {/* Breadcrumb */}

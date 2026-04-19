@@ -68,6 +68,23 @@ export function BrowsingFlowsSection({ transitions, entryPages }: Props) {
           <ul className="space-y-1.5">
             {entryPages.map((e) => {
               const pct = Math.round((e.sessions / maxEntry) * 100);
+              const isTemplate = e.page.includes(":id");
+              const rowClass =
+                "relative flex items-center justify-between gap-3 rounded px-2 py-1.5 text-sm hover:bg-blue-100/40";
+              const inner = (
+                <>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span aria-hidden="true">{pathIcon(e.page)}</span>
+                    <span className="truncate font-medium text-gray-800">{pathLabel(e.page)}</span>
+                    <code className="hidden truncate text-[10px] font-mono text-gray-400 sm:inline">
+                      {e.page}
+                    </code>
+                  </span>
+                  <span className="tabular-nums text-xs text-gray-600">
+                    {e.sessions.toLocaleString()} sessions
+                  </span>
+                </>
+              );
               return (
                 <li key={e.page} className="relative">
                   <div
@@ -75,25 +92,15 @@ export function BrowsingFlowsSection({ transitions, entryPages }: Props) {
                     style={{ width: `${pct}%` }}
                     aria-hidden="true"
                   />
-                  <a
-                    href={e.page.includes(":id") ? "#" : e.page}
-                    className="relative flex items-center justify-between gap-3 rounded px-2 py-1.5 text-sm hover:bg-blue-100/40"
-                    aria-disabled={e.page.includes(":id")}
-                    onClick={(ev) => {
-                      if (e.page.includes(":id")) ev.preventDefault();
-                    }}
-                  >
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span aria-hidden="true">{pathIcon(e.page)}</span>
-                      <span className="truncate font-medium text-gray-800">{pathLabel(e.page)}</span>
-                      <code className="hidden truncate text-[10px] font-mono text-gray-400 sm:inline">
-                        {e.page}
-                      </code>
+                  {isTemplate ? (
+                    <span className={rowClass} aria-disabled="true">
+                      {inner}
                     </span>
-                    <span className="tabular-nums text-xs text-gray-600">
-                      {e.sessions.toLocaleString()} sessions
-                    </span>
-                  </a>
+                  ) : (
+                    <a href={e.page} className={rowClass}>
+                      {inner}
+                    </a>
+                  )}
                 </li>
               );
             })}

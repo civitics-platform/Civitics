@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { createServerClient } from "@civitics/db";
-import { NavBar } from "../../components/NavBar";
 import { PostProblemForm } from "./PostProblemForm";
 
 export const dynamic = "force-dynamic";
@@ -22,8 +21,6 @@ export default async function PostProblemPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <NavBar />
-
       <main id="main-content" className="mx-auto max-w-2xl px-4 py-10 sm:px-6">
         {/* Breadcrumb */}
         <nav className="mb-6 flex items-center gap-2 text-sm text-gray-500">

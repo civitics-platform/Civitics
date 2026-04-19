@@ -79,7 +79,7 @@ flowchart LR
     ui["ui<br/>shared React components"]
     db["db<br/>Supabase clients + types"]
     data["data<br/>ingestion pipelines"]
-    graph["graph<br/>D3 force simulation"]
+    graphPkg["graph<br/>D3 force simulation"]
     ai["ai<br/>Claude API service layer"]
     maps["maps<br/>Mapbox + Deck.gl"]
     blockchain["blockchain<br/>ERC-4337 · Phase 4"]
@@ -89,7 +89,7 @@ flowchart LR
 
   civitics --> ui
   civitics --> db
-  civitics --> graph
+  civitics --> graphPkg
   civitics --> ai
   civitics --> maps
   civitics --> auth

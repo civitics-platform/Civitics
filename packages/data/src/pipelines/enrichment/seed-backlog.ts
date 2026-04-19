@@ -111,8 +111,14 @@ type ProposalRow = {
 };
 
 async function fetchAllProposals(db: Db): Promise<ProposalRow[]> {
+  // Exclude procedural votes and case names — see FIX-065 / FIX-066
   return fetchAll<ProposalRow>("proposals", (from, to) =>
-    db.from("proposals").select("id, title, summary_plain, type, metadata").range(from, to),
+    db
+      .from("proposals")
+      .select("id, title, summary_plain, type, metadata")
+      .not("title", "ilike", "On %")
+      .filter("title", "not.ilike", "% v. %")
+      .range(from, to),
   );
 }
 

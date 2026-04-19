@@ -24,6 +24,7 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 - [x] 🔴 S — **Dashboard crashes with "Event handlers cannot be passed to Client Component props"** — `BrowsingFlowsSection` is a Server Component but attached an `onClick` to an `<a>` for template paths; template rows now render as `<span aria-disabled>` instead <!--id:FIX-062-->
 - [x] 🔴 S — **NavBar missing on most pages** — was added per-page in FIX-015 but not to proposals, agencies, graph, search, or officials list; moved to root layout (hidden on `/graph/*` and `/auth/*`) so it can't silently drop again <!--id:FIX-063-->
+- [ ] 🔴 S — **Filter procedural votes and case names out of enrichment queue** — ~489 contaminated `proposals` rows (169 procedural vote questions matching `^on `, 320 court case names matching ` v. `) got staged by `seed-backlog.ts`; enriching them would write garbage into `entity_tags` and `ai_summary_cache`. Delete contaminated queue rows + add `not.ilike` guards to the seeder so a re-seed can't reintroduce them. Root cause (contamination of `proposals` itself) is FIX-066. <!--id:FIX-065-->
 
 ---
 

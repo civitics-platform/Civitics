@@ -32,7 +32,7 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
   - By `type`: most of the contamination sits in `type = 'other'`
   - Likely actions: (a) trace via `git log` + `packages/data/src/pipelines/` which pipeline is inserting; (b) add a CHECK constraint or pre-insert filter to `proposals`; (c) move existing bad rows to a `procedural_votes` / `court_cases` table or quarantine with `type` field
   - Do NOT delete from `proposals` without agreeing the destination — these may be referenced by `votes.metadata->>'proposal_id'` or similar FKs
-- [ ] 🟠 L — **Data integrity audit — scaffolding + first run against prod** <!--id:FIX-067-->
+- [x] 🟠 L — **Data integrity audit — scaffolding + first run against prod** <!--id:FIX-067-->
 
 ---
 

@@ -83,3 +83,4 @@
 2026-04-19 | FIX-064 | 5057dff9 | fix(enrichment): batch seeder upserts to avoid Windows port exhaustion
 2026-04-19 | FIX-065 | bad413d3 | fix(enrichment): exclude procedural votes and case names from seeder
 2026-04-19 | FIX-067 | 53eb4977 | feat(data): integrity audit scaffolding + first prod run
+2026-04-19 | FIX-073 | be505e79 | fix(data): correct not_voting enum value in connections pipeline and audit check

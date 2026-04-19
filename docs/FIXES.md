@@ -38,7 +38,7 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 - [ ] 🟠 S — **Federal House count is 438 (expected 441)** — 3 representatives missing among federal officials with `source_ids ? 'congress_gov'`. Check ingester completeness vs. current vacancies. See docs/audits/2026-04-19.md. <!--id:FIX-070-->
 - [ ] 🟠 M — **All 100 federal senators have NULL `metadata->>'state'`** — per-state breakdown collapses to a single null bucket of 100. Senators are correctly counted but state attribution is missing, breaking any state-scoped query. Fix the congress.gov ingester to populate `metadata.state` (or `state_abbr`). <!--id:FIX-071-->
 - [ ] 🟠 L — **Procedural-vote / court-case contamination in `proposals` grew to 827** — was ~489 at FIX-065/066 baseline. FIX-066 root-cause work has not landed; meanwhile new ingester runs continue to add procedural rows. See docs/audits/2026-04-19.md. <!--id:FIX-072-->
-- [ ] 🟠 S — **7053 votes have `vote = 'not_voting'` instead of `'not voting'`** — invalid enum value (snake_case vs space-separated form documented in CLAUDE.md §votes table). One UPDATE replaces the underscored form with the canonical one. <!--id:FIX-073-->
+- [x] 🟠 S — **7053 votes have `vote = 'not_voting'` instead of `'not voting'`** — invalid enum value (snake_case vs space-separated form documented in CLAUDE.md §votes table). One UPDATE replaces the underscored form with the canonical one. <!--id:FIX-073-->
 
 ---
 

@@ -13,7 +13,6 @@
 
 import { createAdminClient, agencyFullName } from "@civitics/db";
 import {
-  enqueue,
   zeroCounts,
   buildProposalTagContext,
   buildOfficialTagContext,
@@ -23,10 +22,13 @@ import {
   aggregateOfficialStats,
   type EnqueueCounts,
   type EnqueueAction,
+  type EntityType,
+  type TaskType,
 } from "./queue";
 
 const DRY_RUN = process.argv.includes("--dry-run");
 const PAGE = 1000;
+const UPSERT_CHUNK = 500;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Db = any;
@@ -140,8 +142,45 @@ async function fetchAllActiveOfficials(db: Db): Promise<OfficialRow[]> {
 // Enqueue loops
 // ---------------------------------------------------------------------------
 
+// Snapshot of enrichment_queue state for one (entity_type, task_type) pair.
+// Pre-fetched once so we can classify each row into created/retried/skipped
+// without a per-row RPC round-trip (Windows exhausts ephemeral ports at ~10k
+// sockets in TIME_WAIT, so per-row calls EADDRINUSE on large backlogs).
+type QueueSnapshot = Map<string, { status: string; retry_count: number }>;
+
+async function fetchQueueSnapshot(
+  db: Db,
+  entityType: EntityType,
+  taskType: TaskType,
+): Promise<QueueSnapshot> {
+  const rows = await fetchAll<{ entity_id: string; status: string; retry_count: number }>(
+    `enrichment_queue(${entityType},${taskType})`,
+    (from, to) =>
+      db
+        .from("enrichment_queue")
+        .select("entity_id, status, retry_count")
+        .eq("entity_type", entityType)
+        .eq("task_type", taskType)
+        .range(from, to),
+  );
+  const out: QueueSnapshot = new Map();
+  for (const r of rows) out.set(r.entity_id, { status: r.status, retry_count: r.retry_count });
+  return out;
+}
+
+function classifyAction(
+  existing: { status: string; retry_count: number } | undefined,
+): EnqueueAction {
+  if (!existing) return "created";
+  if (existing.status === "done") return "skipped_done";
+  if (existing.status === "failed" && existing.retry_count < 3) return "retried";
+  return "skipped_pending";
+}
+
 async function enqueueAll(
   db: Db,
+  entityType: EntityType,
+  taskType: TaskType,
   rows: Array<{
     entity_id: string;
     entity_type: "proposal" | "official";
@@ -151,24 +190,58 @@ async function enqueueAll(
   label: string,
 ): Promise<EnqueueCounts> {
   const counts = zeroCounts();
+  if (rows.length === 0) return counts;
+
+  const snapshot = await fetchQueueSnapshot(db, entityType, taskType);
+
+  type Classified = { row: (typeof rows)[number]; action: EnqueueAction };
+  const classified: Classified[] = rows.map((row) => ({
+    row,
+    action: classifyAction(snapshot.get(row.entity_id)),
+  }));
+  for (const c of classified) counts[c.action]++;
+
   if (DRY_RUN) {
-    counts.created = rows.length;
-    console.log(`   [dry-run] would enqueue ${rows.length} ${label}`);
+    console.log(`   [dry-run] would upsert ${counts.created + counts.retried} ${label} ` +
+      `(${fmt(counts)})`);
     return counts;
   }
+
+  // Only "created" and "retried" rows hit the DB. Including status/claimed_*/
+  // last_error in the payload makes INSERT use defaults (which match) and
+  // ON CONFLICT DO UPDATE reset them — matching the RPC's retried path.
+  // retry_count is intentionally omitted so it stays at 0 on INSERT and is
+  // preserved on UPDATE.
+  const toUpsert = classified.filter(
+    (c) => c.action === "created" || c.action === "retried",
+  );
   let errors = 0;
-  for (const row of rows) {
-    try {
-      const action: EnqueueAction = await enqueue(db, row);
-      counts[action]++;
-    } catch (err) {
+  for (let i = 0; i < toUpsert.length; i += UPSERT_CHUNK) {
+    const chunk = toUpsert.slice(i, i + UPSERT_CHUNK).map((c) => ({
+      entity_id: c.row.entity_id,
+      entity_type: c.row.entity_type,
+      task_type: c.row.task_type,
+      context: c.row.context,
+      status: "pending",
+      claimed_at: null,
+      claimed_by: null,
+      last_error: null,
+    }));
+    const { error } = await db.from("enrichment_queue").upsert(chunk, {
+      onConflict: "entity_id,entity_type,task_type",
+      ignoreDuplicates: false,
+    });
+    if (error) {
       errors++;
       if (errors <= 3) {
-        console.error(`   ✗ enqueue ${label} ${row.entity_id}:`, err instanceof Error ? err.message : err);
+        console.error(
+          `   ✗ upsert ${label} chunk ${i}-${i + chunk.length}:`,
+          error.message,
+        );
       }
     }
   }
-  if (errors > 0) console.error(`   ✗ ${errors} ${label} enqueues failed`);
+  if (errors > 0) console.error(`   ✗ ${errors} ${label} upsert chunk(s) failed`);
   return counts;
 }
 
@@ -206,7 +279,7 @@ async function main(): Promise<void> {
       }),
     }));
   console.log(`── Proposal tags (${proposalTagRows.length} missing) ──`);
-  const proposalTagCounts = await enqueueAll(db, proposalTagRows, "proposal-tags");
+  const proposalTagCounts = await enqueueAll(db, "proposal", "tag", proposalTagRows, "proposal-tags");
   console.log(`   ${fmt(proposalTagCounts)}\n`);
 
   // 2. Proposal summaries — exclude truly_empty (worker can't produce output)
@@ -231,7 +304,7 @@ async function main(): Promise<void> {
       };
     });
   console.log(`── Proposal summaries (${proposalSummaryRows.length} missing, non-empty) ──`);
-  const proposalSummaryCounts = await enqueueAll(db, proposalSummaryRows, "proposal-summaries");
+  const proposalSummaryCounts = await enqueueAll(db, "proposal", "summary", proposalSummaryRows, "proposal-summaries");
   console.log(`   ${fmt(proposalSummaryCounts)}\n`);
 
   // 3. Official tags + 4. Official summaries — share the officials fetch and
@@ -265,7 +338,7 @@ async function main(): Promise<void> {
       };
     });
   console.log(`── Official tags (${officialTagRows.length} missing) ──`);
-  const officialTagCounts = await enqueueAll(db, officialTagRows, "official-tags");
+  const officialTagCounts = await enqueueAll(db, "official", "tag", officialTagRows, "official-tags");
   console.log(`   ${fmt(officialTagCounts)}\n`);
 
   const officialSummaryRows = officials
@@ -289,7 +362,7 @@ async function main(): Promise<void> {
       };
     });
   console.log(`── Official summaries (${officialSummaryRows.length} missing) ──`);
-  const officialSummaryCounts = await enqueueAll(db, officialSummaryRows, "official-summaries");
+  const officialSummaryCounts = await enqueueAll(db, "official", "summary", officialSummaryRows, "official-summaries");
   console.log(`   ${fmt(officialSummaryCounts)}\n`);
 
   // Summary report

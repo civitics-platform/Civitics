@@ -1,0 +1,137 @@
+#!/usr/bin/env node
+// scripts/fixes-housekeep.mjs
+//
+// Assign FIX-NNN IDs to unnumbered bullets in docs/FIXES.md and warn on
+// formatting drift. Runs against live sections only — skips STRATEGIC
+// PILLARS (non-checkable) and everything under ## COMPLETED (archive).
+//
+// Next free ID is max(existing IDs in FIXES.md, done.log,
+// docs/archive/fixes-archive.md) + 1, so reassignment is impossible even
+// after a clean/archive has moved old items out.
+//
+// Usage:
+//   node scripts/fixes-housekeep.mjs            apply in place
+//   node scripts/fixes-housekeep.mjs --dry-run  preview, write nothing
+
+import { execSync } from "node:child_process";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+
+const REPO_ROOT = execSync("git rev-parse --show-toplevel").toString().trim();
+const FIXES_PATH = resolve(REPO_ROOT, "docs/FIXES.md");
+const DONE_PATH = resolve(REPO_ROOT, "docs/done.log");
+const ARCHIVE_PATH = resolve(REPO_ROOT, "docs/archive/fixes-archive.md");
+
+const DRY = process.argv.includes("--dry-run");
+
+const PRIORITY_EMOJI = ["🔴", "🟠", "🟡", "🟢", "⬜"];
+const COMPLEXITY = new Set(["S", "M", "L", "XL"]);
+
+const BULLET_RE = /^(\s*- \[)([ xX])(\] )(.*)$/;
+const ID_RE = /<!--\s*id:\s*(FIX-\d{3})\s*-->/;
+const SECTION_RE = /^##\s+(.+?)\s*$/;
+const STRATEGIC_RE = /^##\s+STRATEGIC PILLARS\b/i;
+const COMPLETED_RE = /^##\s+COMPLETED\b/i;
+
+function scanAllIds() {
+  const ids = new Set();
+  const push = (text) => {
+    const matches = text.match(/FIX-\d{3}/g) || [];
+    for (const m of matches) ids.add(m);
+  };
+  push(readFileSync(FIXES_PATH, "utf8"));
+  if (existsSync(DONE_PATH)) push(readFileSync(DONE_PATH, "utf8"));
+  if (existsSync(ARCHIVE_PATH)) push(readFileSync(ARCHIVE_PATH, "utf8"));
+  return ids;
+}
+
+function nextFreeId(usedIds) {
+  let max = 0;
+  for (const id of usedIds) {
+    const n = parseInt(id.slice(4), 10);
+    if (n > max) max = n;
+  }
+  return (n = max + 1) => `FIX-${String(n).padStart(3, "0")}`;
+}
+
+function warnFormat(body) {
+  const warnings = [];
+  if (!PRIORITY_EMOJI.some((e) => body.includes(e))) {
+    warnings.push("missing priority emoji");
+  }
+  // Complexity token: single capitalised letter between two em-dashes or
+  // hyphens before the title. Accept S/M/L/XL. Tolerate em-dash or hyphen.
+  const complexityMatch = body.match(/\s(S|M|L|XL)\s+[—-]\s+/);
+  if (!complexityMatch) warnings.push("missing/unclear complexity (S/M/L/XL)");
+  // Malformed dash: naked " - " where " — " is expected around complexity.
+  if (/\s(S|M|L|XL)\s-\s/.test(body)) warnings.push("use em-dash (—) not hyphen");
+  return warnings;
+}
+
+// ── main ─────────────────────────────────────────────────────────────
+const content = readFileSync(FIXES_PATH, "utf8");
+const lines = content.split("\n");
+const usedIds = scanAllIds();
+const genId = nextFreeId(usedIds);
+let nextCounter = Math.max(...[...usedIds].map((i) => parseInt(i.slice(4), 10))) + 1;
+
+let currentSection = null;
+let skipSection = false;
+const assigned = [];
+const warnings = [];
+
+const out = lines.map((line, idx) => {
+  const sectionMatch = line.match(SECTION_RE);
+  if (sectionMatch) {
+    currentSection = sectionMatch[1];
+    skipSection = STRATEGIC_RE.test(line) || COMPLETED_RE.test(line);
+    return line;
+  }
+  if (skipSection) return line;
+
+  const m = line.match(BULLET_RE);
+  if (!m) return line;
+  const [, pre, box, mid, rest] = m;
+
+  const warns = warnFormat(rest);
+  if (warns.length) {
+    warnings.push({
+      line: idx + 1,
+      section: currentSection,
+      issue: warns.join(", "),
+      snippet: rest.slice(0, 70),
+    });
+  }
+
+  if (ID_RE.test(rest)) return line;
+
+  const newId = `FIX-${String(nextCounter++).padStart(3, "0")}`;
+  assigned.push({ line: idx + 1, section: currentSection, id: newId, snippet: rest.slice(0, 70) });
+  const trimmed = rest.replace(/\s*$/, "");
+  return `${pre}${box}${mid}${trimmed} <!--id:${newId}-->`;
+});
+
+if (assigned.length && !DRY) {
+  writeFileSync(FIXES_PATH, out.join("\n"));
+}
+
+console.log("fixes:housekeep —", DRY ? "DRY RUN" : "APPLIED");
+console.table({
+  idsAssigned: assigned.length,
+  formatWarnings: warnings.length,
+});
+
+if (assigned.length) {
+  console.log("\nIDs assigned:");
+  for (const a of assigned) {
+    console.log(`  line ${a.line} [${a.section}] → ${a.id}  (${a.snippet}…)`);
+  }
+}
+
+if (warnings.length) {
+  console.log("\nFormat warnings (non-blocking):");
+  for (const w of warnings.slice(0, 20)) {
+    console.log(`  line ${w.line} [${w.section}] ${w.issue} — "${w.snippet}…"`);
+  }
+  if (warnings.length > 20) console.log(`  …and ${warnings.length - 20} more`);
+}

@@ -57,3 +57,6 @@ ngrok.yml
 
 # Schema comparison / migration scratch
 .tmp-schema-compare/
+
+# Database dumps / backups (never commit)
+backups/

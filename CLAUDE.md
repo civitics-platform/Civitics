@@ -23,10 +23,10 @@ are for verification, not orientation.
 commit-trailer completions since last session, then read `docs/FIXES.md` for the
 current queue.
 
-> **Workflow note (as of 2026-04-15):** Qwen Code is no longer part of the workflow.
-> Claude handles all implementation directly. `docs/QWEN_PROMPTS.md` is preserved as
-> historical task archive only — do not queue new tasks there or write Qwen prompts.
-> Work through `docs/FIXES.md` items directly.
+> **Execution model (as of 2026-04-18):** Claude Code (VS Code extension on
+> Windows) runs the full loop autonomously: migrate → build → commit → push →
+> `pnpm fixes:sync` → commit → push. No SESSION_LOG ⚠️ hand-off required for
+> local migrations. `docs/QWEN_PROMPTS.md` is preserved as historical archive.
 
 ---
 
@@ -307,27 +307,42 @@ If DB is unavailable: build succeeds with [] → pages render on-demand (ISR)
 
 ## Claude ↔ Database Access
 
-**Claude's sandbox cannot reach the local Docker Supabase instance directly.**
-The sandbox runs in an isolated Linux environment; `127.0.0.1` is the sandbox's
-localhost, not Craig's Windows machine. Network access to local Docker ports is
-blocked by the sandbox allowlist.
+**Default (VS Code Claude Code extension on Windows):** Claude runs migrations,
+builds, commits, and pushes directly from the integrated shell. Local Studio:
+http://127.0.0.1:54323
 
-**What this means in practice:**
-- Claude writes migration files to `supabase/migrations/` — Craig runs them
-- The command is always: `supabase migration up --local` (run from repo root)
-- Local Studio is at: http://127.0.0.1:54323
+Standard autonomous loop after a code change with DB impact:
 
-**To give Claude direct DB access (optional, one-time setup):**
-Install `@modelcontextprotocol/server-postgres` as a Cowork local MCP:
 ```
-Connection string: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+supabase migration up --local
+pnpm --filter @civitics/app-civitics build
+git add <files>
+git commit -m "...Fixes: FIX-NNN"
+git push
+pnpm fixes:sync
+git add docs/done.log
+git commit -m "chore(fixes): sync status after FIX-NNN"
+git push
 ```
-Once configured, Claude can run migrations, query tables, and inspect schema
-directly without Craig needing to run commands manually. Ask Claude to help
-set this up when ready.
 
-**Until then:** Every session that creates a migration will flag the required
-`supabase migration up --local` command in the SESSION_LOG under ⚠️ Action needed.
+**Fallback (Cowork or any sandboxed environment):** If the active shell can't
+reach `127.0.0.1:54322` (Docker Supabase), Claude cannot run migrations, git,
+or pnpm locally. In that case:
+
+1. Write the migration file to `supabase/migrations/` and any code changes.
+2. **Emit a ready-to-paste Claude Code prompt** at the end of the session —
+   not a SESSION_LOG ⚠️ bullet — that Craig can drop into the VS Code Claude
+   Code extension to execute the loop above end-to-end. Example format:
+
+   ```
+   Run the standard autonomous loop for FIX-NNN:
+   - supabase migration up --local
+   - build, commit with "Fixes: FIX-NNN", push
+   - pnpm fixes:sync, commit the done.log diff, push
+   ```
+
+   The prompt should be copy-pasteable, reference the specific FIX IDs, and
+   name any files that need staging.
 
 ---
 

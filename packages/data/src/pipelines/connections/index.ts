@@ -84,7 +84,8 @@ const PROCEDURAL_QUESTIONS = [
  * Map votes.vote + vote_category + metadata->vote_question to connection_type.
  * Returns null to skip procedural votes and unrecognised values.
  *
- * votes.vote values are lowercase: 'yes' | 'no' | 'present' | 'not voting'
+ * votes.vote values per DB CHECK constraint (supabase/migrations/0001_initial_schema.sql):
+ * 'yes' | 'no' | 'abstain' | 'present' | 'not_voting' | 'paired_yes' | 'paired_no'
  * metadata->>'vote_question' contains the procedural type string from Congress.gov
  */
 export function voteToConnectionType(
@@ -109,9 +110,11 @@ export function voteToConnectionType(
     (title?.toLowerCase().includes("nomination") ?? false) ||
     (title?.toLowerCase().includes("confirming") ?? false);
 
-  if (vote === "yes") return isNomination ? "nomination_vote_yes" : "vote_yes";
-  if (vote === "no")  return isNomination ? "nomination_vote_no"  : "vote_no";
-  if (vote === "present" || vote === "not voting" || vote === "abstain") return "vote_abstain";
+  // paired_yes/paired_no represent intent-to-vote (member paired with opposing vote)
+  // — they count as their intent direction, not as abstentions.
+  if (vote === "yes" || vote === "paired_yes") return isNomination ? "nomination_vote_yes" : "vote_yes";
+  if (vote === "no"  || vote === "paired_no")  return isNomination ? "nomination_vote_no"  : "vote_no";
+  if (vote === "present" || vote === "not_voting" || vote === "abstain") return "vote_abstain";
   return null;
 }
 

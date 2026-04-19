@@ -24,11 +24,13 @@ export const votesChecks: Check = async ({ query }) => {
     detail: "votes.official_id values not present in officials.id.",
   });
 
+  // Enum matches CHECK constraint in supabase/migrations/0001_initial_schema.sql
+  // If the schema changes, update this list to match.
   const invalidVote = await query<{ id: string; vote: string }>(
     `SELECT id, vote
        FROM votes
       WHERE vote IS NOT NULL
-        AND vote NOT IN ('yes','no','present','not voting')`,
+        AND vote NOT IN ('yes','no','abstain','present','not_voting','paired_yes','paired_no')`,
   );
   out.push({
     category: "votes.invalid_vote_value",
@@ -37,7 +39,7 @@ export const votesChecks: Check = async ({ query }) => {
     actual: invalidVote.length,
     sample: invalidVote.slice(0, 10),
     detail:
-      "votes.vote values outside the allowed enum {yes, no, present, not voting}.",
+      "votes.vote values outside schema CHECK enum {yes, no, abstain, present, not_voting, paired_yes, paired_no}.",
   });
 
   return out;

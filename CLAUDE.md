@@ -273,13 +273,23 @@ See `docs/PHASE_GOALS.md` for detailed task tracking.
 
 ```
 vote      (not vote_cast)
-  values: 'yes' | 'no' | 'present' | 'not voting'
+  Schema CHECK enum (see supabase/migrations/0001_initial_schema.sql):
+  'yes' | 'no' | 'abstain' | 'present' | 'not_voting' | 'paired_yes' | 'paired_no'
+  NOTE: 'not_voting' uses an underscore, NOT a space. Using 'not voting'
+  in queries silently returns zero rows. This bit us in FIX-073.
 voted_at  (not vote_date)
 metadata->>'vote_question'   procedural type string (e.g. "On Passage", "On the Cloture Motion")
 metadata->>'legis_num'       bill number
 ```
 
 Do NOT use vote_cast or vote_date — those columns do not exist.
+
+When asserting or filtering on an enum value, treat the schema CHECK
+constraint as ground truth. Not CLAUDE.md, not a prior pipeline's
+normalizer — the constraint. Quick check:
+
+    \d+ votes          -- in psql
+    -- or grep supabase/migrations/0001_initial_schema.sql for CHECK constraints
 
 ---
 

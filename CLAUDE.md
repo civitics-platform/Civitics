@@ -263,17 +263,9 @@ Run `pnpm build` locally before every push. Vercel uses strict TypeScript. Build
 
 ---
 
-## Current Phase: Phase 1 (~65% complete)
+## Current Phase: Phase 1 (~90% complete)
 
 See `docs/PHASE_GOALS.md` for detailed task tracking.
-
-**Done when:** Search works, proposal pages live, auth working, 500 beta users, grant applications submitted.
-
-Key remaining Phase 1 tasks:
-- [ ] Proposals list + detail pages (`/proposals/`, `/proposals/[id]`)
-- [ ] Search component + API route
-- [ ] User auth (Supabase)
-- [ ] AI narrative on graph ("Explain this graph")
 
 ---
 

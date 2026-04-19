@@ -33,6 +33,12 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
   - Likely actions: (a) trace via `git log` + `packages/data/src/pipelines/` which pipeline is inserting; (b) add a CHECK constraint or pre-insert filter to `proposals`; (c) move existing bad rows to a `procedural_votes` / `court_cases` table or quarantine with `type` field
   - Do NOT delete from `proposals` without agreeing the destination — these may be referenced by `votes.metadata->>'proposal_id'` or similar FKs
 - [x] 🟠 L — **Data integrity audit — scaffolding + first run against prod** <!--id:FIX-067-->
+- [ ] 🟠 M — **Sitting U.S. President not in `officials` table** — audit 2026-04-19 found 0 active officials with `role_title ILIKE '%president%' AND role_title NOT ILIKE '%vice%'`. EOP agency exists (migration 20260417) but no person row. <!--id:FIX-068-->
+- [ ] 🟠 M — **Sitting U.S. Vice President not in `officials` table** — audit 2026-04-19 found 0 active officials with `role_title ILIKE '%vice president%'`. <!--id:FIX-069-->
+- [ ] 🟠 S — **Federal House count is 438 (expected 441)** — 3 representatives missing among federal officials with `source_ids ? 'congress_gov'`. Check ingester completeness vs. current vacancies. See docs/audits/2026-04-19.md. <!--id:FIX-070-->
+- [ ] 🟠 M — **All 100 federal senators have NULL `metadata->>'state'`** — per-state breakdown collapses to a single null bucket of 100. Senators are correctly counted but state attribution is missing, breaking any state-scoped query. Fix the congress.gov ingester to populate `metadata.state` (or `state_abbr`). <!--id:FIX-071-->
+- [ ] 🟠 L — **Procedural-vote / court-case contamination in `proposals` grew to 827** — was ~489 at FIX-065/066 baseline. FIX-066 root-cause work has not landed; meanwhile new ingester runs continue to add procedural rows. See docs/audits/2026-04-19.md. <!--id:FIX-072-->
+- [ ] 🟠 S — **7053 votes have `vote = 'not_voting'` instead of `'not voting'`** — invalid enum value (snake_case vs space-separated form documented in CLAUDE.md §votes table). One UPDATE replaces the underscored form with the canonical one. <!--id:FIX-073-->
 
 ---
 

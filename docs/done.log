@@ -81,3 +81,4 @@
 2026-04-18 | FIX-052 | a5db4513 | feat(pipelines,graph,trending): Phase 1 closeout — 8 FIXES + Phase 2 scaffolds
 2026-04-19 | FIX-064 | 3b842c50 | feat(enrichment): queue table + admin endpoints for routine-driven AI work
 2026-04-19 | FIX-064 | 5057dff9 | fix(enrichment): batch seeder upserts to avoid Windows port exhaustion
+2026-04-19 | FIX-065 | bad413d3 | fix(enrichment): exclude procedural votes and case names from seeder

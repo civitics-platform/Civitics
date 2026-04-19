@@ -30,7 +30,8 @@
     "data:elections": "tsx --env-file=../../.env.local src/pipelines/elections/index.ts",
     "data:govtrack-cosponsors": "tsx --env-file=../../.env.local src/pipelines/govtrack-cosponsors/index.ts",
     "data:federal-register": "tsx --env-file=../../.env.local src/pipelines/federal-register/index.ts",
-    "data:opensecrets-bulk": "tsx --env-file=../../.env.local src/pipelines/opensecrets-bulk/index.ts"
+    "data:opensecrets-bulk": "tsx --env-file=../../.env.local src/pipelines/opensecrets-bulk/index.ts",
+    "data:enrich-seed": "tsx --env-file=../../.env.local src/pipelines/enrichment/seed-backlog.ts"
   },
   "dependencies": {
     "@civitics/ai": "workspace:*",

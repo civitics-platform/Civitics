@@ -1,12 +1,15 @@
 /**
  * Feature flags for data pipelines and cron jobs.
  *
- * All flags default to enabled. Set the env var to 'false' (or 'true' for
+ * Boolean flags default to enabled. Set the env var to 'false' (or 'true' for
  * CRON_DISABLED) to disable without a code deploy.
  *
  * Usage in a pipeline:
  *   import { checkFlag } from '../feature-flags'
  *   if (!checkFlag('CONNECTIONS_PIPELINE_ENABLED', 'connections')) process.exit(0)
+ *
+ * ENRICHMENT_MODE is a non-boolean string flag; read FLAGS.ENRICHMENT_MODE
+ * directly.
  */
 
 export const FLAGS = {
@@ -21,12 +24,17 @@ export const FLAGS = {
 
   CHORD_DATA_ENABLED:
     process.env["CHORD_DATA_ENABLED"] !== "false",
+
+  ENRICHMENT_MODE: (process.env["CIVITICS_ENRICHMENT_MODE"] === "queue"
+    ? "queue"
+    : "inline") as "inline" | "queue",
 } as const;
 
-export function checkFlag(
-  flag: keyof typeof FLAGS,
-  pipelineName: string,
-): boolean {
+type BooleanFlag = {
+  [K in keyof typeof FLAGS]: typeof FLAGS[K] extends boolean ? K : never;
+}[keyof typeof FLAGS];
+
+export function checkFlag(flag: BooleanFlag, pipelineName: string): boolean {
   if (!FLAGS[flag]) {
     console.log(`⏭  ${pipelineName} disabled via ${flag} flag`);
     return false;

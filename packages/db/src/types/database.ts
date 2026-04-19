@@ -312,6 +312,13 @@ export type Database = {
             foreignKeyName: "civic_comments_proposal_id_fkey"
             columns: ["proposal_id"]
             isOneToOne: false
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "civic_comments_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
             referencedRelation: "proposals"
             referencedColumns: ["id"]
           },
@@ -607,6 +614,13 @@ export type Database = {
             foreignKeyName: "civic_initiative_proposal_links_proposal_id_fkey"
             columns: ["proposal_id"]
             isOneToOne: false
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "civic_initiative_proposal_links_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
             referencedRelation: "proposals"
             referencedColumns: ["id"]
           },
@@ -867,6 +881,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "civic_initiatives_from_comment_id_fkey"
+            columns: ["from_comment_id"]
+            isOneToOne: false
+            referencedRelation: "civic_initiative_arguments"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "civic_initiatives_jurisdiction_id_fkey"
             columns: ["jurisdiction_id"]
             isOneToOne: false
@@ -877,14 +898,14 @@ export type Database = {
             foreignKeyName: "civic_initiatives_linked_proposal_id_fkey"
             columns: ["linked_proposal_id"]
             isOneToOne: false
-            referencedRelation: "proposals"
-            referencedColumns: ["id"]
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
           },
           {
-            foreignKeyName: "civic_initiatives_primary_author_id_fkey"
-            columns: ["primary_author_id"]
+            foreignKeyName: "civic_initiatives_linked_proposal_id_fkey"
+            columns: ["linked_proposal_id"]
             isOneToOne: false
-            referencedRelation: "users"
+            referencedRelation: "proposals"
             referencedColumns: ["id"]
           },
           {
@@ -895,10 +916,67 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "civic_initiatives_from_comment_id_fkey"
-            columns: ["from_comment_id"]
+            foreignKeyName: "civic_initiatives_primary_author_id_fkey"
+            columns: ["primary_author_id"]
             isOneToOne: false
-            referencedRelation: "civic_initiative_arguments"
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      content_flags: {
+        Row: {
+          action_taken: string | null
+          content_id: string
+          content_type: Database["public"]["Enums"]["flag_content_type"]
+          created_at: string
+          id: string
+          note: string | null
+          reason: Database["public"]["Enums"]["flag_reason"]
+          resolved: boolean
+          resolved_at: string | null
+          resolved_by: string | null
+          user_id: string
+        }
+        Insert: {
+          action_taken?: string | null
+          content_id: string
+          content_type: Database["public"]["Enums"]["flag_content_type"]
+          created_at?: string
+          id?: string
+          note?: string | null
+          reason?: Database["public"]["Enums"]["flag_reason"]
+          resolved?: boolean
+          resolved_at?: string | null
+          resolved_by?: string | null
+          user_id: string
+        }
+        Update: {
+          action_taken?: string | null
+          content_id?: string
+          content_type?: Database["public"]["Enums"]["flag_content_type"]
+          created_at?: string
+          id?: string
+          note?: string | null
+          reason?: Database["public"]["Enums"]["flag_reason"]
+          resolved?: boolean
+          resolved_at?: string | null
+          resolved_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "content_flags_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "content_flags_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -945,6 +1023,54 @@ export type Database = {
           rows_updated?: number
           started_at?: string
           status?: string
+        }
+        Relationships: []
+      }
+      enrichment_queue: {
+        Row: {
+          claimed_at: string | null
+          claimed_by: string | null
+          completed_at: string | null
+          context: Json | null
+          created_at: string
+          entity_id: string
+          entity_type: string
+          id: number
+          last_error: string | null
+          result: Json | null
+          retry_count: number
+          status: string
+          task_type: string
+        }
+        Insert: {
+          claimed_at?: string | null
+          claimed_by?: string | null
+          completed_at?: string | null
+          context?: Json | null
+          created_at?: string
+          entity_id: string
+          entity_type: string
+          id?: number
+          last_error?: string | null
+          result?: Json | null
+          retry_count?: number
+          status?: string
+          task_type: string
+        }
+        Update: {
+          claimed_at?: string | null
+          claimed_by?: string | null
+          completed_at?: string | null
+          context?: Json | null
+          created_at?: string
+          entity_id?: string
+          entity_type?: string
+          id?: number
+          last_error?: string | null
+          result?: Json | null
+          retry_count?: number
+          status?: string
+          task_type?: string
         }
         Relationships: []
       }
@@ -1105,6 +1231,7 @@ export type Database = {
           is_bundled: boolean
           metadata: Json
           official_id: string | null
+          opensecrets_industry_code: string | null
           source_ids: Json
           source_url: string | null
           updated_at: string
@@ -1124,6 +1251,7 @@ export type Database = {
           is_bundled?: boolean
           metadata?: Json
           official_id?: string | null
+          opensecrets_industry_code?: string | null
           source_ids?: Json
           source_url?: string | null
           updated_at?: string
@@ -1143,6 +1271,7 @@ export type Database = {
           is_bundled?: boolean
           metadata?: Json
           official_id?: string | null
+          opensecrets_industry_code?: string | null
           source_ids?: Json
           source_url?: string | null
           updated_at?: string
@@ -1161,6 +1290,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "officials"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_relationships_opensecrets_industry_code_fkey"
+            columns: ["opensecrets_industry_code"]
+            isOneToOne: false
+            referencedRelation: "industry_codes"
+            referencedColumns: ["code"]
           },
         ]
       }
@@ -1253,6 +1389,27 @@ export type Database = {
         }
         Relationships: []
       }
+      industry_codes: {
+        Row: {
+          code: string
+          label: string
+          sector: string | null
+          source: string
+        }
+        Insert: {
+          code: string
+          label: string
+          sector?: string | null
+          source?: string
+        }
+        Update: {
+          code?: string
+          label?: string
+          sector?: string | null
+          source?: string
+        }
+        Relationships: []
+      }
       jurisdictions: {
         Row: {
           boundary_geometry: unknown
@@ -1318,6 +1475,116 @@ export type Database = {
           },
         ]
       }
+      lobbying_disclosures: {
+        Row: {
+          amount_cents: number | null
+          client_name: string
+          created_at: string
+          filing_period: string | null
+          filing_year: number
+          id: string
+          industry_code: string | null
+          metadata: Json
+          official_id: string | null
+          registrant_name: string
+          source: string
+          source_url: string | null
+        }
+        Insert: {
+          amount_cents?: number | null
+          client_name: string
+          created_at?: string
+          filing_period?: string | null
+          filing_year: number
+          id?: string
+          industry_code?: string | null
+          metadata?: Json
+          official_id?: string | null
+          registrant_name: string
+          source?: string
+          source_url?: string | null
+        }
+        Update: {
+          amount_cents?: number | null
+          client_name?: string
+          created_at?: string
+          filing_period?: string | null
+          filing_year?: number
+          id?: string
+          industry_code?: string | null
+          metadata?: Json
+          official_id?: string | null
+          registrant_name?: string
+          source?: string
+          source_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lobbying_disclosures_industry_code_fkey"
+            columns: ["industry_code"]
+            isOneToOne: false
+            referencedRelation: "industry_codes"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "lobbying_disclosures_official_id_fkey"
+            columns: ["official_id"]
+            isOneToOne: false
+            referencedRelation: "officials"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notifications: {
+        Row: {
+          body: string | null
+          created_at: string
+          email_sent: boolean
+          entity_id: string | null
+          entity_type: Database["public"]["Enums"]["follow_entity_type"] | null
+          event_type: Database["public"]["Enums"]["notification_event_type"]
+          id: string
+          is_read: boolean
+          link: string | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          body?: string | null
+          created_at?: string
+          email_sent?: boolean
+          entity_id?: string | null
+          entity_type?: Database["public"]["Enums"]["follow_entity_type"] | null
+          event_type: Database["public"]["Enums"]["notification_event_type"]
+          id?: string
+          is_read?: boolean
+          link?: string | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          body?: string | null
+          created_at?: string
+          email_sent?: boolean
+          entity_id?: string | null
+          entity_type?: Database["public"]["Enums"]["follow_entity_type"] | null
+          event_type?: Database["public"]["Enums"]["notification_event_type"]
+          id?: string
+          is_read?: boolean
+          link?: string | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       official_comment_submissions: {
         Row: {
           ai_assisted: boolean
@@ -1369,7 +1636,65 @@ export type Database = {
             foreignKeyName: "official_comment_submissions_proposal_id_fkey"
             columns: ["proposal_id"]
             isOneToOne: false
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "official_comment_submissions_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
             referencedRelation: "proposals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      official_community_comments: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          is_deleted: boolean
+          metadata: Json
+          official_id: string
+          updated_at: string
+          upvotes: number
+          user_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          id?: string
+          is_deleted?: boolean
+          metadata?: Json
+          official_id: string
+          updated_at?: string
+          upvotes?: number
+          user_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          is_deleted?: boolean
+          metadata?: Json
+          official_id?: string
+          updated_at?: string
+          upvotes?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "official_community_comments_official_id_fkey"
+            columns: ["official_id"]
+            isOneToOne: false
+            referencedRelation: "officials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "official_community_comments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -1377,6 +1702,8 @@ export type Database = {
       officials: {
         Row: {
           created_at: string
+          current_term_end: string | null
+          current_term_start: string | null
           district_name: string | null
           email: string | null
           first_name: string | null
@@ -1384,10 +1711,13 @@ export type Database = {
           governing_body_id: string
           id: string
           is_active: boolean
+          is_up_for_election: boolean
           is_verified: boolean
           jurisdiction_id: string
           last_name: string | null
           metadata: Json
+          next_election_date: string | null
+          next_election_type: string | null
           office_address: string | null
           party: Database["public"]["Enums"]["party"] | null
           phone: string | null
@@ -1401,6 +1731,8 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          current_term_end?: string | null
+          current_term_start?: string | null
           district_name?: string | null
           email?: string | null
           first_name?: string | null
@@ -1408,10 +1740,13 @@ export type Database = {
           governing_body_id: string
           id?: string
           is_active?: boolean
+          is_up_for_election?: boolean
           is_verified?: boolean
           jurisdiction_id: string
           last_name?: string | null
           metadata?: Json
+          next_election_date?: string | null
+          next_election_type?: string | null
           office_address?: string | null
           party?: Database["public"]["Enums"]["party"] | null
           phone?: string | null
@@ -1425,6 +1760,8 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          current_term_end?: string | null
+          current_term_start?: string | null
           district_name?: string | null
           email?: string | null
           first_name?: string | null
@@ -1432,10 +1769,13 @@ export type Database = {
           governing_body_id?: string
           id?: string
           is_active?: boolean
+          is_up_for_election?: boolean
           is_verified?: boolean
           jurisdiction_id?: string
           last_name?: string | null
           metadata?: Json
+          next_election_date?: string | null
+          next_election_type?: string | null
           office_address?: string | null
           party?: Database["public"]["Enums"]["party"] | null
           phone?: string | null
@@ -1769,6 +2109,68 @@ export type Database = {
             foreignKeyName: "promises_related_proposal_id_fkey"
             columns: ["related_proposal_id"]
             isOneToOne: false
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "promises_related_proposal_id_fkey"
+            columns: ["related_proposal_id"]
+            isOneToOne: false
+            referencedRelation: "proposals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      proposal_cosponsors: {
+        Row: {
+          created_at: string
+          date_added: string | null
+          date_withdrawn: string | null
+          id: string
+          is_original_cosponsor: boolean
+          official_id: string
+          proposal_id: string
+          source: string
+        }
+        Insert: {
+          created_at?: string
+          date_added?: string | null
+          date_withdrawn?: string | null
+          id?: string
+          is_original_cosponsor?: boolean
+          official_id: string
+          proposal_id: string
+          source?: string
+        }
+        Update: {
+          created_at?: string
+          date_added?: string | null
+          date_withdrawn?: string | null
+          id?: string
+          is_original_cosponsor?: boolean
+          official_id?: string
+          proposal_id?: string
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "proposal_cosponsors_official_id_fkey"
+            columns: ["official_id"]
+            isOneToOne: false
+            referencedRelation: "officials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proposal_cosponsors_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "proposal_cosponsors_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
             referencedRelation: "proposals"
             referencedColumns: ["id"]
           },
@@ -1783,6 +2185,9 @@ export type Database = {
           congress_number: number | null
           created_at: string
           enacted_at: string | null
+          executive_order_number: number | null
+          federal_register_document_number: string | null
+          federal_register_publication_date: string | null
           fiscal_impact_cents: number | null
           full_text_arweave: string | null
           full_text_r2_key: string | null
@@ -1815,6 +2220,9 @@ export type Database = {
           congress_number?: number | null
           created_at?: string
           enacted_at?: string | null
+          executive_order_number?: number | null
+          federal_register_document_number?: string | null
+          federal_register_publication_date?: string | null
           fiscal_impact_cents?: number | null
           full_text_arweave?: string | null
           full_text_r2_key?: string | null
@@ -1847,6 +2255,9 @@ export type Database = {
           congress_number?: number | null
           created_at?: string
           enacted_at?: string | null
+          executive_order_number?: number | null
+          federal_register_document_number?: string | null
+          federal_register_publication_date?: string | null
           fiscal_impact_cents?: number | null
           full_text_arweave?: string | null
           full_text_r2_key?: string | null
@@ -2023,6 +2434,89 @@ export type Database = {
           },
         ]
       }
+      user_follows: {
+        Row: {
+          created_at: string
+          email_enabled: boolean
+          entity_id: string
+          entity_type: Database["public"]["Enums"]["follow_entity_type"]
+          id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email_enabled?: boolean
+          entity_id: string
+          entity_type: Database["public"]["Enums"]["follow_entity_type"]
+          id?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email_enabled?: boolean
+          entity_id?: string
+          entity_type?: Database["public"]["Enums"]["follow_entity_type"]
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_follows_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_preferences: {
+        Row: {
+          created_at: string
+          followed_agencies: string[]
+          followed_officials: string[]
+          followed_proposals: string[]
+          graph_root_hint: string | null
+          home_jurisdiction_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          followed_agencies?: string[]
+          followed_officials?: string[]
+          followed_proposals?: string[]
+          graph_root_hint?: string | null
+          home_jurisdiction_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          followed_agencies?: string[]
+          followed_officials?: string[]
+          followed_proposals?: string[]
+          graph_root_hint?: string | null
+          home_jurisdiction_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_preferences_home_jurisdiction_id_fkey"
+            columns: ["home_jurisdiction_id"]
+            isOneToOne: false
+            referencedRelation: "jurisdictions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_preferences_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       users: {
         Row: {
           auth_provider: string | null
@@ -2120,6 +2614,13 @@ export type Database = {
             foreignKeyName: "votes_proposal_id_fkey"
             columns: ["proposal_id"]
             isOneToOne: false
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "votes_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
             referencedRelation: "proposals"
             referencedColumns: ["id"]
           },
@@ -2155,6 +2656,39 @@ export type Database = {
           published_at?: string
           signature?: string | null
           statement_text?: string
+        }
+        Relationships: []
+      }
+      web_vitals_samples: {
+        Row: {
+          exceeded: boolean
+          id: string
+          metric: string
+          path: string | null
+          rating: string | null
+          recorded_at: string
+          user_agent: string | null
+          value: number
+        }
+        Insert: {
+          exceeded?: boolean
+          id?: string
+          metric: string
+          path?: string | null
+          rating?: string | null
+          recorded_at?: string
+          user_agent?: string | null
+          value: number
+        }
+        Update: {
+          exceeded?: boolean
+          id?: string
+          metric?: string
+          path?: string | null
+          rating?: string | null
+          recorded_at?: string
+          user_agent?: string | null
+          value?: number
         }
         Relationships: []
       }
@@ -2199,6 +2733,45 @@ export type Database = {
           f_table_schema?: unknown
           srid?: number | null
           type?: string | null
+        }
+        Relationships: []
+      }
+      proposal_comment_stats: {
+        Row: {
+          comment_count: number | null
+          comments_24h: number | null
+          comments_7d: number | null
+          distinct_commenters: number | null
+          last_commented_at: string | null
+          proposal_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "civic_comments_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "civic_comments_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
+            referencedRelation: "proposals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      proposal_trending_24h: {
+        Row: {
+          comments_24h: number | null
+          last_activity_at: string | null
+          proposal_id: string | null
+          status: Database["public"]["Enums"]["proposal_status"] | null
+          title: string | null
+          total_comments: number | null
+          trending_score: number | null
+          type: Database["public"]["Enums"]["proposal_type"] | null
         }
         Relationships: []
       }
@@ -2343,6 +2916,30 @@ export type Database = {
           total_cents: number
         }[]
       }
+      claim_enrichment_batch: {
+        Args: { p_claimed_by: string; p_limit: number; p_task_type: string }
+        Returns: {
+          claimed_at: string | null
+          claimed_by: string | null
+          completed_at: string | null
+          context: Json | null
+          created_at: string
+          entity_id: string
+          entity_type: string
+          id: number
+          last_error: string | null
+          result: Json | null
+          retry_count: number
+          status: string
+          task_type: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "enrichment_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       disablelongtransactions: { Args: never; Returns: string }
       dropgeometrycolumn:
         | {
@@ -2375,6 +2972,15 @@ export type Database = {
         | { Args: { schema_name: string; table_name: string }; Returns: string }
         | { Args: { table_name: string }; Returns: string }
       enablelongtransactions: { Args: never; Returns: string }
+      enqueue_enrichment: {
+        Args: {
+          p_context: Json
+          p_entity_id: string
+          p_entity_type: string
+          p_task_type: string
+        }
+        Returns: string
+      }
       equals: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
       find_jurisdictions_by_location: {
         Args: { user_lat: number; user_lng: number }
@@ -2591,6 +3197,13 @@ export type Database = {
           device_type: string
         }[]
       }
+      get_pv_entry_pages: {
+        Args: { days?: number; lim?: number }
+        Returns: {
+          page: string
+          sessions: number
+        }[]
+      }
       get_pv_sources: {
         Args: never
         Returns: {
@@ -2631,8 +3244,17 @@ export type Database = {
           views: number
         }[]
       }
+      get_pv_top_transitions: {
+        Args: { days?: number; lim?: number; min_count?: number }
+        Returns: {
+          from_page: string
+          sessions: number
+          to_page: string
+        }[]
+      }
       gettransactionid: { Args: never; Returns: unknown }
       longtransactionsenabled: { Args: never; Returns: boolean }
+      normalize_pv_path: { Args: { p: string }; Returns: string }
       populate_geometry_columns:
         | { Args: { tbl_oid: unknown; use_typmod?: boolean }; Returns: number }
         | { Args: { use_typmod?: boolean }; Returns: string }
@@ -2673,6 +3295,11 @@ export type Database = {
       }
       postgis_version: { Args: never; Returns: string }
       postgis_wagyu_version: { Args: never; Returns: string }
+      record_enrichment_failure: {
+        Args: { p_error: string; p_queue_id: number }
+        Returns: string
+      }
+      refresh_proposal_trending: { Args: never; Returns: undefined }
       search_graph_entities: {
         Args: { lim?: number; q: string }
         Returns: {
@@ -3335,6 +3962,14 @@ export type Database = {
         | "party_committee"
         | "small_donor_aggregate"
         | "other"
+      flag_content_type: "civic_comment" | "official_community_comment"
+      flag_reason:
+        | "spam"
+        | "harassment"
+        | "off_topic"
+        | "misinformation"
+        | "other"
+      follow_entity_type: "official" | "agency"
       governing_body_type:
         | "legislature_upper"
         | "legislature_lower"
@@ -3350,7 +3985,12 @@ export type Database = {
       initiative_authorship: "individual" | "community"
       initiative_resolution: "sponsored" | "declined" | "withdrawn" | "expired"
       initiative_scope: "federal" | "state" | "local"
-      initiative_stage: "problem" | "draft" | "deliberate" | "mobilise" | "resolved"
+      initiative_stage:
+        | "draft"
+        | "deliberate"
+        | "mobilise"
+        | "resolved"
+        | "problem"
       jurisdiction_type:
         | "global"
         | "supranational"
@@ -3361,6 +4001,10 @@ export type Database = {
         | "district"
         | "precinct"
         | "other"
+      notification_event_type:
+        | "official_vote"
+        | "new_proposal"
+        | "initiative_status"
       official_response_type:
         | "support"
         | "oppose"
@@ -3582,6 +4226,15 @@ export const Constants = {
         "small_donor_aggregate",
         "other",
       ],
+      flag_content_type: ["civic_comment", "official_community_comment"],
+      flag_reason: [
+        "spam",
+        "harassment",
+        "off_topic",
+        "misinformation",
+        "other",
+      ],
+      follow_entity_type: ["official", "agency"],
       governing_body_type: [
         "legislature_upper",
         "legislature_lower",
@@ -3598,7 +4251,13 @@ export const Constants = {
       initiative_authorship: ["individual", "community"],
       initiative_resolution: ["sponsored", "declined", "withdrawn", "expired"],
       initiative_scope: ["federal", "state", "local"],
-      initiative_stage: ["problem", "draft", "deliberate", "mobilise", "resolved"],
+      initiative_stage: [
+        "draft",
+        "deliberate",
+        "mobilise",
+        "resolved",
+        "problem",
+      ],
       jurisdiction_type: [
         "global",
         "supranational",
@@ -3609,6 +4268,11 @@ export const Constants = {
         "district",
         "precinct",
         "other",
+      ],
+      notification_event_type: [
+        "official_vote",
+        "new_proposal",
+        "initiative_status",
       ],
       official_response_type: [
         "support",
@@ -3671,4 +4335,3 @@ export const Constants = {
     },
   },
 } as const
-

@@ -22,7 +22,15 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createAdminClient } from "@civitics/db";
 import { costGate } from "@civitics/ai/cost-gate";
 import { startSync, completeSync, failSync } from "../sync-log";
-import { checkFlag } from "../../feature-flags";
+import { checkFlag, FLAGS } from "../../feature-flags";
+import { TOPIC_ICONS, VALID_TOPICS, ISSUE_AREAS } from "./topics";
+import {
+  enqueue,
+  zeroCounts,
+  buildProposalTagContext,
+  buildOfficialTagContext,
+  aggregateOfficialStats,
+} from "../enrichment/queue";
 
 const AI_MODEL = "claude-haiku-4-5-20251001";
 
@@ -34,41 +42,6 @@ const HAIKU_INPUT_COST_PER_M  = 0.25;  // $0.25/M input
 const HAIKU_OUTPUT_COST_PER_M = 1.25;  // $1.25/M output
 
 const anthropic = new Anthropic({ apiKey: process.env["CIVITICS_ANTHROPIC_API_KEY"] });
-
-// ---------------------------------------------------------------------------
-// Topic icon map
-// ---------------------------------------------------------------------------
-
-const TOPIC_ICONS: Record<string, string> = {
-  climate:             "🌊",
-  healthcare:          "🏥",
-  finance:             "📈",
-  education:           "📚",
-  housing:             "🏠",
-  transportation:      "🚗",
-  agriculture:         "🌾",
-  energy:              "⚡",
-  defense:             "🛡",
-  technology:          "💻",
-  labor:               "👷",
-  immigration:         "🌍",
-  civil_rights:        "⚖️",
-  veterans:            "🎖",
-  food_safety:         "🍽",
-  consumer_protection: "🛡",
-  environment:         "🌊",
-  public_health:       "🏥",
-  trade:               "🤝",
-  other:               "📋",
-};
-
-const VALID_TOPICS = Object.keys(TOPIC_ICONS);
-
-const ISSUE_AREAS = [
-  "healthcare", "climate", "finance", "education", "defense",
-  "technology", "labor", "agriculture", "housing", "immigration",
-  "civil_rights", "veterans", "energy", "trade",
-];
 
 // ---------------------------------------------------------------------------
 // Cost tracking
@@ -444,6 +417,87 @@ async function runOfficialAiTagger(db: any, maxCostCents: number, onlyNew: boole
 }
 
 // ---------------------------------------------------------------------------
+// Shared fetch helpers — used by the inline path, the queue-mode branch, and
+// the backlog seeder. "Needing tags" = no (entity_type, generated_by=ai,
+// tag_category=topic) row in entity_tags.
+// ---------------------------------------------------------------------------
+
+export type ProposalNeedingTags = {
+  id: string;
+  title: string;
+  summary_plain: string | null;
+  metadata: Record<string, unknown> | null;
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function fetchProposalsNeedingTags(db: any, limit = 2000): Promise<ProposalNeedingTags[]> {
+  const { data: allProposals, error } = await db
+    .from("proposals")
+    .select("id, title, summary_plain, metadata")
+    .limit(limit);
+  if (error || !allProposals || allProposals.length === 0) return [];
+
+  const { data: taggedIds } = await db
+    .from("entity_tags")
+    .select("entity_id")
+    .eq("entity_type", "proposal")
+    .eq("generated_by", "ai")
+    .eq("tag_category", "topic");
+  const alreadyTagged = new Set((taggedIds ?? []).map((r: { entity_id: string }) => r.entity_id));
+  return allProposals.filter((p: { id: string }) => !alreadyTagged.has(p.id));
+}
+
+export type OfficialNeedingTags = {
+  id: string;
+  full_name: string;
+  role_title: string;
+  party: string | null;
+  state: string | null;
+  vote_count: number;
+  total_raised: number;
+  top_industries: string;
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function fetchOfficialsNeedingTags(db: any): Promise<OfficialNeedingTags[]> {
+  const { data: officials, error } = await db
+    .from("officials")
+    .select("id, full_name, role_title, party, metadata, is_active")
+    .eq("is_active", true);
+  if (error || !officials || officials.length === 0) return [];
+
+  const { data: taggedIds } = await db
+    .from("entity_tags")
+    .select("entity_id")
+    .eq("entity_type", "official")
+    .eq("generated_by", "ai")
+    .eq("tag_category", "topic");
+  const alreadyTagged = new Set((taggedIds ?? []).map((r: { entity_id: string }) => r.entity_id));
+  const targets = officials.filter((o: { id: string }) => !alreadyTagged.has(o.id));
+  if (targets.length === 0) return [];
+
+  const stats = await aggregateOfficialStats(
+    db,
+    targets.map((o: { id: string }) => o.id),
+  );
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return targets.map((o: any) => {
+    const agg = stats.get(o.id);
+    return {
+      id: o.id,
+      full_name: o.full_name,
+      role_title: o.role_title,
+      party: o.party ?? null,
+      state: (o.metadata?.state as string | undefined) ?? null,
+      vote_count: agg?.vote_count ?? 0,
+      total_raised: agg?.total_raised ?? 0,
+      top_industries: agg?.top_industries ?? "Unknown",
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Main pipeline
 // ---------------------------------------------------------------------------
 
@@ -458,6 +512,39 @@ export async function runAiTagger(options?: {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = createAdminClient() as any;
+
+  // ── Queue mode ───────────────────────────────────────────────────────────
+  // When CIVITICS_ENRICHMENT_MODE=queue, stage work for an external worker
+  // instead of calling Anthropic. No cost gate, no rate-limit sleep, no
+  // recency guard — staging is cheap and idempotent.
+  if (FLAGS.ENRICHMENT_MODE === "queue") {
+    console.log("  Mode: queue — staging to enrichment_queue, no API calls");
+    const proposals = await fetchProposalsNeedingTags(db);
+    const officials = await fetchOfficialsNeedingTags(db);
+    const counts = zeroCounts();
+    for (const p of proposals) {
+      const action = await enqueue(db, {
+        entity_id: p.id,
+        entity_type: "proposal",
+        task_type: "tag",
+        context: buildProposalTagContext(p),
+      });
+      counts[action]++;
+    }
+    for (const o of officials) {
+      const action = await enqueue(db, {
+        entity_id: o.id,
+        entity_type: "official",
+        task_type: "tag",
+        context: buildOfficialTagContext(o),
+      });
+      counts[action]++;
+    }
+    console.log(
+      `  [queue] proposals=${proposals.length} officials=${officials.length} ${JSON.stringify(counts)}`,
+    );
+    return { tagsCreated: counts.created + counts.retried, costCents: 0 };
+  }
 
   // ── Recency guard ────────────────────────────────────────────────────────
   // Prevent re-runs within 2 hours. Pass --force to override.

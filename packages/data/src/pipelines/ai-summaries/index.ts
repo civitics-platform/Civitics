@@ -29,7 +29,13 @@ import { createAdminClient, agencyFullName } from "@civitics/db";
 import { createAiClient, MODELS } from "@civitics/ai";
 import { costGate } from "@civitics/ai/cost-gate";
 import { sleep } from "../utils";
-import { checkFlag } from "../../feature-flags";
+import { checkFlag, FLAGS } from "../../feature-flags";
+import {
+  enqueue,
+  zeroCounts,
+  buildProposalSummaryContext,
+  buildOfficialSummaryContext,
+} from "../enrichment/queue";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -125,7 +131,7 @@ function computeCostCents(inputTokens: number, outputTokens: number): number {
 // Step 1 — Proposals
 // ---------------------------------------------------------------------------
 
-async function fetchOpenProposals(db: ReturnType<typeof createAdminClient>): Promise<ProposalRow[]> {
+export async function fetchOpenProposals(db: ReturnType<typeof createAdminClient>): Promise<ProposalRow[]> {
   // Proposals store agency as metadata->>'agency_id' (acronym string), not a FK.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result = await (db as any)
@@ -287,7 +293,7 @@ async function generateProposalSummaries(
 // Step 2 — Officials
 // ---------------------------------------------------------------------------
 
-async function fetchOfficials(db: ReturnType<typeof createAdminClient>): Promise<OfficialRow[]> {
+export async function fetchOfficials(db: ReturnType<typeof createAdminClient>): Promise<OfficialRow[]> {
   // Fetch federal officials with the most data, excluding those already cached
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const officialsRes = await (db as any)
@@ -485,6 +491,59 @@ export async function runAiSummariesPipeline(incremental = false): Promise<void>
   console.log(`    Time: ${new Date().toISOString()}`);
 
   const db = createAdminClient();
+
+  // ── Queue mode ───────────────────────────────────────────────────────────
+  // When CIVITICS_ENRICHMENT_MODE=queue, stage work for an external worker
+  // instead of calling Anthropic. Scope stays narrow (open-comment proposals
+  // + active Sen/Rep with records) — the seed-backlog script is responsible
+  // for widening to "everything missing."
+  if (FLAGS.ENRICHMENT_MODE === "queue") {
+    console.log("    Mode: queue — staging to enrichment_queue, no API calls");
+    const proposals = await fetchOpenProposals(db);
+    const officials = await fetchOfficials(db);
+    const counts = zeroCounts();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const q = db as any;
+    for (const p of proposals) {
+      if (p.context_level === "truly_empty") continue;
+      const action = await enqueue(q, {
+        entity_id: p.id,
+        entity_type: "proposal",
+        task_type: "summary",
+        context: buildProposalSummaryContext({
+          id: p.id,
+          title: p.title,
+          summary_plain: p.summary_plain,
+          type: p.type,
+          agency_name: p.agency_name,
+          agency_acronym: p.agency_acronym,
+        }),
+      });
+      counts[action]++;
+    }
+    for (const o of officials) {
+      const action = await enqueue(q, {
+        entity_id: o.id,
+        entity_type: "official",
+        task_type: "summary",
+        context: buildOfficialSummaryContext({
+          id: o.id,
+          full_name: o.full_name,
+          role_title: o.role_title,
+          state: o.state,
+          party: o.party,
+          vote_count: o.vote_count,
+          donor_count: o.donor_count,
+          total_raised: o.total_raised,
+        }),
+      });
+      counts[action]++;
+    }
+    console.log(
+      `    [queue] proposals=${proposals.filter((p) => p.context_level !== "truly_empty").length} officials=${officials.length} ${JSON.stringify(counts)}`,
+    );
+    return;
+  }
 
   // ── Recency guard ────────────────────────────────────────────────────────
   // Prevent re-runs within 2 hours. Pass --force to override.

@@ -64,7 +64,9 @@ export async function GET(request: Request) {
       entity_type:       row.entity_type,
     }));
 
-    return Response.json(rows);
+    return Response.json(rows, {
+      headers: { "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=172800" },
+    });
   }
 
   // ── Aggregate mode: all officials by party / chamber ─────────────────────
@@ -99,5 +101,7 @@ export async function GET(request: Request) {
     return Response.json({ error: error.message }, { status: 500 });
   }
 
-  return Response.json((data ?? []) as TreemapRow[]);
+  return Response.json((data ?? []) as TreemapRow[], {
+    headers: { "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=172800" },
+  });
 }

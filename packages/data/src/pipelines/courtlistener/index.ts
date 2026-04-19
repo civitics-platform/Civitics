@@ -79,7 +79,7 @@ const FEDERAL_COURTS = [
 // ---------------------------------------------------------------------------
 
 async function clGet<T>(path: string, apiKey: string, params: Record<string, string> = {}): Promise<T> {
-  await sleep(100);
+  await sleep(250);
   const url = new URL(`${CL_BASE}/${path}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   return fetchJson<T>(url.toString(), {
@@ -116,7 +116,7 @@ export async function runCourtListenerPipeline(
       try {
         if (nextUrl) {
           // nextUrl is a full URL — strip the base and re-add auth
-          await sleep(100);
+          await sleep(250);
           positions = await fetchJson<CLPositionList>(nextUrl, {
             headers: { Authorization: `Token ${apiKey}` },
           });
@@ -203,7 +203,7 @@ export async function runCourtListenerPipeline(
         clusterPage++;
         try {
           if (nextClusters) {
-            await sleep(100);
+            await sleep(250);
             clusters = await fetchJson<CLClusterList>(nextClusters, {
               headers: { Authorization: `Token ${apiKey}` },
             });

@@ -26,15 +26,20 @@ import { supabaseUnavailable, unavailableResponse } from "@/lib/supabase-check";
 const VALID_PIPELINES = [
   "congress",
   "regulations",
-  "fec",
+  "fec-bulk",
   "usaspending",
   "courtlistener",
   "openstates",
+  "elections",
+  "agencies-hierarchy",
   "connections",
   "tag-rules",
   "tag-ai",
   "tag-industry",
   "ai-summaries",
+  "govtrack-cosponsors",
+  "federal-register",
+  "opensecrets-bulk",
   "nightly",
 ] as const;
 

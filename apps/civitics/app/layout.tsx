@@ -4,6 +4,7 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import { AuthHashHandler } from "./components/AuthHashHandler";
 import { Footer } from "./components/Footer";
 import { NavBar } from "./components/NavBar";
+import { WebVitalsReporter } from "./components/WebVitalsReporter";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -32,6 +33,7 @@ export default function RootLayout({
         {children}
         <Footer />
         <AuthHashHandler />
+        <WebVitalsReporter />
         <Analytics />
         <SpeedInsights />
         {process.env.NODE_ENV === "development" && (

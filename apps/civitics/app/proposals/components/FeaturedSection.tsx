@@ -3,12 +3,15 @@
 import { useState } from "react";
 import { ProposalCard, type ProposalCardData } from "./ProposalCard";
 
-type Tab = "closing_soon" | "bills" | "most_viewed";
+type Tab = "closing_soon" | "trending" | "most_commented" | "new" | "bills" | "most_viewed";
 
 interface FeaturedSectionProps {
-  closingSoon:  ProposalCardData[];
-  bills:        ProposalCardData[];
-  mostViewed:   ProposalCardData[];
+  closingSoon:   ProposalCardData[];
+  bills:         ProposalCardData[];
+  mostViewed:    ProposalCardData[];
+  trending:      ProposalCardData[];
+  mostCommented: ProposalCardData[];
+  newest:        ProposalCardData[];
 }
 
 const TABS: { id: Tab; label: string; icon: string; emptyMsg: string }[] = [
@@ -17,6 +20,24 @@ const TABS: { id: Tab; label: string; icon: string; emptyMsg: string }[] = [
     label:    "Closing Soon",
     icon:     "⏰",
     emptyMsg: "No open comment periods right now.",
+  },
+  {
+    id:       "trending",
+    label:    "Trending",
+    icon:     "🔥",
+    emptyMsg: "No trending proposals in the last 24 hours.",
+  },
+  {
+    id:       "most_commented",
+    label:    "Most Commented",
+    icon:     "💬",
+    emptyMsg: "No proposals have comments yet.",
+  },
+  {
+    id:       "new",
+    label:    "New",
+    icon:     "✨",
+    emptyMsg: "No new proposals.",
   },
   {
     id:       "bills",
@@ -32,12 +53,15 @@ const TABS: { id: Tab; label: string; icon: string; emptyMsg: string }[] = [
   },
 ];
 
-export function FeaturedSection({ closingSoon, bills, mostViewed }: FeaturedSectionProps) {
+export function FeaturedSection({ closingSoon, bills, mostViewed, trending, mostCommented, newest }: FeaturedSectionProps) {
   const [activeTab, setActiveTab] = useState<Tab>("closing_soon");
 
   const proposals =
-    activeTab === "closing_soon"  ? closingSoon
-    : activeTab === "bills"       ? bills
+    activeTab === "closing_soon"    ? closingSoon
+    : activeTab === "trending"      ? trending
+    : activeTab === "most_commented" ? mostCommented
+    : activeTab === "new"           ? newest
+    : activeTab === "bills"         ? bills
     : mostViewed;
 
   const activeTabMeta = TABS.find((t) => t.id === activeTab)!;
@@ -46,6 +70,12 @@ export function FeaturedSection({ closingSoon, bills, mostViewed }: FeaturedSect
   function badge(tab: Tab): string | null {
     if (tab === "closing_soon" && closingSoon.length > 0)
       return `${closingSoon.length} closing soonest`;
+    if (tab === "trending" && trending.length > 0)
+      return `${trending.length} hot`;
+    if (tab === "most_commented" && mostCommented.length > 0)
+      return `${mostCommented.length} discussed`;
+    if (tab === "new" && newest.length > 0)
+      return `${newest.length} recent`;
     if (tab === "bills" && bills.length > 0)
       return `${bills.length} recent`;
     if (tab === "most_viewed" && mostViewed.length > 0)

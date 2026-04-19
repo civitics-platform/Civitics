@@ -91,7 +91,9 @@ export async function GET(request: Request) {
       .slice(0, 15);
 
     const hierarchy: PacHierarchy = { name: "PAC Money by Sector", children };
-    return Response.json(hierarchy);
+    return Response.json(hierarchy, {
+      headers: { "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=172800" },
+    });
   }
 
   // ── Party mode ───────────────────────────────────────────────────────────────
@@ -153,5 +155,7 @@ export async function GET(request: Request) {
     .slice(0, 3);
 
   const hierarchy: PacHierarchy = { name: "PAC Money by Party", children };
-  return Response.json(hierarchy);
+  return Response.json(hierarchy, {
+    headers: { "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=172800" },
+  });
 }

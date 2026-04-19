@@ -155,10 +155,12 @@ function cronStatusColor(status: string): string {
 const DATA_PIPELINES: Array<{ id: string; label: string }> = [
   { id: "congress",      label: "Congress" },
   { id: "regulations",   label: "Regulations" },
-  { id: "fec",           label: "FEC" },
+  { id: "fec-bulk",      label: "FEC (bulk)" },
   { id: "usaspending",   label: "USASpending" },
   { id: "courtlistener", label: "Courts" },
   { id: "openstates",    label: "OpenStates" },
+  { id: "elections",     label: "Elections" },
+  { id: "agencies-hierarchy", label: "Agency Hierarchy" },
   { id: "connections",   label: "Connections" },
 ];
 
@@ -360,16 +362,18 @@ export function PipelineOpsSection({ isAdmin }: Props) {
                     <div className="space-y-1">
                       {(
                         [
-                          ["regulations",   "Regulations.gov"],
-                          ["connections",   "Connections"],
-                          ["fec",           "FEC Campaign Finance"],
-                          ["usaspending",   "USASpending"],
-                          ["courtlistener", "CourtListener"],
-                          ["openstates",    "OpenStates"],
+                          ["regulations",        "Regulations.gov"],
+                          ["congress_officials", "Congress Officials"],
+                          ["congress_votes",     "Congress Votes"],
+                          ["connections",        "Connections"],
+                          ["fec_bulk",           "FEC Campaign Finance"],
+                          ["usaspending",        "USASpending"],
+                          ["courtlistener",      "CourtListener"],
+                          ["openstates",         "OpenStates"],
                         ] as const
                       ).map(([key, label]) => {
                         const r = data.cron.last_run!.results!.pipelines[key as keyof NightlySyncResults["pipelines"]];
-                        const isWeekly = ["fec", "usaspending", "courtlistener", "openstates"].includes(key);
+                        const isWeekly = ["fec_bulk", "usaspending", "courtlistener", "openstates"].includes(key);
                         if (isWeekly && !data.cron.last_run!.results!.is_weekly) {
                           return (
                             <div key={key} className="flex items-center gap-2 text-xs">

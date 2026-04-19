@@ -12,13 +12,17 @@
 import { createAdminClient } from "@civitics/db";
 import { getDbSizeMb, getLastSync } from "./sync-log";
 import { runRegulationsPipeline } from "./regulations";
-import { runFecPipeline } from "./fec";
+import { runFecBulkPipeline } from "./fec-bulk";
 import { runUsaSpendingPipeline } from "./usaspending";
 import { runCourtListenerPipeline } from "./courtlistener";
 import { runOpenStatesPipeline } from "./openstates";
+import { runOfficialsPipeline, runVotesPipeline } from "./congress";
 import { runConnectionsDelta } from "./connections/delta";
 import { runRuleBasedTagger } from "./tags/rules";
 import { runAiTagger } from "./tags/ai-tagger";
+import { runAiSummariesPipeline } from "./ai-summaries";
+import { runAgenciesHierarchyPipeline } from "./agencies-hierarchy";
+import { runElectionsPipeline } from "./elections";
 import { seedJurisdictions, seedGoverningBodies } from "../jurisdictions/us-states";
 
 // ---------------------------------------------------------------------------
@@ -42,7 +46,7 @@ async function printStatus(): Promise<void> {
     db.from("spending_records").select("*", { count: "exact", head: true }),
   ]);
 
-  const pipelines = ["regulations", "fec", "usaspending", "courtlistener", "openstates"] as const;
+  const pipelines = ["regulations", "fec_bulk", "usaspending", "courtlistener", "openstates", "congress_officials", "congress_votes"] as const;
   const syncTimes = await Promise.all(pipelines.map((p) => getLastSync(p)));
 
   console.log("\n=== Civitics Data Status ===");
@@ -78,7 +82,7 @@ export async function runAllPipelines(): Promise<void> {
   // Seed jurisdictions and governing bodies first (idempotent)
   console.log("\n[0/5] Seeding jurisdictions and governing bodies...");
   const { federalId, stateIds } = await seedJurisdictions(db);
-  const { senateId, houseId } = await seedGoverningBodies(db, federalId);
+  const { senateId: senateGovBodyId, houseId: houseGovBodyId } = await seedGoverningBodies(db, federalId);
 
   const initialMb = await getDbSizeMb();
   console.log(`      Starting DB size: ${initialMb} MB`);
@@ -113,21 +117,45 @@ export async function runAllPipelines(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // 2. FEC
+  // 2. FEC bulk (weball24 + cm24 + pas224 streaming — no API key needed)
   // -------------------------------------------------------------------------
   {
-    const apiKey = process.env["FEC_API_KEY"];
+    try {
+      const r = await runFecBulkPipeline();
+      results.push({ name: "fec_bulk", ...r });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("\n  FEC bulk pipeline threw:", msg);
+      results.push({ name: "fec_bulk", inserted: 0, updated: 0, failed: 1, estimatedMb: 0, error: msg });
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // 2b. Congress.gov (officials + votes)
+  // -------------------------------------------------------------------------
+  {
+    const apiKey = process.env["CONGRESS_GOV_API_KEY"];
     if (!apiKey) {
-      console.warn("\n[2/5] FEC — SKIPPED (FEC_API_KEY not set)");
-      results.push({ name: "fec", inserted: 0, updated: 0, failed: 0, estimatedMb: 0, error: "API key missing" });
+      console.warn("\n[2b] Congress.gov — SKIPPED (CONGRESS_GOV_API_KEY not set)");
+      results.push({ name: "congress_officials", inserted: 0, updated: 0, failed: 0, estimatedMb: 0, error: "API key missing" });
+      results.push({ name: "congress_votes", inserted: 0, updated: 0, failed: 0, estimatedMb: 0, error: "API key missing" });
     } else {
       try {
-        const r = await runFecPipeline(apiKey);
-        results.push({ name: "fec", ...r });
+        const r = await runOfficialsPipeline({ apiKey, stateIds, senateId: senateGovBodyId, houseId: houseGovBodyId, federalId });
+        results.push({ name: "congress_officials", inserted: r.inserted, updated: r.updated, failed: r.skipped, estimatedMb: 0 });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error("\n  FEC pipeline threw:", msg);
-        results.push({ name: "fec", inserted: 0, updated: 0, failed: 1, estimatedMb: 0, error: msg });
+        console.error("\n  Congress officials pipeline threw:", msg);
+        results.push({ name: "congress_officials", inserted: 0, updated: 0, failed: 1, estimatedMb: 0, error: msg });
+      }
+
+      try {
+        const r = await runVotesPipeline({ apiKey, federalId, senateGovBodyId, houseGovBodyId });
+        results.push({ name: "congress_votes", inserted: r.votesInserted, updated: r.proposalsUpserted, failed: 0, estimatedMb: 0 });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("\n  Congress votes pipeline threw:", msg);
+        results.push({ name: "congress_votes", inserted: 0, updated: 0, failed: 1, estimatedMb: 0, error: msg });
       }
     }
   }
@@ -156,7 +184,7 @@ export async function runAllPipelines(): Promise<void> {
       results.push({ name: "courtlistener", inserted: 0, updated: 0, failed: 0, estimatedMb: 0, error: "API key missing" });
     } else {
       try {
-        const r = await runCourtListenerPipeline(apiKey, federalId, senateId);
+        const r = await runCourtListenerPipeline(apiKey, federalId, senateGovBodyId);
         results.push({ name: "courtlistener", ...r });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -255,15 +283,20 @@ export interface NightlySyncResults {
   is_weekly: boolean;
   pipelines: {
     regulations?: NightlyPipelineResult;
-    fec?: NightlyPipelineResult;
+    congress_officials?: NightlyPipelineResult;
+    congress_votes?: NightlyPipelineResult;
+    fec_bulk?: NightlyPipelineResult;
     usaspending?: NightlyPipelineResult;
     courtlistener?: NightlyPipelineResult;
     openstates?: NightlyPipelineResult;
+    agencies_hierarchy?: NightlyPipelineResult;
+    elections?: NightlyPipelineResult;
     connections?: NightlyPipelineResult;
   };
   ai: {
     tag_rules?: NightlyAiResult;
     tag_ai?: NightlyAiResult;
+    ai_summaries?: NightlyAiResult;
   };
   total_ai_cost_usd: number;
   errors: string[];
@@ -295,9 +328,9 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
   // Seed jurisdictions (idempotent)
   const db = createAdminClient();
   const { federalId, stateIds } = await seedJurisdictions(db);
-  const { senateId } = await seedGoverningBodies(db, federalId);
+  const { senateId: senateGovBodyId, houseId: houseGovBodyId } = await seedGoverningBodies(db, federalId);
 
-  // 1. Daily data pipelines
+  // 1. Daily data pipelines — Regulations.gov
   {
     const t0 = Date.now();
     if (apiKey) {
@@ -315,25 +348,54 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
     }
   }
 
-  // 2. Weekly pipelines (Sunday only)
+  // 1b. Daily data pipelines — Congress.gov (officials + votes)
+  // Votes pipeline has a per-roll skip-if-exists guard, so re-running daily is cheap.
+  {
+    const congressKey = process.env["CONGRESS_GOV_API_KEY"];
+    if (congressKey) {
+      const t0 = Date.now();
+      try {
+        const r = await runOfficialsPipeline({ apiKey: congressKey, stateIds, senateId: senateGovBodyId, houseId: houseGovBodyId, federalId });
+        results.pipelines.congress_officials = { status: "complete", rows_added: r.inserted + r.updated, duration_ms: Date.now() - t0 };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[nightly] congress officials failed:", msg);
+        results.pipelines.congress_officials = { status: "failed", error: msg };
+        results.errors.push(`Congress officials: ${msg}`);
+      }
+
+      const t1 = Date.now();
+      try {
+        const r = await runVotesPipeline({ apiKey: congressKey, federalId, senateGovBodyId, houseGovBodyId });
+        results.pipelines.congress_votes = { status: "complete", rows_added: r.votesInserted, duration_ms: Date.now() - t1 };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[nightly] congress votes failed:", msg);
+        results.pipelines.congress_votes = { status: "failed", error: msg };
+        results.errors.push(`Congress votes: ${msg}`);
+      }
+    } else {
+      results.pipelines.congress_officials = { status: "skipped", error: "CONGRESS_GOV_API_KEY not set" };
+      results.pipelines.congress_votes = { status: "skipped", error: "CONGRESS_GOV_API_KEY not set" };
+    }
+  }
+
+  // 2. Weekly pipelines (Sunday only) — FEC bulk, USASpending, CourtListener, OpenStates
   if (isWeekly) {
-    const fecKey = process.env["FEC_API_KEY"];
     const clKey  = process.env["COURTLISTENER_API_KEY"];
     const osKey  = process.env["OPENSTATES_API_KEY"];
 
-    if (fecKey) {
+    {
       const t0 = Date.now();
       try {
-        const r = await runFecPipeline(fecKey);
-        results.pipelines.fec = { status: "complete", rows_added: r.inserted, duration_ms: Date.now() - t0 };
+        const r = await runFecBulkPipeline();
+        results.pipelines.fec_bulk = { status: "complete", rows_added: r.inserted, duration_ms: Date.now() - t0 };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error("[nightly] fec failed:", msg);
-        results.pipelines.fec = { status: "failed", error: msg };
-        results.errors.push(`FEC: ${msg}`);
+        console.error("[nightly] fec-bulk failed:", msg);
+        results.pipelines.fec_bulk = { status: "failed", error: msg };
+        results.errors.push(`FEC bulk: ${msg}`);
       }
-    } else {
-      results.pipelines.fec = { status: "skipped", error: "FEC_API_KEY not set" };
     }
 
     {
@@ -352,7 +414,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
     if (clKey) {
       const t0 = Date.now();
       try {
-        const r = await runCourtListenerPipeline(clKey, federalId, senateId);
+        const r = await runCourtListenerPipeline(clKey, federalId, senateGovBodyId);
         results.pipelines.courtlistener = { status: "complete", rows_added: r.inserted, duration_ms: Date.now() - t0 };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -378,6 +440,32 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
     } else {
       results.pipelines.openstates = { status: "skipped", error: "OPENSTATES_API_KEY not set" };
     }
+
+    {
+      const t0 = Date.now();
+      try {
+        const r = await runAgenciesHierarchyPipeline();
+        results.pipelines.agencies_hierarchy = { status: "complete", rows_added: r.updated, duration_ms: Date.now() - t0 };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[nightly] agencies-hierarchy failed:", msg);
+        results.pipelines.agencies_hierarchy = { status: "failed", error: msg };
+        results.errors.push(`Agencies hierarchy: ${msg}`);
+      }
+    }
+
+    {
+      const t0 = Date.now();
+      try {
+        const r = await runElectionsPipeline();
+        results.pipelines.elections = { status: "complete", rows_added: r.updated, duration_ms: Date.now() - t0 };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[nightly] elections failed:", msg);
+        results.pipelines.elections = { status: "failed", error: msg };
+        results.errors.push(`Elections: ${msg}`);
+      }
+    }
   }
 
   // 3. Derive connections (delta only)
@@ -392,6 +480,18 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
       results.pipelines.connections = { status: "failed", error: msg };
       results.errors.push(`Connections: ${msg}`);
     }
+  }
+
+  // 3b. Refresh comment aggregations (FIX-029 — trending tab)
+  try {
+    const { createAdminClient } = await import("@civitics/db");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const admin = createAdminClient() as any;
+    await admin.rpc("refresh_proposal_trending");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[nightly] refresh_proposal_trending failed:", msg);
+    results.errors.push(`Trending refresh: ${msg}`);
   }
 
   // 4. Rule-based tags (all new/updated entities)
@@ -416,6 +516,17 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
     console.error("[nightly] tag-ai failed:", msg);
     results.ai.tag_ai = { status: "failed" };
     results.errors.push(`AI tagger: ${msg}`);
+  }
+
+  // 6. AI summaries (incremental — only proposals/officials without cached summaries)
+  try {
+    await runAiSummariesPipeline(true);
+    results.ai.ai_summaries = { status: "complete" };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[nightly] ai-summaries failed:", msg);
+    results.ai.ai_summaries = { status: "failed" };
+    results.errors.push(`AI summaries: ${msg}`);
   }
 
   results.completed_at = new Date();

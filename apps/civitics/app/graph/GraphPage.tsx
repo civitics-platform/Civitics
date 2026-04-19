@@ -35,6 +35,38 @@ export function GraphPage({ initialCode }: GraphPageProps = {}) {
   const graphHooks = useGraphView();
   const { view }   = graphHooks;
 
+  // ── Auto-focus signed-in user's followed entities (FIX-042) ──────────────
+  // On first mount, if nothing is focused and nothing is pre-loaded from
+  // a share code, call /api/graph/me and addEntity for each follow. Limits
+  // to 5 to respect MAX_FOCUS_ENTITIES.
+  const autoFocusedRef = useRef(false);
+  useEffect(() => {
+    if (autoFocusedRef.current) return;
+    if (initialCode) return; // share-code hydration owns focus
+    if (view.focus.entities.length > 0) return;
+    autoFocusedRef.current = true;
+
+    (async () => {
+      try {
+        const res = await fetch("/api/graph/me", { credentials: "include" });
+        if (!res.ok) return;
+        const { entities } = await res.json() as {
+          entities: Array<{
+            id: string; name: string;
+            type: "official" | "agency";
+            role?: string; party?: string; photoUrl?: string;
+            highlight?: boolean;
+          }>;
+        };
+        for (const entity of entities.slice(0, 5)) {
+          graphHooks.addEntity(entity);
+        }
+      } catch {
+        // Unauthenticated or network error — silently fall back to empty graph.
+      }
+    })();
+  }, [initialCode, view.focus.entities.length, graphHooks]);
+
   // ── Graph data (nodes + edges for all focused entities) ───────────────────
   const { nodes, allEdges, loadingEntityId, graphMeta } = useGraphData(
     view.focus,

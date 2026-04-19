@@ -217,6 +217,10 @@ supabase gen types typescript --local > packages/db/src/types/database.ts
 - Every route that calls `createAdminClient()` must `export const dynamic = "force-dynamic"`.
 - `generateStaticParams` uses `createClient()` with the publishable key — never
   `createAdminClient()` (the secret key isn't available at build time).
+- `createAdminClient()` bypasses RLS — reserve it for route handlers, pipelines,
+  and server-only metadata generators. Do not call it from Server Components in
+  the page render path for RLS-scoped content; use `createServerClient(cookies())`
+  instead so user sessions are honored.
 - Follow the hydration-safety rules in [apps/civitics/CLAUDE.md](apps/civitics/CLAUDE.md#hydration-safety).
 
 ### What we don't accept

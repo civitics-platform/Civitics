@@ -75,7 +75,7 @@ const PIPELINE_NAMES: Record<string, string> = {
   tag_ai: "AI Tagger",
 };
 
-const KNOWN_PIPELINES = ["congress", "regulations", "connections", "fec", "ai_summaries"];
+const KNOWN_PIPELINES = ["congress", "regulations", "connections", "fec_bulk", "ai_summaries"];
 
 // ── Self-test display labels ──────────────────────────────────────────────────
 

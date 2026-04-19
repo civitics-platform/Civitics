@@ -397,6 +397,8 @@ export async function GET(req: NextRequest) {
       top_flows: topFlows.slice(0, 10),
       total_flow_usd: Math.round(totalFlow),
       untagged_flow_usd: Math.round(untaggedFlow),
+    }, {
+      headers: { "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=172800" },
     });
   } catch (e) {
     console.error("[chord]", e);

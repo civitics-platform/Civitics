@@ -10,7 +10,6 @@
     "data:sync": "tsx --env-file=../../.env.local src/pipelines/index.ts",
     "data:status": "tsx --env-file=../../.env.local src/pipelines/index.ts status",
     "data:regulations": "tsx --env-file=../../.env.local src/pipelines/regulations/index.ts",
-    "data:fec": "tsx --env-file=../../.env.local src/pipelines/fec/index.ts",
     "data:fec-bulk": "tsx --env-file=../../.env.local src/pipelines/fec-bulk/index.ts",
     "data:usaspending": "tsx --env-file=../../.env.local src/pipelines/usaspending/index.ts",
     "data:courts": "tsx --env-file=../../.env.local src/pipelines/courtlistener/index.ts",
@@ -18,7 +17,6 @@
     "data:connections": "tsx --env-file=../../.env.local src/pipelines/connections/index.ts",
     "data:connections-delta": "tsx --env-file=../../.env.local src/pipelines/connections/delta.ts",
     "data:financial-entities": "tsx --env-file=../../.env.local src/pipelines/financial-entities/index.ts",
-    "data:scheduler": "tsx --env-file=../../.env.local src/scheduler.ts",
     "data:ai-summaries": "tsx --env-file=../../.env.local src/pipelines/ai-summaries/index.ts",
     "data:ai-summaries-new": "tsx --env-file=../../.env.local src/pipelines/ai-summaries/index.ts --incremental",
     "data:tag-rules": "tsx --env-file=../../.env.local src/pipelines/tags/rules.ts",
@@ -26,20 +24,24 @@
     "data:tag-industry": "tsx --env-file=../../.env.local src/pipelines/tags/ai-classifier.ts",
     "data:tag-all": "tsx --env-file=../../.env.local src/pipelines/tags/rules.ts && tsx --env-file=../../.env.local src/pipelines/tags/ai-tagger.ts -- --confirm && tsx --env-file=../../.env.local src/pipelines/tags/ai-classifier.ts -- --confirm",
     "data:nightly": "tsx --env-file=../../.env.local src/pipelines/index.ts nightly",
-    "data:pac-classify": "tsx --env-file=../../.env.local src/pipelines/pac-classify/index.ts"
+    "data:pac-classify": "tsx --env-file=../../.env.local src/pipelines/pac-classify/index.ts",
+    "data:agencies-hierarchy": "tsx --env-file=../../.env.local src/pipelines/agencies-hierarchy/index.ts",
+    "data:votes-backfill": "tsx --env-file=../../.env.local src/pipelines/congress/votes-backfill.ts",
+    "data:elections": "tsx --env-file=../../.env.local src/pipelines/elections/index.ts",
+    "data:govtrack-cosponsors": "tsx --env-file=../../.env.local src/pipelines/govtrack-cosponsors/index.ts",
+    "data:federal-register": "tsx --env-file=../../.env.local src/pipelines/federal-register/index.ts",
+    "data:opensecrets-bulk": "tsx --env-file=../../.env.local src/pipelines/opensecrets-bulk/index.ts"
   },
   "dependencies": {
     "@civitics/ai": "workspace:*",
     "@civitics/db": "workspace:*",
     "csv-parse": "^5.5.0",
     "fast-xml-parser": "^4.5.0",
-    "node-cron": "^3.0.3",
     "unzipper": "^0.12.3"
   },
   "devDependencies": {
     "@civitics/config": "workspace:*",
     "@types/node": "^20.0.0",
-    "@types/node-cron": "^3.0.11",
     "@types/unzipper": "^0.10.9",
     "tsx": "^4.0.0",
     "typescript": "^5.4.0"

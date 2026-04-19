@@ -152,6 +152,45 @@ export default async function ProposalsPage({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       : Promise.resolve({ data: [] as any[], error: null });
 
+  // ─── Trending / Most Commented / New queries (FIX-029) ────────────────────
+  // Trending uses the proposal_trending_24h materialized view (nightly refresh).
+  // Most commented uses the proposal_comment_stats live view.
+  const trendingIdsRes = await sbAny2
+    .from("proposal_trending_24h")
+    .select("proposal_id, trending_score")
+    .order("trending_score", { ascending: false, nullsFirst: false })
+    .limit(6);
+  const trendingIds = (trendingIdsRes.data ?? []).map((r: { proposal_id: string }) => r.proposal_id);
+
+  const mostCommentedIdsRes = await sbAny2
+    .from("proposal_comment_stats")
+    .select("proposal_id, comment_count")
+    .order("comment_count", { ascending: false, nullsFirst: false })
+    .limit(6);
+  const mostCommentedIds = (mostCommentedIdsRes.data ?? []).map((r: { proposal_id: string }) => r.proposal_id);
+
+  const trendingQuery = trendingIds.length > 0
+    ? supabase
+        .from("proposals")
+        .select("id,title,type,status,regulations_gov_id,congress_gov_url,comment_period_end,summary_plain,summary_model,introduced_at,metadata")
+        .in("id", trendingIds)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    : Promise.resolve({ data: [] as any[], error: null });
+
+  const mostCommentedQuery = mostCommentedIds.length > 0
+    ? supabase
+        .from("proposals")
+        .select("id,title,type,status,regulations_gov_id,congress_gov_url,comment_period_end,summary_plain,summary_model,introduced_at,metadata")
+        .in("id", mostCommentedIds)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    : Promise.resolve({ data: [] as any[], error: null });
+
+  const newestQuery = supabase
+    .from("proposals")
+    .select("id,title,type,status,regulations_gov_id,congress_gov_url,comment_period_end,summary_plain,summary_model,introduced_at,metadata")
+    .order("introduced_at", { ascending: false, nullsFirst: false })
+    .limit(6);
+
   // ─── Filtered main list ───────────────────────────────────────────────────
   let mainQuery = supabase
     .from("proposals")
@@ -203,17 +242,23 @@ export default async function ProposalsPage({
   }
   mainQuery = mainQuery.range(offset, offset + PAGE_SIZE - 1);
 
-  const [openFeaturedRes, billsRes, mostViewedRes, mainRes] = await Promise.all([
+  const [openFeaturedRes, billsRes, mostViewedRes, trendingRes, mostCommentedRes, newestRes, mainRes] = await Promise.all([
     openFeaturedQuery,
     billsQuery,
     mostViewedQuery,
+    trendingQuery,
+    mostCommentedQuery,
+    newestQuery,
     mainQuery,
   ]);
 
-  const rawOpenFeatured  = (openFeaturedRes.data  ?? []) as ProposalCardData[];
-  const rawBills         = (billsRes.data          ?? []) as ProposalCardData[];
-  const rawMostViewed    = (mostViewedRes.data     ?? []) as ProposalCardData[];
-  const rawMainProposals = (mainRes.data           ?? []) as ProposalCardData[];
+  const rawOpenFeatured   = (openFeaturedRes.data  ?? []) as ProposalCardData[];
+  const rawBills          = (billsRes.data          ?? []) as ProposalCardData[];
+  const rawMostViewed     = (mostViewedRes.data     ?? []) as ProposalCardData[];
+  const rawTrending       = (trendingRes.data       ?? []) as ProposalCardData[];
+  const rawMostCommented  = (mostCommentedRes.data  ?? []) as ProposalCardData[];
+  const rawNewest         = (newestRes.data         ?? []) as ProposalCardData[];
+  const rawMainProposals  = (mainRes.data           ?? []) as ProposalCardData[];
   const totalCount = mainRes.count ?? 0;
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
@@ -223,6 +268,9 @@ export default async function ProposalsPage({
     ...rawOpenFeatured.map((p) => p.id),
     ...rawBills.map((p) => p.id),
     ...rawMostViewed.map((p) => p.id),
+    ...rawTrending.map((p) => p.id),
+    ...rawMostCommented.map((p) => p.id),
+    ...rawNewest.map((p) => p.id),
     ...rawMainProposals.map((p) => p.id),
   ].filter((id, i, arr) => arr.indexOf(id) === i);
 
@@ -274,6 +322,16 @@ export default async function ProposalsPage({
   const featuredMostViewed = rawMostViewed
     .map(enrich)
     .sort((a, b) => (viewCounts[b.id] ?? 0) - (viewCounts[a.id] ?? 0));
+  // Preserve the score-based ordering returned by the views by reindexing lookup
+  const trendingOrder = new Map<string, number>(trendingIds.map((id: string, i: number) => [id, i]));
+  const commentedOrder = new Map<string, number>(mostCommentedIds.map((id: string, i: number) => [id, i]));
+  const featuredTrending = rawTrending
+    .map(enrich)
+    .sort((a, b) => (trendingOrder.get(a.id) ?? 999) - (trendingOrder.get(b.id) ?? 999));
+  const featuredMostCommented = rawMostCommented
+    .map(enrich)
+    .sort((a, b) => (commentedOrder.get(a.id) ?? 999) - (commentedOrder.get(b.id) ?? 999));
+  const featuredNewest = rawNewest.map(enrich);
   const mainProposals = rawMainProposals.map(enrich);
 
   const showFeaturedSection =
@@ -311,11 +369,21 @@ export default async function ProposalsPage({
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
 
         {/* ─── Featured — tabbed: Closing Soon / Bills / Most Viewed ──────── */}
-        {showFeaturedSection && (openFeatured.length > 0 || featuredBills.length > 0 || featuredMostViewed.length > 0) && (
+        {showFeaturedSection && (
+          openFeatured.length > 0 ||
+          featuredBills.length > 0 ||
+          featuredMostViewed.length > 0 ||
+          featuredTrending.length > 0 ||
+          featuredMostCommented.length > 0 ||
+          featuredNewest.length > 0
+        ) && (
           <FeaturedSection
             closingSoon={openFeatured}
             bills={featuredBills}
             mostViewed={featuredMostViewed}
+            trending={featuredTrending}
+            mostCommented={featuredMostCommented}
+            newest={featuredNewest}
           />
         )}
 

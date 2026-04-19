@@ -31,18 +31,21 @@
     "data:govtrack-cosponsors": "tsx --env-file=../../.env.local src/pipelines/govtrack-cosponsors/index.ts",
     "data:federal-register": "tsx --env-file=../../.env.local src/pipelines/federal-register/index.ts",
     "data:opensecrets-bulk": "tsx --env-file=../../.env.local src/pipelines/opensecrets-bulk/index.ts",
-    "data:enrich-seed": "tsx --env-file=../../.env.local src/pipelines/enrichment/seed-backlog.ts"
+    "data:enrich-seed": "tsx --env-file=../../.env.local src/pipelines/enrichment/seed-backlog.ts",
+    "data:audit": "tsx --env-file=../../.env.local src/pipelines/integrity-audit/index.ts"
   },
   "dependencies": {
     "@civitics/ai": "workspace:*",
     "@civitics/db": "workspace:*",
     "csv-parse": "^5.5.0",
     "fast-xml-parser": "^4.5.0",
+    "pg": "^8.13.0",
     "unzipper": "^0.12.3"
   },
   "devDependencies": {
     "@civitics/config": "workspace:*",
     "@types/node": "^20.0.0",
+    "@types/pg": "^8.11.10",
     "@types/unzipper": "^0.10.9",
     "tsx": "^4.0.0",
     "typescript": "^5.4.0"

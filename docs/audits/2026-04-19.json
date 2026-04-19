@@ -1,0 +1,222 @@
+{
+  "ranAt": "2026-04-19T11:49:00.473Z",
+  "durationMs": 1012,
+  "dbHost": "db.xsazcoxinpgttgquwvuf.supabase.co:5432",
+  "results": [
+    {
+      "category": "officials.senator_count",
+      "severity": "info",
+      "expected": 100,
+      "actual": 100,
+      "sample": [],
+      "detail": "Active U.S. senators (2 per state × 50 states)."
+    },
+    {
+      "category": "officials.senators_per_state",
+      "severity": "error",
+      "expected": "every state = 2",
+      "actual": "1 states ≠ 2",
+      "sample": [
+        {
+          "state": null,
+          "count": "100"
+        }
+      ],
+      "detail": "States that don't have exactly two active senators."
+    },
+    {
+      "category": "officials.rep_count",
+      "severity": "error",
+      "expected": 441,
+      "actual": 438,
+      "sample": [],
+      "detail": "Active U.S. House: 435 voting + 6 non-voting delegates."
+    },
+    {
+      "category": "officials.president_count",
+      "severity": "error",
+      "expected": 1,
+      "actual": 0,
+      "sample": [],
+      "detail": "Sitting U.S. President."
+    },
+    {
+      "category": "officials.vp_count",
+      "severity": "error",
+      "expected": 1,
+      "actual": 0,
+      "sample": [],
+      "detail": "Sitting U.S. Vice President."
+    },
+    {
+      "category": "officials.duplicate_congress_gov",
+      "severity": "info",
+      "expected": 0,
+      "actual": 0,
+      "sample": [],
+      "detail": "Distinct officials sharing the same source_ids->>'congress_gov' (federal congressional ID)."
+    },
+    {
+      "category": "officials.missing_party",
+      "severity": "info",
+      "expected": 0,
+      "actual": 0,
+      "sample": [],
+      "detail": "Active senators/reps with NULL party. Independents should be 'independent', not NULL."
+    },
+    {
+      "category": "proposals.procedural_contamination",
+      "severity": "error",
+      "expected": 0,
+      "actual": 827,
+      "sample": [
+        {
+          "id": "01aa0839-7980-4dc6-9931-7dac21d694bc",
+          "title": "On Ordering the Previous Question",
+          "type": "resolution"
+        },
+        {
+          "id": "71068be1-9744-49cb-bda0-0ee3c7713260",
+          "title": "On Motion to Suspend the Rules and Pass",
+          "type": "bill"
+        },
+        {
+          "id": "1e0d23a9-3b5d-40ee-b18b-ac3af3361e40",
+          "title": "On Motion to Suspend the Rules and Pass",
+          "type": "bill"
+        },
+        {
+          "id": "5a666d98-a828-4d2a-ae41-972c05aad197",
+          "title": "On Motion to Suspend the Rules and Pass",
+          "type": "bill"
+        },
+        {
+          "id": "b5fac414-715e-4c99-a793-84702744f095",
+          "title": "On Motion to Recommit",
+          "type": "bill"
+        },
+        {
+          "id": "0e989dab-ba5e-4b08-aff4-8b6375f25ac5",
+          "title": "On Motion to Suspend the Rules and Pass",
+          "type": "bill"
+        },
+        {
+          "id": "2b8d5bd5-d228-454b-a3be-60efdc35b24b",
+          "title": "Michael Connor v. Brittany Greene",
+          "type": "other"
+        },
+        {
+          "id": "59ebe381-833c-409c-8c1a-28a95a27fcf4",
+          "title": "Peterkin v. Div. of Licensing Servs.",
+          "type": "other"
+        },
+        {
+          "id": "399eca69-5117-4111-be6c-50087001a6af",
+          "title": "On Passage",
+          "type": "bill"
+        },
+        {
+          "id": "d0f1d276-bb6e-4760-9662-329cd2a0a8fc",
+          "title": "On Motion to Suspend the Rules and Pass",
+          "type": "bill"
+        }
+      ],
+      "detail": "Proposals whose title looks like a procedural-vote subject ('On Passage', 'On the Cloture Motion') or a court case name ('Smith v. Jones'). FIX-A regression test."
+    },
+    {
+      "category": "proposals.orphaned_agency_id",
+      "severity": "info",
+      "expected": 0,
+      "actual": 0,
+      "sample": [],
+      "detail": "proposals.metadata->>'agency_id' values that don't resolve to any row in agencies.acronym."
+    },
+    {
+      "category": "votes.orphan_official_id",
+      "severity": "info",
+      "expected": 0,
+      "actual": 0,
+      "sample": [],
+      "detail": "votes.official_id values not present in officials.id."
+    },
+    {
+      "category": "votes.invalid_vote_value",
+      "severity": "error",
+      "expected": 0,
+      "actual": 7053,
+      "sample": [
+        {
+          "id": "99145008-92bd-493d-8bf4-4de92fe6e5f8",
+          "vote": "not_voting"
+        },
+        {
+          "id": "220a309c-21b2-4394-9928-27d3510ef82b",
+          "vote": "not_voting"
+        },
+        {
+          "id": "66d2da3d-2b7b-48e4-b129-647b79ee4c71",
+          "vote": "not_voting"
+        },
+        {
+          "id": "98e42cdd-8dba-4b46-8dc1-86468dcc5764",
+          "vote": "not_voting"
+        },
+        {
+          "id": "0b00e4fc-cf7d-4e42-b66e-cd2da06a406f",
+          "vote": "not_voting"
+        },
+        {
+          "id": "1fd68348-fc38-4365-8f8a-dffdac8f9797",
+          "vote": "not_voting"
+        },
+        {
+          "id": "5228a913-9a44-4050-b037-b97110d2a50d",
+          "vote": "not_voting"
+        },
+        {
+          "id": "aae2eaf8-a8c3-4bee-94b3-82a60a8fa001",
+          "vote": "not_voting"
+        },
+        {
+          "id": "47712656-a8da-47fe-a41a-6fc3c6e33336",
+          "vote": "not_voting"
+        },
+        {
+          "id": "5e40cdc9-df67-4f1c-8e42-8dee60411ddf",
+          "vote": "not_voting"
+        }
+      ],
+      "detail": "votes.vote values outside the allowed enum {yes, no, present, not voting}."
+    },
+    {
+      "category": "referential.orphan_entity_tags",
+      "severity": "info",
+      "expected": 0,
+      "actual": 0,
+      "sample": [],
+      "detail": "entity_tags rows whose (entity_type, entity_id) does not resolve to a row in proposals/officials/agencies."
+    },
+    {
+      "category": "referential.orphan_ai_summary_cache",
+      "severity": "info",
+      "expected": 0,
+      "actual": 0,
+      "sample": [],
+      "detail": "ai_summary_cache rows whose (entity_type, entity_id) does not resolve."
+    },
+    {
+      "category": "referential.orphan_enrichment_queue",
+      "severity": "info",
+      "expected": 0,
+      "actual": 0,
+      "sample": [],
+      "detail": "enrichment_queue rows whose (entity_type, entity_id) does not resolve. Note: entity_id is TEXT in this table."
+    }
+  ],
+  "summary": {
+    "total": 14,
+    "errors": 6,
+    "warnings": 0,
+    "infos": 8
+  }
+}

@@ -88,9 +88,9 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## COMMUNITY & AUTH
 
-- [ ] 🟡 M — **Follow officials and agencies** — "Follow" button → user receives updates when official votes, when agency publishes new proposals; requires notification system <!--id:FIX-055-->
-- [ ] 🟡 M — **Email notifications** — trigger on: new proposal in followed agency, followed official votes, initiative status change; use Resend (already in stack) <!--id:FIX-056-->
-- [ ] ⬜ M — **Content moderation tools** — before comments go live, need a basic flagging system and admin review queue; can be simple (flag button → admin dashboard queue) <!--id:FIX-057-->
+- [ ] 🟡 M — **Follow officials and agencies** — done 2026-04-18: migration `20260418200000_community_auth.sql` adds `user_follows`; `FollowButton` on officials & agencies detail pages; `/api/follows` GET/POST/DELETE; in-app `NotificationsBell` in NavBar; `/api/cron/notify-followers` fans out notifications every 6h <!--id:FIX-055-->
+- [ ] 🟡 M — **Email notifications** — done 2026-04-18: Resend REST helper at `src/lib/email.ts` (no SDK dep); `notifyFollowers()` fan-out emails when `email_enabled`; `/dashboard/notifications` UI toggles per-follow; triggers wired for followed official votes and new proposals in followed agencies. Requires `RESEND_API_KEY` + `RESEND_FROM` env vars <!--id:FIX-056-->
+- [ ] ⬜ M — **Content moderation tools** — done 2026-04-18: `content_flags` table; `FlagButton` component on civic + official community comments; `/api/moderation/flag`; admin review queue (`ModerationSection`) on dashboard with dismiss/delete actions backed by `/api/admin/moderation` <!--id:FIX-057-->
 
 ---
 

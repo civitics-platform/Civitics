@@ -4,6 +4,7 @@ import { createServerClient, createAdminClient } from "@civitics/db";
 import { createClient } from "@supabase/supabase-js";
 import { AgencyGraph } from "./components/AgencyGraph";
 import { PageViewTracker } from "../../components/PageViewTracker";
+import { FollowButton } from "../../components/FollowButton";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -266,7 +267,7 @@ export default async function AgencyProfilePage({
                   {agency.description}
                 </p>
               )}
-              <div className="mt-3 flex flex-wrap gap-4">
+              <div className="mt-3 flex flex-wrap items-center gap-4">
                 {agency.website_url && (
                   <a
                     href={agency.website_url}
@@ -285,6 +286,11 @@ export default async function AgencyProfilePage({
                     {agency.contact_email}
                   </a>
                 )}
+                <FollowButton
+                  entityType="agency"
+                  entityId={agency.id}
+                  entityLabel={agency.name}
+                />
               </div>
             </div>
           </div>

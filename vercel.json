@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/nightly-sync",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/notify-followers",
+      "schedule": "0 */6 * * *"
     }
   ]
 }

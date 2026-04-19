@@ -14,6 +14,7 @@ import { OfficialComments } from "./components/OfficialComments";
 import { ResponsivenessCard } from "../components/ResponsivenessCard";
 import { gradeFromRate } from "../../api/officials/[id]/responsiveness/_lib";
 import { PageViewTracker } from "../../components/PageViewTracker";
+import { FollowButton } from "../../components/FollowButton";
 
 const CivicBadge = nextDynamic(
   () => import("@civitics/graph").then((m) => ({ default: m.CivicBadge })),
@@ -689,6 +690,11 @@ export default async function OfficialProfilePage({
                   <ShareButton
                     name={official.full_name}
                     url={`/officials/${official.id}`}
+                  />
+                  <FollowButton
+                    entityType="official"
+                    entityId={official.id}
+                    entityLabel={official.full_name}
                   />
                   {official.website_url && (
                     <a

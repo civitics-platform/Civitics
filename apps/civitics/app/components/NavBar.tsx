@@ -4,6 +4,7 @@ import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { GlobalSearch } from "./GlobalSearch";
 import { AuthButton } from "./AuthButton";
+import { NotificationsBell } from "./NotificationsBell";
 
 const NAV_ITEMS = [
   { label: "Officials",   href: "/officials" },
@@ -64,8 +65,9 @@ export function NavBar() {
             <GlobalSearch variant="nav" />
           </div>
 
-          {/* Right side: auth + hamburger */}
+          {/* Right side: notifications + auth + hamburger */}
           <div className="flex items-center gap-2">
+            <NotificationsBell />
             <AuthButton />
             {/* Hamburger — mobile only */}
             <button

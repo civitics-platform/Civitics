@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, type FormEvent } from "react";
+import { FlagButton } from "../../../components/FlagButton";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -187,13 +188,19 @@ export function OfficialComments({ officialId }: OfficialCommentsProps) {
               key={comment.id}
               className="rounded-lg border border-gray-200 bg-white p-4"
             >
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs font-medium text-gray-700">
-                  Anonymous
-                </span>
-                <span className="text-xs text-gray-400">
-                  {formatRelativeTime(comment.created_at)}
-                </span>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-gray-700">
+                    Anonymous
+                  </span>
+                  <span className="text-xs text-gray-400">
+                    {formatRelativeTime(comment.created_at)}
+                  </span>
+                </div>
+                <FlagButton
+                  contentType="official_community_comment"
+                  contentId={comment.id}
+                />
               </div>
               <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
                 {comment.body}

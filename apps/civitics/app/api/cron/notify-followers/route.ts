@@ -1,0 +1,190 @@
+// Vercel cron route — fan out notifications to followers.
+//
+// Schedule: every 6 hours — configured in /vercel.json
+//
+// Detects:
+//   - New votes by followed officials since last run -> "official_vote" notifications
+//   - New proposals for followed agencies since last run -> "new_proposal" notifications
+//
+// State is tracked in pipeline_state key "notify_followers_last_run".
+// Security: CRON_SECRET header, same as nightly-sync.
+
+export const dynamic = "force-dynamic";
+
+import { NextResponse, type NextRequest } from "next/server";
+import { createAdminClient } from "@civitics/db";
+import { notifyFollowers } from "@/lib/notifications";
+
+const STATE_KEY = "notify_followers_last_run";
+
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  if (process.env["CRON_DISABLED"] === "true") {
+    return NextResponse.json({ skipped: true, reason: "CRON_DISABLED" });
+  }
+
+  const authHeader = request.headers.get("authorization");
+  const expected = `Bearer ${process.env["CRON_SECRET"] ?? ""}`;
+  const isVercelCron = !!process.env["CRON_SECRET"] && authHeader === expected;
+  const isManualAdmin = request.nextUrl.searchParams.get("manual") === "1";
+
+  if (!isVercelCron && !isManualAdmin) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = createAdminClient() as any;
+
+  // Fetch last-run cursor
+  const { data: stateRow } = await db
+    .from("pipeline_state")
+    .select("value")
+    .eq("key", STATE_KEY)
+    .maybeSingle();
+
+  const lastRunIso =
+    (stateRow?.value?.last_run as string | undefined) ??
+    new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  const now = new Date().toISOString();
+
+  // ── 1. followed officials: did they vote? ──────────────────────────────────
+  const { data: officialFollows } = await db
+    .from("user_follows")
+    .select("entity_id")
+    .eq("entity_type", "official");
+
+  const followedOfficialIds: string[] = Array.from(
+    new Set<string>((officialFollows ?? []).map((r: { entity_id: string }) => r.entity_id))
+  );
+
+  let officialEventsSent = 0;
+  if (followedOfficialIds.length > 0) {
+    const { data: newVotes } = await db
+      .from("votes")
+      .select(
+        "id, official_id, vote, voted_at, proposals!proposal_id(id, title, bill_number)"
+      )
+      .in("official_id", followedOfficialIds)
+      .gt("voted_at", lastRunIso)
+      .order("voted_at", { ascending: false })
+      .limit(500);
+
+    const votesByOfficial = new Map<
+      string,
+      Array<{ title: string; bill_number: string | null; vote: string; proposal_id: string | null }>
+    >();
+    for (const v of newVotes ?? []) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const proposal = (v as any).proposals;
+      const entry = votesByOfficial.get(v.official_id) ?? [];
+      entry.push({
+        title:       proposal?.title ?? "Unknown bill",
+        bill_number: proposal?.bill_number ?? null,
+        vote:        v.vote,
+        proposal_id: proposal?.id ?? null,
+      });
+      votesByOfficial.set(v.official_id, entry);
+    }
+
+    for (const [officialId, votes] of votesByOfficial) {
+      const { data: official } = await db
+        .from("officials")
+        .select("full_name")
+        .eq("id", officialId)
+        .single();
+      const name = official?.full_name ?? "An official you follow";
+      const first = votes[0]!;
+      const extra = votes.length > 1 ? ` (+${votes.length - 1} more)` : "";
+      const billLabel = first.bill_number ? `${first.bill_number}: ` : "";
+      const result = await notifyFollowers({
+        entityType: "official",
+        entityId:   officialId,
+        eventType:  "official_vote",
+        title:      `${name} voted "${first.vote}" on ${billLabel}${truncate(first.title, 80)}${extra}`,
+        body:
+          votes.length > 1
+            ? `${votes.length} new votes by ${name} since your last check-in.`
+            : undefined,
+        link: `/officials/${officialId}`,
+      });
+      officialEventsSent += result.notified;
+    }
+  }
+
+  // ── 2. followed agencies: new proposals? ───────────────────────────────────
+  const { data: agencyFollows } = await db
+    .from("user_follows")
+    .select("entity_id")
+    .eq("entity_type", "agency");
+
+  const followedAgencyIds: string[] = Array.from(
+    new Set<string>((agencyFollows ?? []).map((r: { entity_id: string }) => r.entity_id))
+  );
+
+  let agencyEventsSent = 0;
+  if (followedAgencyIds.length > 0) {
+    // Agencies are keyed by acronym or name in proposals.metadata->>agency_id.
+    const { data: agencies } = await db
+      .from("agencies")
+      .select("id, name, acronym")
+      .in("id", followedAgencyIds);
+
+    for (const a of agencies ?? []) {
+      const key = a.acronym ?? a.name;
+      const { data: newProposals } = await db
+        .from("proposals")
+        .select("id, title, bill_number, introduced_at, created_at")
+        .filter("metadata->>agency_id", "eq", key)
+        .gt("created_at", lastRunIso)
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      const rows = newProposals ?? [];
+      if (rows.length === 0) continue;
+
+      const first = rows[0]!;
+      const extra = rows.length > 1 ? ` (+${rows.length - 1} more)` : "";
+      const billLabel = first.bill_number ? `${first.bill_number}: ` : "";
+      const result = await notifyFollowers({
+        entityType: "agency",
+        entityId:   a.id,
+        eventType:  "new_proposal",
+        title:      `New from ${a.acronym ?? a.name}: ${billLabel}${truncate(first.title, 80)}${extra}`,
+        body:
+          rows.length > 1
+            ? `${rows.length} new proposals from ${a.name}.`
+            : undefined,
+        link: first.id ? `/proposals/${first.id}` : `/agencies/${a.id}`,
+      });
+      agencyEventsSent += result.notified;
+    }
+  }
+
+  // Advance cursor
+  await db.from("pipeline_state").upsert(
+    {
+      key:        STATE_KEY,
+      value:      {
+        last_run:  now,
+        previous:  lastRunIso,
+        official_events_sent: officialEventsSent,
+        agency_events_sent:   agencyEventsSent,
+      },
+      updated_at: now,
+    },
+    { onConflict: "key" }
+  );
+
+  return NextResponse.json({
+    ok: true,
+    window_start: lastRunIso,
+    window_end:   now,
+    officialEventsSent,
+    agencyEventsSent,
+  });
+}
+
+function truncate(s: string, n: number): string {
+  if (!s) return "";
+  return s.length <= n ? s : `${s.slice(0, n - 1).trimEnd()}…`;
+}

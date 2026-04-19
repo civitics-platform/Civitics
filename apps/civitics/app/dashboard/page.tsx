@@ -6,6 +6,7 @@ import { PageHeader } from "@civitics/ui";
 import { DashboardClient } from "./DashboardClient";
 import { SitemapSection } from "./SitemapSection";
 import { BrowsingFlowsSection, type PathTransition, type EntryPage } from "./BrowsingFlowsSection";
+import { ModerationSection } from "./ModerationSection";
 import { PageViewTracker } from "../components/PageViewTracker";
 
 export const metadata = { title: "Platform Transparency | Civitics" };
@@ -178,6 +179,10 @@ export default async function DashboardPage() {
             entryPages={browsingFlows.entryPages}
           />
           <SitemapSection />
+        </div>
+
+        <div className="mt-6">
+          <ModerationSection />
         </div>
       </div>
       </main>

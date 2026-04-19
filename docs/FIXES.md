@@ -83,7 +83,7 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 - [x] 🟡 M — **API response caching headers** — add `Cache-Control` headers to read-only API routes (officials list, proposals list, agencies); edge-cacheable routes can dramatically reduce DB load <!--id:FIX-050-->
 - [x] 🟡 M — **Vote backfill completion** — 51k/227k vote connections live; full backfill pending IO recovery; complete this before Phase 1 closes <!--id:FIX-051-->
 - [x] ⬜ L — **Connection pooling audit** — Supabase uses PgBouncer; verify all server-side Supabase clients are using the pooled connection string for non-transaction workloads <!--id:FIX-052-->
-- [ ] 🟠 L — **Enrichment queue + admin endpoints** — shifts AI tag/summary work off API, routine-ready <!--id:FIX-064-->
+- [x] 🟠 L — **Enrichment queue + admin endpoints** — shifts AI tag/summary work off API, routine-ready <!--id:FIX-064-->
 
 ---
 

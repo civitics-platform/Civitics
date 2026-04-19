@@ -79,3 +79,4 @@
 2026-04-18 | FIX-050 | a5db4513 | feat(pipelines,graph,trending): Phase 1 closeout — 8 FIXES + Phase 2 scaffolds
 2026-04-18 | FIX-051 | a5db4513 | feat(pipelines,graph,trending): Phase 1 closeout — 8 FIXES + Phase 2 scaffolds
 2026-04-18 | FIX-052 | a5db4513 | feat(pipelines,graph,trending): Phase 1 closeout — 8 FIXES + Phase 2 scaffolds
+2026-04-19 | FIX-064 | 3b842c50 | feat(enrichment): queue table + admin endpoints for routine-driven AI work

@@ -4,6 +4,8 @@ export const revalidate = 0;
 import { createAdminClient } from "@civitics/db";
 import { PageHeader } from "@civitics/ui";
 import { DashboardClient } from "./DashboardClient";
+import { SitemapSection } from "./SitemapSection";
+import { BrowsingFlowsSection, type PathTransition, type EntryPage } from "./BrowsingFlowsSection";
 import { PageViewTracker } from "../components/PageViewTracker";
 import { NavBar } from "../components/NavBar";
 
@@ -56,15 +58,15 @@ async function getActivity(): Promise<ActivityRow[]> {
     const yesterday = new Date(Date.now() - 86_400_000).toISOString();
     const { data } = await db
       .from("page_views")
-      .select("path")
+      .select("page")
       .gt("viewed_at", yesterday)
       .eq("is_bot", false)
-      .not("path", "in", `("/","/dashboard")`)
+      .not("page", "in", `("/","/dashboard")`)
       .limit(1000);
     // Aggregate manually
     const counts: Record<string, number> = {};
     for (const r of data ?? []) {
-      const p = r.path as string;
+      const p = r.page as string;
       counts[p] = (counts[p] ?? 0) + 1;
     }
     return Object.entries(counts)
@@ -73,6 +75,34 @@ async function getActivity(): Promise<ActivityRow[]> {
       .map(([path, views]) => ({ path, views }));
   } catch {
     return [];
+  }
+}
+
+async function getBrowsingFlows(): Promise<{
+  transitions: PathTransition[];
+  entryPages: EntryPage[];
+}> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = createAdminClient() as any;
+    const [{ data: tRows }, { data: eRows }] = await Promise.all([
+      db.rpc("get_pv_top_transitions", { lim: 12, min_count: 3, days: 30 }),
+      db.rpc("get_pv_entry_pages", { lim: 6, days: 30 }),
+    ]);
+    type TRow = { from_page: string; to_page: string; sessions: number | string };
+    type ERow = { page: string; sessions: number | string };
+    const transitions: PathTransition[] = (tRows ?? []).map((r: TRow) => ({
+      from_page: r.from_page,
+      to_page: r.to_page,
+      sessions: Number(r.sessions),
+    }));
+    const entryPages: EntryPage[] = (eRows ?? []).map((r: ERow) => ({
+      page: r.page,
+      sessions: Number(r.sessions),
+    }));
+    return { transitions, entryPages };
+  } catch {
+    return { transitions: [], entryPages: [] };
   }
 }
 
@@ -100,10 +130,11 @@ async function getOfficialsBreakdown(): Promise<{
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function DashboardPage() {
-  const [openProposals, activity, officialsBreakdown] = await Promise.all([
+  const [openProposals, activity, officialsBreakdown, browsingFlows] = await Promise.all([
     getOpenProposals(),
     getActivity(),
     getOfficialsBreakdown(),
+    getBrowsingFlows(),
   ]);
 
   return (
@@ -142,6 +173,14 @@ export default async function DashboardPage() {
           activity={activity}
           officialsBreakdown={officialsBreakdown}
         />
+
+        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <BrowsingFlowsSection
+            transitions={browsingFlows.transitions}
+            entryPages={browsingFlows.entryPages}
+          />
+          <SitemapSection />
+        </div>
       </div>
       </main>
     </div>

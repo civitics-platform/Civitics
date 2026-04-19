@@ -112,8 +112,8 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## DASHBOARD
 
-- [ ] 🟡 M — **Browsable sitemap section** — a visual grid of all major routes with descriptions; doubles as a discovery tool for new users and documents the platform for open-source contributors <!--id:FIX-046-->
-- [ ] ⬜ L — **Browsing path visualization** — aggregate `page_views` data into a Sankey or flow chart showing common user journeys; admin-only; useful for UX decisions <!--id:FIX-047-->
+- [x] 🟡 M — **Browsable sitemap section** — done 2026-04-18: `SitemapSection.tsx` renders a 3-column grid of major routes (Home, Officials, Proposals, Agencies, Initiatives, Graph, Search, Dashboard, Profile, Post a Problem) with icon, title, `href` chip, and one-line description; grouped with BrowsingFlowsSection on dashboard <!--id:FIX-046-->
+- [x] ⬜ L — **Browsing path visualization** — done 2026-04-18: migration `20260418100000_pv_path_transitions.sql` adds `normalize_pv_path()`, `get_pv_top_transitions()`, `get_pv_entry_pages()` (aggregate-only, min-session threshold to prevent re-identification). Made public on the transparency dashboard via `BrowsingFlowsSection.tsx` — shows entry pages and top "next step" transitions with horizontal bar weights. Privacy model documented inline. Requires `supabase migration up --local` <!--id:FIX-047-->
 
 ---
 

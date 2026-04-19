@@ -22,8 +22,8 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## BUGS — Fix These First
 
-- [ ] 🔴 S — **Dashboard crashes with "Event handlers cannot be passed to Client Component props"** — `BrowsingFlowsSection` is a Server Component but attached an `onClick` to an `<a>` for template paths; template rows now render as `<span aria-disabled>` instead <!--id:FIX-062-->
-- [ ] 🔴 S — **NavBar missing on most pages** — was added per-page in FIX-015 but not to proposals, agencies, graph, search, or officials list; moved to root layout (hidden on `/graph/*` and `/auth/*`) so it can't silently drop again <!--id:FIX-063-->
+- [x] 🔴 S — **Dashboard crashes with "Event handlers cannot be passed to Client Component props"** — `BrowsingFlowsSection` is a Server Component but attached an `onClick` to an `<a>` for template paths; template rows now render as `<span aria-disabled>` instead <!--id:FIX-062-->
+- [x] 🔴 S — **NavBar missing on most pages** — was added per-page in FIX-015 but not to proposals, agencies, graph, search, or officials list; moved to root layout (hidden on `/graph/*` and `/auth/*`) so it can't silently drop again <!--id:FIX-063-->
 
 ---
 

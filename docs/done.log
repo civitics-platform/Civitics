@@ -65,3 +65,5 @@
 2026-04-18 | FIX-061 | cb4cb624 | feat(docs): open-source readiness — README + API + CONTRIBUTING + public roadmap
 2026-04-18 | FIX-046 | f4bb894a | feat(dashboard): sitemap + public browsing-path flows
 2026-04-18 | FIX-047 | f4bb894a | feat(dashboard): sitemap + public browsing-path flows
+2026-04-18 | FIX-062 | 81ef083a | fix(nav,dashboard): hoist NavBar to root layout + fix dashboard Server Component error
+2026-04-18 | FIX-063 | 81ef083a | fix(nav,dashboard): hoist NavBar to root layout + fix dashboard Server Component error

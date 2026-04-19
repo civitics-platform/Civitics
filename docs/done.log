@@ -68,3 +68,6 @@
 2026-04-18 | FIX-062 | 81ef083a | fix(nav,dashboard): hoist NavBar to root layout + fix dashboard Server Component error
 2026-04-18 | FIX-063 | 81ef083a | fix(nav,dashboard): hoist NavBar to root layout + fix dashboard Server Component error
 2026-04-18 | FIX-044 | 3d02cc98 | feat(graph): surface procedural-vote filter in ConnectionsTree
+2026-04-18 | FIX-055 | d989d8b9 | feat(community,auth,moderation): follows, notifications, content flags
+2026-04-18 | FIX-056 | d989d8b9 | feat(community,auth,moderation): follows, notifications, content flags
+2026-04-18 | FIX-057 | d989d8b9 | feat(community,auth,moderation): follows, notifications, content flags

@@ -54,3 +54,6 @@ ngrok.yml
 
 # Qwen Code workspace
 .qwen/
+
+# Schema comparison / migration scratch
+.tmp-schema-compare/

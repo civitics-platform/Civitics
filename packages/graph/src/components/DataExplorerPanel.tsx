@@ -92,6 +92,7 @@ export function DataExplorerPanel({ view, hooks, collapsed, onCollapse, graphMet
           vizType={view.style.vizType}
           hooks={hooks}
           graphMeta={graphMeta}
+          includeProcedural={view.focus.includeProcedural}
         />
         <AlignmentPanel
           initialIssues={savedAlignment}

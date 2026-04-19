@@ -19,14 +19,20 @@ export interface ConnectionsTreeProps {
   vizType: VizType;
   hooks: UseGraphViewReturn;
   graphMeta?: GraphMeta;
+  /** Current procedural-vote filter state — surfaced here as a vote-type filter. */
+  includeProcedural?: boolean;
 }
 
 // Viz types that only support donations
 const DONATION_ONLY_VIZ = new Set<VizType>(['chord', 'treemap']);
 
-export function ConnectionsTree({ connections, vizType, hooks, graphMeta }: ConnectionsTreeProps) {
+export function ConnectionsTree({ connections, vizType, hooks, graphMeta, includeProcedural }: ConnectionsTreeProps) {
   // All known types
   const allTypes = Object.keys(CONNECTION_TYPE_REGISTRY);
+
+  // Procedural-vote filter is only meaningful when the loaded graph actually contains vote edges.
+  // Default to showing the toggle when graphMeta isn't loaded yet — prevents it disappearing on first paint.
+  const showProceduralToggle = graphMeta?.hasVotes !== false;
 
   // When graphMeta is available, only show a type if it has data OR is currently enabled.
   // When graphMeta is absent (data not yet loaded), show all types.
@@ -122,6 +128,36 @@ export function ConnectionsTree({ connections, vizType, hooks, graphMeta }: Conn
         <div className="mx-3 my-1.5 px-2 py-1.5 bg-blue-50 border border-blue-100 rounded text-[10px] text-blue-600 leading-relaxed">
           Switch to Force Graph to configure vote connections
         </div>
+      )}
+
+      {/* Vote filter row — procedural votes toggle. Filters cloture, passage motions, etc. */}
+      {showProceduralToggle && (
+        <TreeSection
+          label="Vote filters"
+          defaultExpanded
+          separator={false}
+          depth={1}
+        >
+          <div
+            className="flex items-center justify-between px-2 py-1.5"
+            style={{ paddingLeft: '32px' }}
+          >
+            <div className="min-w-0 pr-2">
+              <div className="text-[11px] text-gray-700">Include procedural votes</div>
+              <div className="text-[9px] text-gray-400 leading-tight">Cloture, passage motions, etc.</div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={!!includeProcedural}
+              aria-label="Include procedural votes"
+              onClick={hooks.toggleIncludeProcedural}
+              className={`w-7 h-4 rounded-full transition-colors relative shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 ${includeProcedural ? 'bg-indigo-500' : 'bg-gray-300'}`}
+            >
+              <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${includeProcedural ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+        </TreeSection>
       )}
     </TreeSection>
   );

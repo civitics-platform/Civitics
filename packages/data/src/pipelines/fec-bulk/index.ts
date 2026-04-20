@@ -1,25 +1,47 @@
 /**
- * FEC bulk data pipeline.
+ * FEC bulk data pipeline — Stage 1B shadow-native rewrite.
  *
- * Downloads bulk zip files directly from FEC (no API key, no rate limits),
- * parses the all-candidates summary (weball24), matches records to officials
- * in our database, and inserts aggregated financial_relationships rows.
+ * Per Decision #4 ("FEC donations rebuild from scratch") and L7 (polymorphic
+ * financial_relationships with a relationship_type enum), the new shape bears
+ * no resemblance to public.financial_*. There is no dual-write: this pipeline
+ * writes ONLY to shadow. Existing public.financial_* rows freeze wherever
+ * they are until Stage 1B read-cutover flips the app to shadow. See also
+ * shadow-writer.ts for the upsert helpers.
  *
- * Step 2b — PAC contributions:
- *   Downloads committee master (cm24) and PAC-to-candidate file (pas224).
- *   Streams pas224 line-by-line — never loads the full ~200 MB file into memory.
- *   Inserts to DB in batches of 1 000 rows to bound memory use.
- *   Creates financial_entities for named PAC donors,
- *   financial_relationships per PAC × candidate pair ($5 000+ only),
- *   and entity_connections with logarithmic strength scores.
+ * What's written
+ *   shadow.financial_entities            one row per FEC committee
+ *     - fec_committee_id UNIQUE — primary dedup key
+ *     - entity_type derived from FEC CMTE_TP (N/Q/V/W → pac, O → super_pac,
+ *                                             X/Y/Z → party_committee)
+ *     - total_donated_cents refreshed each run
  *
- * Files downloaded to /tmp and deleted after processing:
- *   weball24.zip / weball24.txt — all-candidates summary (2024 cycle)
- *   cm24.zip / cm24.txt         — committee master (~5 MB)
- *   pas224.zip / pas224.txt     — PAC to candidate contributions (~200 MB compressed)
+ *   shadow.financial_relationships       one row per (PAC, candidate, cycle)
+ *     - relationship_type='donation', from=financial_entity, to=official
+ *     - amount_cents aggregated across all 24K/24Z txns in the cycle
+ *     - occurred_at = latest txn date in the aggregation
  *
- * Data strategy: download → process → delete. No API key needed.
- * FEC updates bulk files weekly — run this pipeline on the weekly cron.
+ * What's NOT written
+ *   - No weball synthetic-donor rows ("Individual Contributors" etc.). Those
+ *     were rollups forced to fit the old narrow schema; in the new shape they
+ *     belong in a nightly aggregate view / official_financials rollup.
+ *   - No entity_connections. Per L5 that table is derivation-only; a separate
+ *     nightly job rebuilds shadow.entity_connections from the raw
+ *     financial_relationships facts this pipeline writes.
+ *   - No call to the generic connections pipeline.
+ *
+ * Data flow (unchanged from the legacy pipeline — only the writers differ):
+ *   1. Download bulk zips (weball, cm24, pas2)
+ *   2. Parse weball → filter to known candidate FEC IDs
+ *   3. Load public.officials + build fuzzy-match index
+ *   4. Parse cm24 (committee master)
+ *   5. Stream pas224 line-by-line, aggregating 24K/24Z $5k+ txns by
+ *      (CMTE_ID × CAND_ID)
+ *   6. For each aggregate:
+ *        - upsert shadow.financial_entities  (one-per-committee cache)
+ *        - upsert shadow.financial_relationships
+ *
+ * Files downloaded to /tmp and deleted after processing.
+ * No API key, no rate limits. FEC refreshes bulk files weekly.
  *
  * Run standalone:
  *   pnpm --filter @civitics/data data:fec-bulk
@@ -32,22 +54,21 @@ import * as os       from "os";
 import * as readline from "readline";
 import * as unzipper from "unzipper";
 import { createAdminClient } from "@civitics/db";
-import type { Database }     from "@civitics/db";
 import {
   startSync,
   completeSync,
   failSync,
   type PipelineResult,
 } from "../sync-log";
-import { runConnectionsPipeline } from "../connections";
+import { shadowClient } from "../utils";
+import {
+  upsertPacEntityShadow,
+  upsertDonationRelationshipShadow,
+} from "./shadow-writer";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-type FinancialInsert    = Database["public"]["Tables"]["financial_relationships"]["Insert"];
-type ConnectionInsert   = Database["public"]["Tables"]["entity_connections"]["Insert"];
-type DonorType          = Database["public"]["Enums"]["donor_type"];
 
 interface WeBallRow {
   candId:           string;  // CAND_ID
@@ -77,7 +98,7 @@ interface OfficialRecord {
 /** Committee master (cm24) entry */
 interface CommitteeInfo {
   name:         string;  // CMTE_NM
-  type:         string;  // CMTE_TP raw code (N/Q/V/W/X/Y/Z)
+  type:         string;  // CMTE_TP raw code (N/Q/V/W/X/Y/Z/O)
   connectedOrg: string;  // CONNECTED_ORG_NM (parent company / union / etc)
 }
 
@@ -357,13 +378,9 @@ function matchRow(row: WeBallRow, index: MatchIndex): MatchResult | null {
 }
 
 // ---------------------------------------------------------------------------
-// Step 2b helpers — PAC-specific types and computations
+// Parse cm24 committee master (in-memory — ~2 MB uncompressed)
 // ---------------------------------------------------------------------------
 
-/**
- * Parse the cm24 committee master file into a lookup map.
- * File is ~2 MB uncompressed — safe to load fully.
- */
 function parseCm24(buffer: Buffer): Map<string, CommitteeInfo> {
   const lookup = new Map<string, CommitteeInfo>();
   for (const line of buffer.toString("latin1").split(/\r?\n/)) {
@@ -380,25 +397,6 @@ function parseCm24(buffer: Buffer): Map<string, CommitteeInfo> {
   return lookup;
 }
 
-/**
- * Map FEC CMTE_TP code → entity_type string.
- *   N = PAC non-connected
- *   Q = PAC connected/corporate
- *   V = PAC labor
- *   W = PAC cooperative
- *   X/Y/Z = party committee
- */
-function cmteTypeToEntityType(cmteType: string): string {
-  if (["X", "Y", "Z"].includes(cmteType)) return "party_committee";
-  return "pac";
-}
-
-/** Map FEC CMTE_TP code → donor_type enum. */
-function cmteTypeToDonorType(cmteType: string): DonorType {
-  if (["X", "Y", "Z"].includes(cmteType)) return "party_committee";
-  return "pac";
-}
-
 /** Convert FEC date "MMDDYYYY" → ISO "YYYY-MM-DD". Returns null if invalid. */
 function parseFecDate(mmddyyyy: string): string | null {
   if (!mmddyyyy || mmddyyyy.length !== 8) return null;
@@ -409,24 +407,8 @@ function parseFecDate(mmddyyyy: string): string | null {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-/**
- * Calculate connection strength from donation amount.
- *
- * Formula: Math.min(1.0, Math.log10(amountCents / 100_000) / 4)
- *   (amountCents / 100_000 converts cents → thousands of dollars)
- *
- * Reference points:
- *   $5 000  → 0.17    $50 000  → 0.42
- *   $100k   → 0.50    $500k    → 0.67
- *   $1M+    → 0.75+
- */
-function donationStrength(amountCents: number): number {
-  if (amountCents <= 0) return 0;
-  return Math.min(1.0, Math.log10(amountCents / 100_000) / 4);
-}
-
 // ---------------------------------------------------------------------------
-// Step 2b — Stream PAC contributions (pas224)
+// Stream PAC contributions (pas224) — unchanged from legacy pipeline
 // ---------------------------------------------------------------------------
 
 /**
@@ -472,10 +454,6 @@ async function extractZipEntryToDisk(
  *   CAND_ID in candidateSet            — only our matched officials
  *
  * Returns aggregated totals keyed by "CMTE_ID|CAND_ID".
- *
- * NOTE: extracts pas224.txt to TMP_DIR first to avoid a race condition where
- * unzipper.Parse()'s 'finish' event resolves the Promise before readline
- * finishes consuming the in-memory entry stream.
  */
 async function streamPas224(
   zipPath:      string,
@@ -483,11 +461,10 @@ async function streamPas224(
 ): Promise<Map<string, PacAggregation>> {
   const aggregated = new Map<string, PacAggregation>();
 
-  // Step A: extract pas224.txt to disk via streaming pipe
   const txtPath = path.join(TMP_DIR, "pas224.txt");
   const found   = await extractZipEntryToDisk(
     zipPath,
-    (name) => name.includes("pas2") && name.endsWith(".txt"),  // itpas2.txt inside the zip
+    (name) => name.includes("pas2") && name.endsWith(".txt"),
     txtPath,
   );
 
@@ -499,7 +476,6 @@ async function streamPas224(
   const txtMb = (fs.statSync(txtPath).size / 1024 / 1024).toFixed(0);
   console.log(`    Extracted pas224.txt (${txtMb} MB) — streaming line by line...`);
 
-  // Step B: stream the extracted file line by line
   let linesRead = 0, passedTxType = 0, passedCand = 0, passedAmt = 0;
 
   const rl = readline.createInterface({
@@ -527,7 +503,6 @@ async function streamPas224(
     if (isNaN(amt) || amt < 5000) continue;
     passedAmt++;
 
-    // Aggregate by committee × candidate
     const key      = `${cmteId}|${candId}`;
     const amtCents = Math.round(amt * 100);
     const existing = aggregated.get(key);
@@ -551,243 +526,9 @@ async function streamPas224(
   console.log(`    Passed candidateSet filter: ${passedCand.toLocaleString()}`);
   console.log(`    Passed $5k+ filter:        ${passedAmt.toLocaleString()}`);
 
-  // Clean up the extracted file — TMP_DIR cleanup handles the zip files
   try { fs.unlinkSync(txtPath); } catch { /* best effort */ }
 
   return aggregated;
-}
-
-// ---------------------------------------------------------------------------
-// Upsert helpers — weball (existing logic, unchanged)
-// ---------------------------------------------------------------------------
-
-async function upsertFinancial(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  db: any,
-  record: FinancialInsert
-): Promise<"inserted" | "updated" | "failed"> {
-  try {
-    const { data: existing, error: selErr } = await db
-      .from("financial_relationships")
-      .select("id")
-      .eq("official_id", record.official_id)
-      .eq("donor_name",  record.donor_name)
-      .eq("cycle_year",  record.cycle_year)
-      .maybeSingle();
-
-    if (selErr) {
-      console.error("    upsert select error:", selErr.message);
-      return "failed";
-    }
-
-    if (existing) {
-      const { error } = await db
-        .from("financial_relationships")
-        .update({
-          amount_cents: record.amount_cents,
-          source_ids:   record.source_ids,
-          updated_at:   new Date().toISOString(),
-        })
-        .eq("id", existing.id);
-      return error ? "failed" : "updated";
-    } else {
-      const { error } = await db.from("financial_relationships").insert(record);
-      return error ? "failed" : "inserted";
-    }
-  } catch {
-    return "failed";
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Upsert helpers — PAC entities, relationships, and connections
-// ---------------------------------------------------------------------------
-
-/**
- * Upsert a financial_entity for a PAC committee.
- * Returns the row ID (needed to create entity_connections).
- * Deduplication key: source_ids->>'fec_committee_id'
- */
-async function upsertFinancialEntity(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  db:         any,
-  cmteId:     string,
-  name:       string,
-  entityType: string,
-  industry:   string,
-  totalCents: number,
-): Promise<{ outcome: "inserted" | "updated" | "failed"; id: string | null }> {
-  try {
-    const { data: existing, error: selErr } = await db
-      .from("financial_entities")
-      .select("id")
-      .filter("source_ids->>fec_committee_id", "eq", cmteId)
-      .maybeSingle();
-
-    if (selErr) {
-      console.error("    entity select error:", selErr.message);
-      return { outcome: "failed", id: null };
-    }
-
-    if (existing) {
-      const { error } = await db
-        .from("financial_entities")
-        .update({
-          name,
-          entity_type:         entityType,
-          industry:            industry || null,
-          total_donated_cents: totalCents,
-          updated_at:          new Date().toISOString(),
-        })
-        .eq("id", existing.id);
-      return { outcome: error ? "failed" : "updated", id: existing.id as string };
-    } else {
-      const { data: inserted, error } = await db
-        .from("financial_entities")
-        .insert({
-          name,
-          entity_type:         entityType,
-          industry:            industry || null,
-          total_donated_cents: totalCents,
-          source_ids:          { fec_committee_id: cmteId },
-          metadata:            {},
-        })
-        .select("id")
-        .single();
-
-      if (error || !inserted) return { outcome: "failed", id: null };
-      return { outcome: "inserted", id: (inserted as { id: string }).id };
-    }
-  } catch {
-    return { outcome: "failed", id: null };
-  }
-}
-
-/**
- * Upsert a PAC → candidate financial_relationship row.
- * Deduplication key: official_id + fec_committee_id + cycle_year
- */
-async function upsertPacRelationship(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  db:         any,
-  officialId: string,
-  agg:        PacAggregation,
-  info:       CommitteeInfo,
-  cycleYear:  number,
-): Promise<"inserted" | "updated" | "failed"> {
-  try {
-    const { data: existing, error: selErr } = await db
-      .from("financial_relationships")
-      .select("id")
-      .eq("official_id",      officialId)
-      .eq("fec_committee_id", agg.cmteId)
-      .eq("cycle_year",       cycleYear)
-      .maybeSingle();
-
-    if (selErr) {
-      console.error("    pac rel select error:", selErr.message);
-      return "failed";
-    }
-
-    const contribDate = agg.latestDate ? parseFecDate(agg.latestDate) : null;
-    const donorType   = cmteTypeToDonorType(info.type);
-
-    if (existing) {
-      const { error } = await db
-        .from("financial_relationships")
-        .update({
-          amount_cents:      agg.totalCents,
-          contribution_date: contribDate,
-          updated_at:        new Date().toISOString(),
-        })
-        .eq("id", existing.id);
-      return error ? "failed" : "updated";
-    } else {
-      const { error } = await db.from("financial_relationships").insert({
-        official_id:       officialId,
-        donor_name:        info.name || agg.cmteId,
-        donor_type:        donorType,
-        industry:          info.connectedOrg || null,
-        amount_cents:      agg.totalCents,
-        contribution_date: contribDate,
-        cycle_year:        cycleYear,
-        fec_committee_id:  agg.cmteId,
-        is_bundled:        false,
-        source_url:        `https://www.fec.gov/data/committee/${agg.cmteId}/`,
-        source_ids:        { fec_committee_id: agg.cmteId, source_system: "fec_bulk_pac" },
-        metadata:          { tx_count: agg.txCount },
-      });
-      return error ? "failed" : "inserted";
-    }
-  } catch {
-    return "failed";
-  }
-}
-
-/**
- * Upsert an entity_connection row linking a financial_entity (PAC) to an official.
- * Deduplication key: from_id + to_id + connection_type
- *
- * Strength scale (logarithmic):
- *   $5k → 0.17  |  $50k → 0.42  |  $100k → 0.50  |  $500k → 0.67  |  $1M+ → 0.75+
- */
-async function upsertPacConnection(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  db:           any,
-  entityId:     string,
-  officialId:   string,
-  agg:          PacAggregation,
-): Promise<"inserted" | "updated" | "failed"> {
-  try {
-    const { data: existing, error: selErr } = await db
-      .from("entity_connections")
-      .select("id")
-      .eq("from_id",         entityId)
-      .eq("to_id",           officialId)
-      .eq("connection_type", "donation")
-      .maybeSingle();
-
-    if (selErr) {
-      console.error("    connection select error:", selErr.message);
-      return "failed";
-    }
-
-    const strength       = donationStrength(agg.totalCents);
-    const occurredAt     = agg.latestDate ? parseFecDate(agg.latestDate) : null;
-    const evidenceArr    = [{ source: "fec", committee_id: agg.cmteId, cycle: "2024" }];
-
-    if (existing) {
-      const { error } = await db
-        .from("entity_connections")
-        .update({
-          strength,
-          amount_cents: agg.totalCents,
-          occurred_at:  occurredAt,
-          evidence:     evidenceArr,
-          updated_at:   new Date().toISOString(),
-        })
-        .eq("id", existing.id);
-      return error ? "failed" : "updated";
-    } else {
-      const record: ConnectionInsert = {
-        from_type:       "financial",
-        from_id:         entityId,
-        to_type:         "official",
-        to_id:           officialId,
-        connection_type: "donation",
-        strength,
-        amount_cents:    agg.totalCents,
-        occurred_at:     occurredAt ?? undefined,
-        is_verified:     true,
-        evidence:        evidenceArr,
-        metadata:        {},
-      };
-      const { error } = await db.from("entity_connections").insert(record);
-      return error ? "failed" : "inserted";
-    }
-  } catch {
-    return "failed";
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -795,23 +536,20 @@ async function upsertPacConnection(
 // ---------------------------------------------------------------------------
 
 export async function runFecBulkPipeline(): Promise<PipelineResult> {
-  console.log("\n=== FEC bulk data pipeline ===");
+  console.log("\n=== FEC bulk data pipeline (Stage 1B — shadow-native) ===");
   const logId = await startSync("fec_bulk");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = createAdminClient() as any;
 
-  let inserted = 0, updated = 0, failed = 0;
-  let pacEntitiesInserted = 0, pacEntitiesUpdated = 0;
+  let pacEntitiesInserted = 0, pacEntitiesUpdated = 0, pacEntitiesFailed = 0;
   let pacRelsInserted = 0, pacRelsUpdated = 0, pacRelsFailed = 0;
-  let pacConnsInserted = 0, pacConnsUpdated = 0;
   let matchedByFecId = 0, matchedByName = 0, notMatched = 0;
-  let connectionsCreated = 0;
   let totalFileMb = "0";
   let tempFreedMb = "0";
 
   try {
     // ── Step 1: Download bulk files ──────────────────────────────────────────
-    console.log("\n  [1/7] Downloading FEC bulk files...");
+    console.log("\n  [1/6] Downloading FEC bulk files...");
     ensureTmpDir();
 
     const CYCLE = "2024";
@@ -839,7 +577,7 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
     }
 
     // ── Step 2: Extract and parse weball ────────────────────────────────────
-    console.log("\n  [2/7] Extracting and parsing candidate summary...");
+    console.log("\n  [2/6] Extracting and parsing candidate summary...");
     const weballZip  = path.join(TMP_DIR, `weball${CYCLE.slice(2)}.zip`);
     const extracted  = await extractZip(weballZip, TMP_DIR);
     const weballFile = extracted.find(
@@ -853,7 +591,7 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
     console.log(`    Parsed ${weballRows.length} candidate rows (${totalFileMb} MB)`);
 
     // ── Step 3: Load officials + build match index ───────────────────────────
-    console.log("\n  [3/7] Loading officials and matching to FEC candidates...");
+    console.log("\n  [3/6] Loading officials and matching to FEC candidates...");
     const officials   = await loadOfficials(db);
     const index       = buildMatchIndex(officials);
     const officialMap = new Map(officials.map((o) => [o.id, o]));
@@ -862,18 +600,19 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
     // Build candidate set used to filter the pas224 stream
     const candidateSet = new Set<string>(index.byFecId.keys());
 
-    const matches: Array<{ row: WeBallRow; match: MatchResult }> = [];
     const newFecIds: Array<{
       officialId:  string;
       fecId:       string;
       storageKey:  "fec_id" | "fec_candidate_id";
     }> = [];
 
+    // Walk weball — we don't persist weball aggregates any more (per comment at
+    // top of file). The only reason we process weball is to (a) grow the
+    // candidateSet used to filter pas224 and (b) discover FEC IDs for our
+    // officials that aren't yet stored.
     for (const row of weballRows) {
       const match = matchRow(row, index);
       if (!match) { notMatched++; continue; }
-
-      matches.push({ row, match });
 
       if (match.byFecId) {
         matchedByFecId++;
@@ -889,24 +628,22 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
     console.log(`    Matched by name:   ${matchedByName}`);
     console.log(`    Not matched:       ${notMatched}`);
 
-    // ── Fix 3: name-fallback for officials with no stored FEC ID at all ──────
+    // ── Name-fallback for officials with no stored FEC ID at all ─────────────
     //
     // Officials whose source_ids contain neither fec_candidate_id nor fec_id
-    // (or whose fec_id had a prefix mismatch and was excluded from the index)
-    // get a second chance: look up their last-name+first-3+state against weball.
-    // Matches are stored as fec_candidate_id (the authoritative key) so future
-    // runs use the direct byFecId path and the candidateSet grows.
+    // get a second chance: look up their last-name + first-3 + state against
+    // weball. Matches are stored as fec_candidate_id (the authoritative key)
+    // so future runs use the direct byFecId path and the candidateSet grows.
     {
       const alreadyIndexed = new Set(index.byFecId.values());
       const noFecIdOfficials = officials.filter((o) => {
-        if (alreadyIndexed.has(o.id)) return false;           // already matched
+        if (alreadyIndexed.has(o.id)) return false;
         const cid = o.source_ids["fec_candidate_id"];
         const fid = o.source_ids["fec_id"];
-        return !cid && !fid;                                   // no FEC ID stored at all
+        return !cid && !fid;
       });
 
       if (noFecIdOfficials.length > 0) {
-        // Build a weball lookup keyed by "NORMLAAST|FIRST3|STATE"
         const weballByKey = new Map<string, WeBallRow>();
         for (const row of weballRows) {
           const { last, first } = parseFecName(row.candName);
@@ -931,8 +668,6 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
           index.byFecId.set(row.candId, official.id);
           candidateSet.add(row.candId);
           newFecIds.push({ officialId: official.id, fecId: row.candId, storageKey: "fec_candidate_id" });
-          // Also capture this as a weball match for financial_relationships
-          matches.push({ row, match: { officialId: official.id, fecId: row.candId, byFecId: false } });
         }
 
         if (fallbackMatched > 0) {
@@ -954,8 +689,8 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
       }
     }
 
-    // ── Step 2b: PAC contributions — parse cm24, stream pas224 ──────────────
-    console.log("\n  [4/7] Building PAC committee index and streaming contributions...");
+    // ── Step 4: Parse cm24, stream pas224 ───────────────────────────────────
+    console.log("\n  [4/6] Building PAC committee index and streaming contributions...");
 
     const cmZip       = path.join(TMP_DIR, `cm${CYCLE.slice(2)}.zip`);
     const cmExtracted = await extractZip(cmZip, TMP_DIR);
@@ -972,121 +707,76 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
     const pacAggs = await streamPas224(pasZip, candidateSet);
     console.log(`    PAC pairs matched (committee × candidate): ${pacAggs.size.toLocaleString()}`);
 
-    // ── Step 4: Insert weball financial_relationships ────────────────────────
-    console.log("\n  [5/7] Inserting weball financial_relationships...");
-
-    for (const { row, match } of matches) {
-      const base = {
-        official_id: match.officialId,
-        cycle_year:  parseInt(CYCLE, 10),
-        source_url:  `https://www.fec.gov/data/candidate/${match.fecId}/`,
-        source_ids:  { fec_id: match.fecId, source_system: "fec_bulk" },
-      };
-
-      const contributions: Array<{ donorName: string; donorType: DonorType; amountDollars: number }> = [
-        {
-          donorName:     "Individual Contributors",
-          donorType:     "individual",
-          amountDollars: row.indivContrib,
-        },
-        {
-          donorName:     "PAC/Committee Contributions",
-          donorType:     "pac",
-          amountDollars: row.cvrdHarReceipts,
-        },
-        {
-          donorName:     "Party Contributions",
-          donorType:     "party_committee",
-          amountDollars: row.polPtyContrib,
-        },
-        {
-          donorName:     "Self-Funded (Candidate)",
-          donorType:     "individual",
-          amountDollars: row.candContrib,
-        },
-      ];
-
-      for (const contrib of contributions) {
-        if (contrib.amountDollars <= 0) continue;
-
-        const record: FinancialInsert = {
-          ...base,
-          donor_name:   contrib.donorName,
-          donor_type:   contrib.donorType,
-          amount_cents: Math.round(contrib.amountDollars * 100),
-        };
-
-        const outcome = await upsertFinancial(db, record);
-        if (outcome === "inserted") inserted++;
-        else if (outcome === "updated") updated++;
-        else failed++;
-      }
-    }
-
-    console.log(`    Inserted: ${inserted}  Updated: ${updated}  Failed: ${failed}`);
-
-    // ── Step 4b: PAC financial_entities + relationships + connections ─────────
+    // ── Step 5: Upsert shadow.financial_entities + financial_relationships ───
     //
-    // Process aggregated PAC pairs in batches of BATCH_SIZE (1 000).
-    // Each batch: upsert financial_entity → upsert financial_relationship →
-    //             upsert entity_connection.
-    // This bounds working memory to ≤ 1 000 rows at any point.
+    // Two-pass:
+    //   pass A  unique-committees → upsert shadow.financial_entities once per
+    //           CMTE_ID with the committee's cycle total
+    //   pass B  each (committee × candidate) aggregate → upsert
+    //           shadow.financial_relationships
+    //
+    // Split cleanly so an entity failure in pass A short-circuits only the
+    // relationships for that one committee, not the entire run.
     // ---------------------------------------------------------------------------
-    console.log("\n  [6/7] Upserting PAC entities, relationships, and connections...");
+    console.log("\n  [5/6] Upserting shadow.financial_entities and financial_relationships...");
 
-    // Pre-compute per-committee totals (needed for financial_entities.total_donated_cents)
+    // Per-committee totals (for total_donated_cents)
     const cmteTotals = new Map<string, number>();
     for (const agg of pacAggs.values()) {
       cmteTotals.set(agg.cmteId, (cmteTotals.get(agg.cmteId) ?? 0) + agg.totalCents);
     }
 
-    // Entity ID cache so each committee is only upserted once per run
-    const entityIdCache = new Map<string, string>(); // cmteId → financial_entities.id
+    // Pass A — upsert unique committees
+    const entityIdByCmte = new Map<string, string>();
 
+    for (const [cmteId, totalCents] of cmteTotals.entries()) {
+      const info = cmLookup.get(cmteId);
+      if (!info) continue; // not in cm24 — skip silently
+
+      const { outcome, id } = await upsertPacEntityShadow(db, {
+        cmteId,
+        name:              info.name,
+        cmteType:          info.type,
+        connectedOrg:      info.connectedOrg,
+        totalDonatedCents: totalCents,
+      });
+
+      if (outcome === "inserted") pacEntitiesInserted++;
+      else if (outcome === "updated") pacEntitiesUpdated++;
+      else pacEntitiesFailed++;
+
+      if (id) entityIdByCmte.set(cmteId, id);
+    }
+
+    console.log(
+      `    Entities — inserted: ${pacEntitiesInserted}  updated: ${pacEntitiesUpdated}  failed: ${pacEntitiesFailed}`
+    );
+
+    // Pass B — upsert relationships in batches for progress visibility
     const aggEntries = [...pacAggs.values()];
     for (let batchStart = 0; batchStart < aggEntries.length; batchStart += BATCH_SIZE) {
       const batch = aggEntries.slice(batchStart, batchStart + BATCH_SIZE);
 
       for (const agg of batch) {
-        // 1. Upsert financial_entity (once per committee)
-        let entityId = entityIdCache.get(agg.cmteId);
-        if (!entityId) {
-          const info = cmLookup.get(agg.cmteId);
-          if (!info) continue; // not in cm24 — skip
+        const entityId = entityIdByCmte.get(agg.cmteId);
+        if (!entityId) continue; // entity upsert failed / missing from cm24
 
-          const entityType  = cmteTypeToEntityType(info.type);
-          const totalCents  = cmteTotals.get(agg.cmteId) ?? agg.totalCents;
-          const { outcome, id } = await upsertFinancialEntity(
-            db, agg.cmteId, info.name, entityType, info.connectedOrg, totalCents
-          );
-
-          if (outcome === "inserted") pacEntitiesInserted++;
-          else if (outcome === "updated") pacEntitiesUpdated++;
-          if (!id) continue; // insert failed — skip relationship + connection
-
-          entityId = id;
-          entityIdCache.set(agg.cmteId, id);
-        }
-
-        // 2. Upsert financial_relationship
         const officialId = index.byFecId.get(agg.candId);
-        if (!officialId) continue;
+        if (!officialId) continue; // should never happen — candidateSet was derived from this index
 
-        const info = cmLookup.get(agg.cmteId) ?? {
-          name:         agg.cmteId,
-          type:         "N",
-          connectedOrg: "",
-        };
+        const outcome = await upsertDonationRelationshipShadow(db, {
+          fromEntityId: entityId,
+          toOfficialId: officialId,
+          cycleYear:    parseInt(CYCLE, 10),
+          amountCents:  agg.totalCents,
+          occurredAt:   agg.latestDate ? parseFecDate(agg.latestDate) : null,
+          cmteId:       agg.cmteId,
+          txCount:      agg.txCount,
+        });
 
-        const relOutcome = await upsertPacRelationship(db, officialId, agg, info, parseInt(CYCLE, 10));
-        if (relOutcome === "inserted") pacRelsInserted++;
-        else if (relOutcome === "updated") pacRelsUpdated++;
+        if (outcome === "inserted") pacRelsInserted++;
+        else if (outcome === "updated") pacRelsUpdated++;
         else pacRelsFailed++;
-
-        // 3. Upsert entity_connection
-        const connOutcome = await upsertPacConnection(db, entityId, officialId, agg);
-        if (connOutcome === "inserted") pacConnsInserted++;
-        else if (connOutcome === "updated") pacConnsUpdated++;
       }
 
       const processed = Math.min(batchStart + BATCH_SIZE, aggEntries.length);
@@ -1096,12 +786,12 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
     }
     if (aggEntries.length > BATCH_SIZE) process.stdout.write("\n");
 
-    console.log(`    Entities inserted: ${pacEntitiesInserted}  updated: ${pacEntitiesUpdated}`);
-    console.log(`    PAC rels inserted: ${pacRelsInserted}  updated: ${pacRelsUpdated}  failed: ${pacRelsFailed}`);
-    console.log(`    Connections inserted: ${pacConnsInserted}  updated: ${pacConnsUpdated}`);
+    console.log(
+      `    Relationships — inserted: ${pacRelsInserted}  updated: ${pacRelsUpdated}  failed: ${pacRelsFailed}`
+    );
 
-    // ── Step 5: Cleanup ──────────────────────────────────────────────────────
-    console.log("\n  [7/7] Cleaning up temp files and rebuilding generic connections...");
+    // ── Step 6: Cleanup + report ─────────────────────────────────────────────
+    console.log("\n  [6/6] Cleaning up temp files...");
     const tmpBytes = fs.readdirSync(TMP_DIR).reduce(
       (acc, f) => acc + fs.statSync(path.join(TMP_DIR, f)).size,
       0
@@ -1110,65 +800,69 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
     deleteTmpDir();
     console.log(`    Freed ~${tempFreedMb} MB ✓`);
 
-    // ── Step 6: Re-run generic connections pipeline ──────────────────────────
-    const connResult   = await runConnectionsPipeline();
-    connectionsCreated = connResult.inserted;
-
-    // ── Report ───────────────────────────────────────────────────────────────
-    const totalInserted = inserted + pacRelsInserted;
-    const totalUpdated  = updated  + pacRelsUpdated;
-    const totalFailed   = failed   + pacRelsFailed;
+    const totalInserted = pacEntitiesInserted + pacRelsInserted;
+    const totalUpdated  = pacEntitiesUpdated  + pacRelsUpdated;
+    const totalFailed   = pacEntitiesFailed   + pacRelsFailed;
 
     console.log("\n  ──────────────────────────────────────────────────");
-    console.log("  FEC Bulk Pipeline Report");
+    console.log("  FEC Bulk Pipeline Report (shadow-native)");
     console.log("  ──────────────────────────────────────────────────");
     console.log(`  ${"Officials matched by fec_id:".padEnd(38)} ${matchedByFecId}`);
     console.log(`  ${"Officials matched by name:".padEnd(38)} ${matchedByName}`);
     console.log(`  ${"Officials not matched:".padEnd(38)} ${notMatched}`);
-    console.log(`  ${"Weball rows inserted:".padEnd(38)} ${inserted}`);
-    console.log(`  ${"Weball rows updated:".padEnd(38)} ${updated}`);
-    console.log(`  ${"Weball rows failed:".padEnd(38)} ${failed}`);
-    console.log(`  ${"PAC entities created:".padEnd(38)} ${pacEntitiesInserted}`);
-    console.log(`  ${"PAC entities updated:".padEnd(38)} ${pacEntitiesUpdated}`);
-    console.log(`  ${"PAC relationships created:".padEnd(38)} ${pacRelsInserted}`);
-    console.log(`  ${"PAC relationships updated:".padEnd(38)} ${pacRelsUpdated}`);
-    console.log(`  ${"PAC relationships failed:".padEnd(38)} ${pacRelsFailed}`);
-    console.log(`  ${"PAC connections created:".padEnd(38)} ${pacConnsInserted}`);
-    console.log(`  ${"PAC connections updated:".padEnd(38)} ${pacConnsUpdated}`);
-    console.log(`  ${"Generic connections rebuilt:".padEnd(38)} ${connectionsCreated}`);
+    console.log(`  ${"shadow entities inserted:".padEnd(38)} ${pacEntitiesInserted}`);
+    console.log(`  ${"shadow entities updated:".padEnd(38)} ${pacEntitiesUpdated}`);
+    console.log(`  ${"shadow entities failed:".padEnd(38)} ${pacEntitiesFailed}`);
+    console.log(`  ${"shadow relationships inserted:".padEnd(38)} ${pacRelsInserted}`);
+    console.log(`  ${"shadow relationships updated:".padEnd(38)} ${pacRelsUpdated}`);
+    console.log(`  ${"shadow relationships failed:".padEnd(38)} ${pacRelsFailed}`);
     console.log(`  ${"Financial data processed:".padEnd(38)} ~${totalFileMb} MB`);
     console.log(`  ${"Temp files deleted:".padEnd(38)} ✓`);
 
     // Sanity check — top 10 PAC donors by total contributed
-    const { data: top10pacs } = await db
+    const shd = shadowClient(db);
+    const { data: top10pacs } = await shd
       .from("financial_entities")
-      .select("name, total_donated_cents")
+      .select("display_name, total_donated_cents")
       .order("total_donated_cents", { ascending: false })
       .limit(10);
 
     if (top10pacs && top10pacs.length > 0) {
       console.log("\n  Top 10 PAC donors (sanity check — expect EMILY'S LIST, NRA, SEIU, etc.):");
-      for (const row of top10pacs) {
-        const name = String(row.name ?? "Unknown").padEnd(52);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const row of top10pacs as any[]) {
+        const name = String(row.display_name ?? "Unknown").padEnd(52);
         const amt  = `$${(Number(row.total_donated_cents) / 100).toLocaleString()}`;
         console.log(`    ${name} ${amt}`);
       }
     }
 
-    // Sanity check — top 5 officials by individual contributions
-    const { data: top5 } = await db
+    // Sanity check — top 5 officials by total PAC contributions received
+    const { data: top5 } = await shd
       .from("financial_relationships")
-      .select("official_id, amount_cents, officials!official_id(full_name)")
-      .eq("cycle_year",  parseInt(CYCLE, 10))
-      .eq("donor_name",  "Individual Contributors")
+      .select("to_id, amount_cents")
+      .eq("relationship_type", "donation")
+      .eq("to_type", "official")
+      .eq("cycle_year", parseInt(CYCLE, 10))
       .order("amount_cents", { ascending: false })
       .limit(5);
 
     if (top5 && top5.length > 0) {
-      console.log("\n  Top 5 officials by individual contributions:");
-      for (const row of top5) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const name = (row as any).officials?.full_name ?? "Unknown";
+      // Fetch the official full_names in one round-trip
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ids = (top5 as any[]).map((r) => r.to_id);
+      const { data: people } = await db
+        .from("officials")
+        .select("id, full_name")
+        .in("id", ids);
+      const byId = new Map<string, string>();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const p of (people ?? []) as any[]) byId.set(p.id as string, p.full_name as string);
+
+      console.log("\n  Top 5 officials by single PAC relationship amount:");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const row of top5 as any[]) {
+        const name = byId.get(row.to_id as string) ?? "Unknown";
         const amt  = `$${(Number(row.amount_cents) / 100).toLocaleString()}`;
         console.log(`    ${String(name).padEnd(40)} ${amt}`);
       }
@@ -1188,7 +882,12 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
     console.error("  FEC bulk pipeline fatal error:", msg);
     deleteTmpDir(); // best-effort cleanup even on error
     await failSync(logId, msg);
-    return { inserted, updated, failed, estimatedMb: 0 };
+    return {
+      inserted: pacEntitiesInserted + pacRelsInserted,
+      updated:  pacEntitiesUpdated  + pacRelsUpdated,
+      failed:   pacEntitiesFailed   + pacRelsFailed,
+      estimatedMb: 0,
+    };
   }
 }
 

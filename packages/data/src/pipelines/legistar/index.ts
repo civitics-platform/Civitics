@@ -47,12 +47,12 @@ import type {
 // (jurisdictionId is populated at startup from seedPilotMetros)
 // ---------------------------------------------------------------------------
 
-const METRO_CLIENTS = [
+const METRO_CLIENTS: Array<{ client: string; name: string }> = [
   { client: "seattle",     name: "Seattle"       },
   { client: "sfgov",       name: "San Francisco" },
   { client: "newyork",     name: "New York City" },
   { client: "austintexas", name: "Austin"        },
-] as const;
+];
 
 const UPSERT_SIZE = 200;
 
@@ -139,9 +139,28 @@ async function syncPersons(
   db: any,
   api: LegistarClient,
   config: MetroConfig,
+  bodyIdMap: Map<number, string>,
 ): Promise<Map<number, string>> {
   const persons = await api.fetchPersons();
   console.log(`    Persons: ${persons.length} fetched`);
+
+  // Resolve the primary city council body for this metro so we have a valid
+  // governing_body_id to supply (officials.governing_body_id is NOT NULL).
+  // Prefer municipal_council type; fall back to the first body we know about.
+  const { data: councilBody } = await db
+    .from("governing_bodies")
+    .select("id")
+    .eq("jurisdiction_id", config.jurisdictionId)
+    .eq("type", "municipal_council")
+    .limit(1)
+    .maybeSingle();
+  const primaryBodyId: string | null =
+    councilBody?.id ?? (bodyIdMap.size > 0 ? [...bodyIdMap.values()][0] : null);
+
+  if (!primaryBodyId) {
+    console.warn(`    Persons: no governing body found for ${config.name} — skipping persons`);
+    return new Map();
+  }
 
   const idMap = new Map<number, string>(); // LegistarPersonId → UUID
 
@@ -164,7 +183,7 @@ async function syncPersons(
       continue;
     }
 
-    const row = personToOfficialRow(person, config.source);
+    const row = personToOfficialRow(person, config.source, primaryBodyId, config.jurisdictionId);
     const { data: inserted, error } = await db
       .from("officials")
       .insert(row)
@@ -552,8 +571,8 @@ async function runMetro(
   // Step 1: Bodies
   idMaps.bodyIdMap   = await syncBodies(db, api, config);
 
-  // Step 2: Persons
-  idMaps.personIdMap = await syncPersons(db, api, config);
+  // Step 2: Persons (needs bodyIdMap to resolve primary council body)
+  idMaps.personIdMap = await syncPersons(db, api, config, idMaps.bodyIdMap);
 
   // Step 3: Matters (delta if we have a prior run)
   idMaps.matterIdMap = await syncMatters(db, sdb, api, config, idMaps.bodyIdMap, lastRun);

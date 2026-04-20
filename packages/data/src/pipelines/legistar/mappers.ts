@@ -117,25 +117,33 @@ export function bodyToGoverningBodyRow(
 // ---------------------------------------------------------------------------
 
 export interface OfficialRow {
-  full_name:   string;
-  first_name:  string;
-  last_name:   string;
-  is_active:   boolean;
-  source_ids:  Record<string, string>;
-  metadata:    object;
+  governing_body_id: string;
+  jurisdiction_id:   string;
+  full_name:         string;
+  first_name:        string;
+  last_name:         string;
+  role_title:        string;
+  is_active:         boolean;
+  source_ids:        Record<string, string>;
+  metadata:          object;
 }
 
 export function personToOfficialRow(
   person: LegistarPerson,
   source: string, // e.g. 'legistar:seattle'
+  governingBodyId: string,
+  jurisdictionId: string,
 ): OfficialRow {
   return {
-    full_name:  person.PersonFullName,
-    first_name: person.PersonFirstName,
-    last_name:  person.PersonLastName,
-    is_active:  isActive(person.PersonActiveFlag),
-    source_ids: { [source]: String(person.PersonId) },
-    metadata:   {
+    governing_body_id: governingBodyId,
+    jurisdiction_id:   jurisdictionId,
+    full_name:         person.PersonFullName,
+    first_name:        person.PersonFirstName,
+    last_name:         person.PersonLastName,
+    role_title:        "Council Member",
+    is_active:         isActive(person.PersonActiveFlag),
+    source_ids:        { [source]: String(person.PersonId) },
+    metadata:          {
       legistar_person_id: person.PersonId,
       email:              person.PersonEmail ?? null,
       phone:              person.PersonPhone ?? null,

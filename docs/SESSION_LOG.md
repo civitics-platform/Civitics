@@ -2,6 +2,48 @@
 
 ---
 
+## 2026-04-20 (Legistar city council pipeline — 4-metro load)
+
+**Done:**
+
+- **shadow-initiatives backfill** (`data:shadow-initiatives`) and **shadow-connections** (`data:shadow-connections`) pipelines both ran clean from the previous session.
+
+- **Legistar pipeline built and fully validated** across 3 working metros:
+  - `packages/data/src/pipelines/legistar/` — types, client, mappers, orchestrator (index.ts)
+  - 6-step pipeline per metro: Bodies → governing_bodies, Persons → officials, Matters → shadow.proposals + bill_details, Events → shadow.meetings, EventItems → shadow.agenda_items, Votes → shadow.votes
+  - Delta cursor support via `pipeline_state` keyed `legistar_{client}_last_run`
+  - `data:pilot-metros` script seeds 5 city jurisdictions (Seattle, SF, NYC, Austin, DC)
+
+- **4 bugs found and fixed during validation:**
+  1. `officials` NOT NULL on `governing_body_id`, `jurisdiction_id`, `role_title` — `syncPersons` now resolves primary council body before inserting
+  2. `external_source_refs` queries hitting `public` schema instead of `shadow` — all reads/writes switched to `sdb` client
+  3. Source key collision — matters and events both used `config.source` ("legistar:seattle"), so EventId=N matched MatterId=N in the UNIQUE(source, external_id) constraint; fixed by scoping keys: `:body`, `:person`, `:matter`, `:event`, `:item`
+  4. `bill_details` duplicate key on `(jurisdiction_id, session, bill_number)` — cities (Austin) reuse file numbers; switched to `upsert … ignoreDuplicates: true`
+
+- **Final loaded state:**
+
+  | Metro | Bodies | Officials | Proposals | Meetings |
+  |---|---|---|---|---|
+  | Seattle | 81 | 605 | 13,411 | 91 |
+  | Austin | 23 | 604 | 19,857 | 36 |
+  | San Francisco | 151 | 410 | 33,880 | 0 |
+  | **Total** | **255** | **1,619** | **67,148** | **127** |
+
+- **Known blockers documented in code:**
+  - NYC: Legistar slug is `nyc` (not `newyork`), requires API token (403) — commented out pending auth
+  - SF meetings: `sfgov` Events endpoint returns server-side Legistar config error (`Agenda Draft Status not setup`) — no workaround; bodies/officials/proposals fully loaded
+
+**⚠️ Action needed — none** (no migrations this session; all pipeline state in local Supabase)
+
+**Up next:**
+
+- NYC Legistar access — either request API token from NYC Council or find alternative (NYC Open Data)
+- Re-run FEC bulk on 2022/2020 cycles (was "up next" from previous session, still pending)
+- Open data quality bugs: FIX-068/069 (President/VP missing), FIX-070 (3 House reps missing), FIX-071 (senators NULL state), FIX-066 (proposals contamination root cause)
+- `shadow.rebuild_entity_connections()` — L5 derivation job (was on list from 2026-04-19)
+
+---
+
 ## 2026-04-19 (Stage 1B vertical slices — congress + FEC bulk)
 
 **Done — Stage 1B congress.bills shadow dual-write:**

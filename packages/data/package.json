@@ -18,6 +18,8 @@
     "data:connections-delta": "tsx --env-file=../../.env.local src/pipelines/connections/delta.ts",
     "data:shadow-connections": "tsx --env-file=../../.env.local src/pipelines/connections/shadow.ts",
     "data:shadow-initiatives": "tsx --env-file=../../.env.local src/pipelines/initiatives/shadow-backfill.ts",
+    "data:pilot-metros": "tsx --env-file=../../.env.local src/jurisdictions/pilot-metros.ts",
+    "data:legistar": "tsx --env-file=../../.env.local src/pipelines/legistar/index.ts",
     "data:financial-entities": "tsx --env-file=../../.env.local src/pipelines/financial-entities/index.ts",
     "data:ai-summaries": "tsx --env-file=../../.env.local src/pipelines/ai-summaries/index.ts",
     "data:ai-summaries-new": "tsx --env-file=../../.env.local src/pipelines/ai-summaries/index.ts --incremental",

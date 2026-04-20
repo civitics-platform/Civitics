@@ -55,9 +55,9 @@ export class LegistarClient {
    * a full decade of meeting history.
    */
   fetchEvents(since?: string): Promise<LegistarEvent[]> {
-    const filter = since
-      ? `EventDate ge datetime'${since}'`
-      : undefined;
+    // Use date-only in the filter — some Legistar clients reject datetime literals with time component.
+    const dateOnly = since ? since.slice(0, 10) : undefined;
+    const filter = dateOnly ? `EventDate ge datetime'${dateOnly}'` : undefined;
     return this.fetchAll<LegistarEvent>("Events", filter);
   }
 

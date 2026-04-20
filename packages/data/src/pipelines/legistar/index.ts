@@ -287,12 +287,9 @@ async function syncMatters(
       const proposalId = inserted.id;
       idMap.set(matter.MatterId, proposalId);
 
-      // Insert shadow.bill_details
+      // Insert shadow.bill_details (ignore duplicate bill_number+session — cities reuse file numbers)
       const billRow = matterToBillDetailsRow(matter, proposalId, config.jurisdictionId);
-      const { error: bErr } = await sdb.from("bill_details").insert(billRow);
-      if (bErr) {
-        console.error(`      Matter ${matter.MatterFile}: bill_details insert error — ${bErr.message}`);
-      }
+      await sdb.from("bill_details").upsert(billRow, { onConflict: "jurisdiction_id,session,bill_number", ignoreDuplicates: true });
 
       // Insert external_source_refs
       await sdb.from("external_source_refs").insert({

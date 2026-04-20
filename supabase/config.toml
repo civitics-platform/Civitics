@@ -4,7 +4,10 @@
 [api]
 enabled = true
 port = 54321
-schemas = ["public", "graphql_public"]
+# `shadow` is exposed to PostgREST for the Stage 1B dual-write window so the
+# admin-client pipelines (congress bills, fec-bulk) can .schema("shadow")
+# their writes. Drop this entry at Stage 1 cutover.
+schemas = ["public", "graphql_public", "shadow"]
 extra_search_path = ["public", "extensions"]
 max_rows = 1000
 

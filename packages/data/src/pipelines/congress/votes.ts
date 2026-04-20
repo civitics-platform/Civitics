@@ -20,13 +20,17 @@ import {
   sleep,
   CURRENT_CONGRESS,
 } from "./members";
+import {
+  findOrCreateBillProposal,
+  upsertBillProposal,
+  chamberForBillType,
+} from "./bills";
 import { XMLParser } from "fast-xml-parser";
 
 // ---------------------------------------------------------------------------
 // Type aliases
 // ---------------------------------------------------------------------------
 
-type ProposalInsert = Database["public"]["Tables"]["proposals"]["Insert"];
 type ProposalType = Database["public"]["Enums"]["proposal_type"];
 type ProposalStatus = Database["public"]["Enums"]["proposal_status"];
 type VoteInsert = Database["public"]["Tables"]["votes"]["Insert"];
@@ -243,90 +247,55 @@ function parseSenateDate(dateStr: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// findOrCreateProposal helper
+// Shadow-schema vote mirror (Stage 1B dual-write)
+//
+// After every public.votes insert we mirror the batch into shadow.votes. The
+// shadow schema re-keys votes on (roll_call_id, official_id) rather than the
+// legacy (official_id, proposal_id), which is what lets us store every roll
+// call for a bill instead of just the first. roll_call_id is synthesized the
+// same way source_ids.roll_call is already built at the call sites.
 // ---------------------------------------------------------------------------
 
-interface FindOrCreateProposalArgs {
-  billKey: string;
-  title: string;
-  type: ProposalType;
-  status: ProposalStatus;
-  govBodyId: string;
-  federalId: string;
-  congressGovUrl: string;
-  introducedAt: string | null;
-  lastActionAt: string | null;
-  latestActionText?: string;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function shadowDb(db: ReturnType<typeof createAdminClient>): any {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (db as any).schema("shadow");
 }
 
-async function findOrCreateProposal(
+async function insertShadowVotes(
   db: ReturnType<typeof createAdminClient>,
-  args: FindOrCreateProposalArgs
-): Promise<string | null> {
-  const {
-    billKey,
-    title,
-    type,
-    status,
-    govBodyId,
-    federalId,
-    congressGovUrl,
-    introducedAt,
-    lastActionAt,
-    latestActionText,
-  } = args;
+  publicRecords: VoteInsert[]
+): Promise<void> {
+  const shadowRecords = publicRecords
+    .filter((r) => r.voted_at != null && r.proposal_id)
+    .map((r) => {
+      const sourceIds = (r.source_ids ?? {}) as Record<string, string | undefined>;
+      const metadata = (r.metadata ?? {}) as Record<string, unknown>;
+      const rollCallId =
+        sourceIds["roll_call"] ??
+        `${String(r.chamber ?? "unknown").toLowerCase()}-${r.session ?? "0"}-${r.roll_call_number ?? ""}`;
 
-  try {
-    const { data: existing, error: selectErr } = await db
-      .from("proposals")
-      .select("id")
-      .filter("source_ids->>congress_gov_bill", "eq", billKey)
-      .maybeSingle();
+      return {
+        bill_proposal_id: r.proposal_id,
+        official_id: r.official_id,
+        vote: r.vote,
+        voted_at: r.voted_at,
+        roll_call_id: rollCallId,
+        vote_question: (metadata["vote_question"] as string | undefined) ?? null,
+        chamber: r.chamber,
+        session: r.session,
+        // agenda_item_id intentionally null for federal votes (per L4)
+        source_url: sourceIds["house_clerk_url"] ?? sourceIds["senate_lis_url"] ?? null,
+        metadata,
+      };
+    });
 
-    if (selectErr) {
-      console.error(`    Error checking proposal ${billKey}:`, selectErr.message);
-      return null;
-    }
+  if (shadowRecords.length === 0) return;
 
-    if (existing) {
-      return existing.id as string;
-    }
-
-    // Derive bill_number from the key, e.g. "119-HR-1" → "HR 1"
-    const parts = billKey.split("-");
-    const billNumber = parts.length >= 3 ? `${parts[1]} ${parts.slice(2).join("-")}` : billKey;
-
-    const record: ProposalInsert = {
-      title: title.slice(0, 500),
-      bill_number: billNumber,
-      type,
-      jurisdiction_id: federalId,
-      congress_number: CURRENT_CONGRESS,
-      session: String(CURRENT_CONGRESS),
-      status,
-      governing_body_id: govBodyId,
-      source_ids: { congress_gov_bill: billKey },
-      congress_gov_url: congressGovUrl,
-      introduced_at: introducedAt,
-      last_action_at: lastActionAt,
-      metadata: latestActionText ? { latest_action: latestActionText } : {},
-    };
-
-    const { data: inserted, error: insertErr } = await db
-      .from("proposals")
-      .insert(record)
-      .select("id")
-      .single();
-
-    if (insertErr) {
-      console.error(`    Error inserting proposal ${billKey}:`, insertErr.message);
-      return null;
-    }
-
-    return inserted.id as string;
-  } catch (err) {
-    console.error(`    Unexpected error in findOrCreateProposal for ${billKey}:`, err);
-    return null;
+  const { error } = await shadowDb(db).from("votes").insert(shadowRecords);
+  // 23505 is expected on re-runs / backfill overlap — not worth logging per batch.
+  if (error && error.code !== "23505") {
+    console.error(`    shadow.votes insert error: ${error.message}`);
   }
 }
 
@@ -525,17 +494,23 @@ export async function runVotesPipeline(
           const proposalType = mapLegislationType(billRef.type) as ProposalType;
           const govBodyId = chamberGovBodyId(billRef.type, senateGovBodyId, houseGovBodyId);
           const congressGovUrl = congressGovBillUrl(CURRENT_CONGRESS, billRef.type, billRef.number);
+          const introducedIso = votedAt ? new Date(votedAt).toISOString() : null;
 
-          proposalId = await findOrCreateProposal(db, {
+          proposalId = await findOrCreateBillProposal(db, {
             billKey,
             title: billTitle,
+            billNumber: `${billRef.type} ${billRef.number}`,
+            billType: billRef.type,
+            chamber: chamberForBillType(billRef.type),
             type: proposalType,
             status: proposalStatus,
-            govBodyId,
-            federalId,
+            jurisdictionId: federalId,
+            governingBodyId: govBodyId,
             congressGovUrl,
-            introducedAt: votedAt ? new Date(votedAt).toISOString() : null,
-            lastActionAt: votedAt ? new Date(votedAt).toISOString() : null,
+            introducedAt: introducedIso,
+            lastActionAt: introducedIso,
+            congressNumber: CURRENT_CONGRESS,
+            session: String(CURRENT_CONGRESS),
           });
 
           if (proposalId) proposalsUpserted++;
@@ -608,6 +583,8 @@ export async function runVotesPipeline(
             votesInserted += voteRecords.length;
             console.log(`    Roll ${rollNum}: inserted ${voteRecords.length} votes`);
           }
+          // Stage 1B dual-write: mirror into shadow.votes (best-effort).
+          await insertShadowVotes(db, voteRecords);
         } else {
           console.log(`    Roll ${rollNum}: no matchable vote records`);
         }
@@ -696,16 +673,22 @@ export async function runVotesPipeline(
             const voteDateStr = String(root["vote_date"] ?? "");
             const votedAt = parseSenateDate(voteDateStr);
 
-            proposalId = await findOrCreateProposal(db, {
+            const introducedIso = votedAt ? new Date(votedAt).toISOString() : null;
+            proposalId = await findOrCreateBillProposal(db, {
               billKey,
               title: voteQuestion || `${billType} ${docNumber}`,
+              billNumber: `${billType} ${docNumber}`,
+              billType,
+              chamber: chamberForBillType(billType),
               type: proposalType,
               status: proposalStatus,
-              govBodyId,
-              federalId,
+              jurisdictionId: federalId,
+              governingBodyId: govBodyId,
               congressGovUrl,
-              introducedAt: votedAt ? new Date(votedAt).toISOString() : null,
-              lastActionAt: votedAt ? new Date(votedAt).toISOString() : null,
+              introducedAt: introducedIso,
+              lastActionAt: introducedIso,
+              congressNumber: CURRENT_CONGRESS,
+              session: String(CURRENT_CONGRESS),
             });
 
             if (proposalId) proposalsUpserted++;
@@ -786,6 +769,8 @@ export async function runVotesPipeline(
             votesInserted += voteRecords.length;
             console.log(`    Roll ${rollNum}: inserted ${voteRecords.length} votes`);
           }
+          // Stage 1B dual-write: mirror into shadow.votes (best-effort).
+          await insertShadowVotes(db, voteRecords);
         } else {
           console.log(`    Roll ${rollNum}: no matchable vote records`);
         }
@@ -842,55 +827,29 @@ export async function runVotesPipeline(
       const congressGovUrl = congressGovBillUrl(bill.congress, bill.type, bill.number);
 
       try {
-        const { data: existing, error: selectErr } = await db
-          .from("proposals")
-          .select("id")
-          .filter("source_ids->>congress_gov_bill", "eq", billKey)
-          .maybeSingle();
+        const proposalId = await upsertBillProposal(db, {
+          billKey,
+          title,
+          billNumber,
+          billType: bill.type,
+          chamber: chamberForBillType(bill.type),
+          type: proposalType,
+          status,
+          jurisdictionId: federalId,
+          governingBodyId: govBodyId,
+          congressGovUrl,
+          introducedAt: bill.introducedDate
+            ? new Date(bill.introducedDate).toISOString()
+            : null,
+          lastActionAt: bill.latestAction?.actionDate
+            ? new Date(bill.latestAction.actionDate).toISOString()
+            : null,
+          latestActionText: bill.latestAction?.text,
+          congressNumber: CURRENT_CONGRESS,
+          session: String(CURRENT_CONGRESS),
+        });
 
-        if (selectErr) {
-          console.error(`  Error checking proposal ${billKey}:`, selectErr);
-          continue;
-        }
-
-        if (existing) {
-          // Update status (bill may have advanced since last run)
-          await db
-            .from("proposals")
-            .update({ status, updated_at: new Date().toISOString() })
-            .eq("id", existing.id);
-          proposalsUpserted++;
-        } else {
-          const record: ProposalInsert = {
-            title,
-            bill_number: billNumber,
-            type: proposalType,
-            jurisdiction_id: federalId,
-            congress_number: CURRENT_CONGRESS,
-            session: String(CURRENT_CONGRESS),
-            status,
-            governing_body_id: govBodyId,
-            source_ids: { congress_gov_bill: billKey },
-            congress_gov_url: congressGovUrl,
-            introduced_at: bill.introducedDate
-              ? new Date(bill.introducedDate).toISOString()
-              : null,
-            last_action_at: bill.latestAction?.actionDate
-              ? new Date(bill.latestAction.actionDate).toISOString()
-              : null,
-            metadata: bill.latestAction?.text
-              ? { latest_action: bill.latestAction.text }
-              : {},
-          };
-
-          const { error: insertErr } = await db.from("proposals").insert(record);
-
-          if (insertErr) {
-            console.error(`  Error inserting proposal ${billKey}:`, insertErr);
-          } else {
-            proposalsUpserted++;
-          }
-        }
+        if (proposalId) proposalsUpserted++;
       } catch (err) {
         console.error(`  Unexpected error processing bill ${billKey}:`, err);
       }

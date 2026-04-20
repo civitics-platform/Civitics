@@ -66,6 +66,7 @@ const FIRST_RUN_EVENT_LOOKBACK_DAYS = 90;
 async function syncBodies(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   db: any,
+  sdb: ShadowDb,
   api: LegistarClient,
   config: MetroConfig,
 ): Promise<Map<number, string>> {
@@ -81,8 +82,8 @@ async function syncBodies(
       const sourceKey = `${config.source}:body`;
       const extId     = String(body.BodyId);
 
-      // Check external_source_refs first
-      const { data: ref } = await db
+      // Check shadow.external_source_refs first
+      const { data: ref } = await sdb
         .from("external_source_refs")
         .select("entity_id")
         .eq("source", sourceKey)
@@ -91,8 +92,7 @@ async function syncBodies(
 
       if (ref) {
         idMap.set(body.BodyId, String(ref.entity_id));
-        // Update last_seen_at
-        await db.from("external_source_refs")
+        await sdb.from("external_source_refs")
           .update({ last_seen_at: new Date().toISOString() })
           .eq("source", sourceKey).eq("external_id", extId);
         continue;
@@ -113,7 +113,7 @@ async function syncBodies(
 
       idMap.set(body.BodyId, inserted.id);
 
-      await db.from("external_source_refs").insert({
+      await sdb.from("external_source_refs").insert({
         source:      sourceKey,
         external_id: extId,
         entity_type: "governing_body",
@@ -137,6 +137,7 @@ async function syncBodies(
 async function syncPersons(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   db: any,
+  sdb: ShadowDb,
   api: LegistarClient,
   config: MetroConfig,
   bodyIdMap: Map<number, string>,
@@ -167,8 +168,8 @@ async function syncPersons(
   for (const person of persons) {
     const extId = String(person.PersonId);
 
-    // Check external_source_refs
-    const { data: ref } = await db
+    // Check shadow.external_source_refs
+    const { data: ref } = await sdb
       .from("external_source_refs")
       .select("entity_id")
       .eq("source", config.source)
@@ -177,7 +178,7 @@ async function syncPersons(
 
     if (ref) {
       idMap.set(person.PersonId, String(ref.entity_id));
-      await db.from("external_source_refs")
+      await sdb.from("external_source_refs")
         .update({ last_seen_at: new Date().toISOString() })
         .eq("source", config.source).eq("external_id", extId);
       continue;
@@ -197,7 +198,7 @@ async function syncPersons(
 
     idMap.set(person.PersonId, inserted.id);
 
-    await db.from("external_source_refs").insert({
+    await sdb.from("external_source_refs").insert({
       source:      config.source,
       external_id: extId,
       entity_type: "official",
@@ -237,8 +238,8 @@ async function syncMatters(
     for (const matter of chunk) {
       const extId = String(matter.MatterId);
 
-      // Check external_source_refs
-      const { data: ref } = await db
+      // Check shadow.external_source_refs
+      const { data: ref } = await sdb
         .from("external_source_refs")
         .select("entity_id")
         .eq("source", config.source)
@@ -248,7 +249,7 @@ async function syncMatters(
       if (ref) {
         idMap.set(matter.MatterId, String(ref.entity_id));
         // Update timestamps
-        await db.from("external_source_refs")
+        await sdb.from("external_source_refs")
           .update({ last_seen_at: new Date().toISOString() })
           .eq("source", config.source).eq("external_id", extId);
         // Update proposal status/dates in shadow
@@ -292,7 +293,7 @@ async function syncMatters(
       }
 
       // Insert external_source_refs
-      await db.from("external_source_refs").insert({
+      await sdb.from("external_source_refs").insert({
         source:      config.source,
         external_id: extId,
         entity_type: "proposal",
@@ -343,8 +344,8 @@ async function syncEvents(
     const governingBodyId = bodyIdMap.get(event.EventBodyId) ?? null;
     if (!governingBodyId) continue; // body not in our DB — skip
 
-    // Check external_source_refs
-    const { data: ref } = await db
+    // Check shadow.external_source_refs
+    const { data: ref } = await sdb
       .from("external_source_refs")
       .select("entity_id")
       .eq("source", config.source)
@@ -353,7 +354,7 @@ async function syncEvents(
 
     if (ref) {
       idMap.set(event.EventId, String(ref.entity_id));
-      await db.from("external_source_refs")
+      await sdb.from("external_source_refs")
         .update({ last_seen_at: new Date().toISOString() })
         .eq("source", config.source).eq("external_id", String(event.EventId));
       continue;
@@ -372,7 +373,7 @@ async function syncEvents(
     }
 
     idMap.set(event.EventId, inserted.id);
-    await db.from("external_source_refs").insert({
+    await sdb.from("external_source_refs").insert({
       source:      config.source,
       external_id: String(event.EventId),
       entity_type: "meeting",
@@ -434,7 +435,7 @@ async function syncEventItemsAndVotes(
       const extId      = String(item.EventItemId);
 
       // Check if agenda_item already exists
-      const { data: existingRef } = await db
+      const { data: existingRef } = await sdb
         .from("external_source_refs")
         .select("entity_id")
         .eq("source", `${config.source}:item`)
@@ -471,7 +472,7 @@ async function syncEventItemsAndVotes(
         agendaCount++;
         eventItemIdMap.set(item.EventItemId, agendaItemId);
 
-        await db.from("external_source_refs").insert({
+        await sdb.from("external_source_refs").insert({
           source:      `${config.source}:item`,
           external_id: extId,
           entity_type: "agenda_item",
@@ -569,10 +570,10 @@ async function runMetro(
   };
 
   // Step 1: Bodies
-  idMaps.bodyIdMap   = await syncBodies(db, api, config);
+  idMaps.bodyIdMap   = await syncBodies(db, sdb, api, config);
 
   // Step 2: Persons (needs bodyIdMap to resolve primary council body)
-  idMaps.personIdMap = await syncPersons(db, api, config, idMaps.bodyIdMap);
+  idMaps.personIdMap = await syncPersons(db, sdb, api, config, idMaps.bodyIdMap);
 
   // Step 3: Matters (delta if we have a prior run)
   idMaps.matterIdMap = await syncMatters(db, sdb, api, config, idMaps.bodyIdMap, lastRun);

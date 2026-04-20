@@ -2,6 +2,42 @@
 
 ---
 
+## 2026-04-19 (Stage 1B vertical slices — congress + FEC bulk)
+
+**Done — Stage 1B congress.bills shadow dual-write:**
+
+- Extracted `bills.ts` from the monolithic congress pipeline into its own module.
+- Added shadow dual-write for votes alongside the existing public write (per L7 polymorphic plan; bills themselves stay public for now).
+- All shadow inserts hit `shadow.*` via the new `shadowClient(db)` helper in `pipelines/utils.ts`, which hoists the `(db as any).schema("shadow")` cast and exports a `ShadowDb` type — keeps every pipeline's shadow path one-line consistent until the generated `Database` types catch up.
+
+**Done — Stage 1B FEC bulk shadow-native rewrite (Decision #4):**
+
+- Replaced the legacy `pipelines/fec-bulk/index.ts` (~920 lines rewritten) with a shadow-only path. No dual-write — public.financial_* freezes at last legacy state and Stage 1B read-cutover flips queries to shadow.
+- New `shadow-writer.ts` (~262 lines) exports `canonicalizeEntityName`, `cmteTypeToShadowEntityType`, `upsertPacEntityShadow`, `upsertDonationRelationshipShadow`. Two-pass pipeline:
+  - Pass A — unique committees → `shadow.financial_entities` (dedup on `fec_committee_id` UNIQUE).
+  - Pass B — each (cmte × cand × cycle) aggregate → `shadow.financial_relationships` (dedup via SELECT on the `financial_relationships_derivation` compound index).
+- 23505 handler has both `fec_committee_id` race recovery **and** `(canonical_name, entity_type)` fallback so canonical-name collisions self-heal on the next run instead of failing.
+- Removed the four synthetic weball aggregates ("Individual Contributors", "PAC/Committee", "Party", "Self-Funded") — artifacts of the old narrow schema, no place in the polymorphic model.
+- Removed inline `entity_connections` writes per L5 (derivation-only — `runConnectionsDelta` step in master orchestrator handles it).
+- New post-check `supabase/scripts/stage1/03_fec_postcheck.sql` with five RAISE-EXCEPTION invariants (counts non-zero, polymorphic shape correct, no orphan from_id/to_id, donation temporal model honored) plus spot-check queries.
+- Pipeline run: **1824 entities, 16263 relationships, zero invariant violations.** Top donor AIPAC PAC at $2.46M; top recipient Hakeem Jeffries with 264 distinct PAC donors.
+
+**Done — PostgREST allowlist fix:**
+
+- Initial run failed with "Invalid schema: shadow" (1825 failures). Root cause: `supabase/config.toml [api].schemas` defaulted to `["public", "graphql_public"]` so PostgREST rejected `.schema("shadow")` requests. Added `"shadow"` to the list (with a comment to drop it at Stage 1 cutover) — committed `05b8315d`. Fix requires `supabase stop && supabase start` to reload PostgREST.
+
+**⚠️ Action needed — none** (config.toml already applied; pipeline already verified clean)
+
+**Up next:**
+
+- `shadow.rebuild_entity_connections()` TypeScript implementation (the L5 derivation job that consumes shadow.financial_relationships)
+- `civic_initiatives` I-B shadow migration (next vertical slice)
+- Legistar adapter scaffold for the 5-metro deep pilot (SEA/SF/NYC/DC/AUS)
+- Seed `jurisdictions.coverage_status` for the 5 pilot metros (claim-queue feature)
+- Re-run FEC bulk on additional cycles (2022, 2020) once 2024 is fully validated
+
+---
+
 ## 2026-04-17 (session 2)
 
 **Done:**

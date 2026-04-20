@@ -73,8 +73,8 @@ async function resolveFederalJurisdictionId(
   const { data, error } = await db
     .from("jurisdictions")
     .select("id")
-    .eq("jurisdiction_type", "federal")
-    .ilike("name", "%United States%")
+    .eq("type", "country")
+    .eq("fips_code", "00")
     .limit(1)
     .maybeSingle();
 

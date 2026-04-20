@@ -163,6 +163,7 @@ async function syncPersons(
     return new Map();
   }
 
+  const personSourceKey = `${config.source}:person`;
   const idMap = new Map<number, string>(); // LegistarPersonId → UUID
 
   for (const person of persons) {
@@ -172,7 +173,7 @@ async function syncPersons(
     const { data: ref } = await sdb
       .from("external_source_refs")
       .select("entity_id")
-      .eq("source", config.source)
+      .eq("source", personSourceKey)
       .eq("external_id", extId)
       .maybeSingle();
 
@@ -180,7 +181,7 @@ async function syncPersons(
       idMap.set(person.PersonId, String(ref.entity_id));
       await sdb.from("external_source_refs")
         .update({ last_seen_at: new Date().toISOString() })
-        .eq("source", config.source).eq("external_id", extId);
+        .eq("source", personSourceKey).eq("external_id", extId);
       continue;
     }
 
@@ -199,7 +200,7 @@ async function syncPersons(
     idMap.set(person.PersonId, inserted.id);
 
     await sdb.from("external_source_refs").insert({
-      source:      config.source,
+      source:      personSourceKey,
       external_id: extId,
       entity_type: "official",
       entity_id:   inserted.id,
@@ -230,6 +231,7 @@ async function syncMatters(
   const matters = await api.fetchMatters(since);
   console.log(`    Matters: ${matters.length} fetched`);
 
+  const matterSourceKey = `${config.source}:matter`;
   const idMap = new Map<number, string>(); // LegistarMatterId → proposalId
 
   for (let i = 0; i < matters.length; i += UPSERT_SIZE) {
@@ -242,7 +244,7 @@ async function syncMatters(
       const { data: ref } = await sdb
         .from("external_source_refs")
         .select("entity_id")
-        .eq("source", config.source)
+        .eq("source", matterSourceKey)
         .eq("external_id", extId)
         .maybeSingle();
 
@@ -251,7 +253,7 @@ async function syncMatters(
         // Update timestamps
         await sdb.from("external_source_refs")
           .update({ last_seen_at: new Date().toISOString() })
-          .eq("source", config.source).eq("external_id", extId);
+          .eq("source", matterSourceKey).eq("external_id", extId);
         // Update proposal status/dates in shadow
         const governingBodyId = matter.MatterBodyId ? bodyIdMap.get(matter.MatterBodyId) ?? null : null;
         const updateRow = matterToProposalRow(matter, config.jurisdictionId, governingBodyId, config.client);
@@ -294,7 +296,7 @@ async function syncMatters(
 
       // Insert external_source_refs
       await sdb.from("external_source_refs").insert({
-        source:      config.source,
+        source:      matterSourceKey,
         external_id: extId,
         entity_type: "proposal",
         entity_id:   proposalId,
@@ -337,10 +339,11 @@ async function syncEvents(
   const events = await api.fetchEvents(eventSince);
   console.log(`    Events: ${events.length} fetched (since ${eventSince.slice(0, 10)})`);
 
+  const eventSourceKey = `${config.source}:event`;
   const idMap = new Map<number, string>(); // LegistarEventId → meetingId
 
   for (const event of events) {
-    const extId = `${config.source}:event:${event.EventId}`;
+    const extId = String(event.EventId);
     const governingBodyId = bodyIdMap.get(event.EventBodyId) ?? null;
     if (!governingBodyId) continue; // body not in our DB — skip
 
@@ -348,15 +351,15 @@ async function syncEvents(
     const { data: ref } = await sdb
       .from("external_source_refs")
       .select("entity_id")
-      .eq("source", config.source)
-      .eq("external_id", String(event.EventId))
+      .eq("source", eventSourceKey)
+      .eq("external_id", extId)
       .maybeSingle();
 
     if (ref) {
       idMap.set(event.EventId, String(ref.entity_id));
       await sdb.from("external_source_refs")
         .update({ last_seen_at: new Date().toISOString() })
-        .eq("source", config.source).eq("external_id", String(event.EventId));
+        .eq("source", eventSourceKey).eq("external_id", extId);
       continue;
     }
 
@@ -374,8 +377,8 @@ async function syncEvents(
 
     idMap.set(event.EventId, inserted.id);
     await sdb.from("external_source_refs").insert({
-      source:      config.source,
-      external_id: String(event.EventId),
+      source:      eventSourceKey,
+      external_id: extId,
       entity_type: "meeting",
       entity_id:   inserted.id,
       last_seen_at: new Date().toISOString(),

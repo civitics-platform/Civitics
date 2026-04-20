@@ -50,7 +50,7 @@ import type {
 const METRO_CLIENTS: Array<{ client: string; name: string }> = [
   { client: "seattle",     name: "Seattle"       },
   { client: "sfgov",       name: "San Francisco" },
-  { client: "newyork",     name: "New York City" },
+  // NYC Legistar slug is "nyc" but requires API token (403 without auth) — skip for now
   { client: "austintexas", name: "Austin"        },
 ];
 

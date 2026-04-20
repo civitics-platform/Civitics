@@ -54,11 +54,21 @@ export class LegistarClient {
    * On first run, caller should pass a 90-day lookback to avoid pulling
    * a full decade of meeting history.
    */
-  fetchEvents(since?: string): Promise<LegistarEvent[]> {
-    // Use date-only in the filter — some Legistar clients reject datetime literals with time component.
+  async fetchEvents(since?: string): Promise<LegistarEvent[]> {
+    // Use date-only — some Legistar clients reject datetime literals with a time component.
     const dateOnly = since ? since.slice(0, 10) : undefined;
     const filter = dateOnly ? `EventDate ge datetime'${dateOnly}'` : undefined;
-    return this.fetchAll<LegistarEvent>("Events", filter);
+    try {
+      return await this.fetchAll<LegistarEvent>("Events", filter);
+    } catch (err) {
+      // Some clients (e.g. sfgov) don't support EventDate OData filtering at all.
+      // Fall back to fetching all events so we still get meetings data.
+      if (filter && (err as Error).message?.includes("400")) {
+        console.warn(`    Events: OData date filter not supported by ${this.clientName}, fetching all events`);
+        return this.fetchAll<LegistarEvent>("Events");
+      }
+      throw err;
+    }
   }
 
   /** Fetch all EventItems for a specific meeting. */

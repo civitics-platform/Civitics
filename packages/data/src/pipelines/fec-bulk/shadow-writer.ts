@@ -182,14 +182,25 @@ export async function upsertPacEntityShadow(
     .single();
 
   if (insErr || !inserted) {
-    // 23505 = unique-violation race; look up and treat as existing
+    // 23505 = unique-violation; two recovery paths:
+    //   1. fec_committee_id race (concurrent insert of same committee)
+    //   2. (canonical_name, entity_type) collision — different committee,
+    //      same normalized name → schema merge intent, treat as same entity
     if (insErr?.code === "23505") {
-      const { data: raced } = await shd
+      const { data: byFec } = await shd
         .from("financial_entities")
         .select("id")
         .eq("fec_committee_id", input.cmteId)
         .maybeSingle();
-      if (raced?.id) return { outcome: "updated", id: raced.id as string };
+      if (byFec?.id) return { outcome: "updated", id: byFec.id as string };
+
+      const { data: byName } = await shd
+        .from("financial_entities")
+        .select("id")
+        .eq("canonical_name", canonicalName)
+        .eq("entity_type", entityType)
+        .maybeSingle();
+      if (byName?.id) return { outcome: "updated", id: byName.id as string };
     }
     console.error(`    shadow.financial_entities insert failed for ${input.cmteId}: ${insErr?.message}`);
     return { outcome: "failed", id: null };

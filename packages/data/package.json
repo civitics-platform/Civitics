@@ -36,7 +36,8 @@
     "data:federal-register": "tsx --env-file=../../.env.local src/pipelines/federal-register/index.ts",
     "data:opensecrets-bulk": "tsx --env-file=../../.env.local src/pipelines/opensecrets-bulk/index.ts",
     "data:enrich-seed": "tsx --env-file=../../.env.local src/pipelines/enrichment/seed-backlog.ts",
-    "data:audit": "tsx --env-file=../../.env.local src/pipelines/integrity-audit/index.ts"
+    "data:audit": "tsx --env-file=../../.env.local src/pipelines/integrity-audit/index.ts",
+    "data:spending-shadow": "tsx --env-file=../../.env.local src/pipelines/spending-shadow/index.ts"
   },
   "dependencies": {
     "@civitics/ai": "workspace:*",

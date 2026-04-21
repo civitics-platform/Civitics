@@ -84,3 +84,21 @@
 2026-04-19 | FIX-065 | bad413d3 | fix(enrichment): exclude procedural votes and case names from seeder
 2026-04-19 | FIX-067 | 53eb4977 | feat(data): integrity audit scaffolding + first prod run
 2026-04-19 | FIX-073 | be505e79 | fix(data): correct not_voting enum value in connections pipeline and audit check
+2026-04-20 | FIX-074 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
+2026-04-20 | FIX-075 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
+2026-04-20 | FIX-076 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
+2026-04-20 | FIX-077 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
+2026-04-20 | FIX-078 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
+2026-04-20 | FIX-079 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
+2026-04-20 | FIX-080 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
+2026-04-20 | FIX-081 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
+2026-04-20 | FIX-083 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
+2026-04-20 | FIX-084 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
+2026-04-20 | FIX-085 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
+2026-04-20 | FIX-086 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
+2026-04-20 | FIX-087 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
+2026-04-20 | FIX-088 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
+2026-04-20 | FIX-091 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
+2026-04-20 | FIX-092 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
+2026-04-20 | FIX-094 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
+2026-04-20 | FIX-096 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)

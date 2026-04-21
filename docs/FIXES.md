@@ -193,40 +193,40 @@ _Completed items moved here by `pnpm fixes:clean`. `pnpm fixes:archive` moves th
 
 #### Dashboard Redesign — Phase A: Cleanup
 
-- [ ] 🟢 S — **Delete dead dashboard files** — `PipelineOpsSection.tsx`, `BudgetControlForm.tsx`, `DashboardStatsSection.tsx`, `DashboardAutoRefresh.tsx` (~970 lines of zombie code; confirmed zero importers) <!--id:FIX-074-->
-- [ ] 🟢 S — **Fix "AI Summaries X" label** — remove trailing X from stat card label in `StatsSection` <!--id:FIX-075-->
-- [ ] 🟢 S — **Fix "Closes in 0h" countdown** — `formatCountdown` shows 0h when <1h remains; add minutes fallback <!--id:FIX-076-->
-- [ ] 🟢 S — **Replace hard-coded "$1.75B" in PlatformCostsSection footer** — read from `chord.total_flow_usd` passed as prop <!--id:FIX-077-->
-- [ ] 🟢 S — **Delete CommunityComputeSection** — Phase 4 placeholder that always renders $0/$0; misleads visitors <!--id:FIX-078-->
+- [x] 🟢 S — **Delete dead dashboard files** — `PipelineOpsSection.tsx`, `BudgetControlForm.tsx`, `DashboardStatsSection.tsx`, `DashboardAutoRefresh.tsx` (~970 lines of zombie code; confirmed zero importers) <!--id:FIX-074-->
+- [x] 🟢 S — **Fix "AI Summaries X" label** — remove trailing X from stat card label in `StatsSection` <!--id:FIX-075-->
+- [x] 🟢 S — **Fix "Closes in 0h" countdown** — `formatCountdown` shows 0h when <1h remains; add minutes fallback <!--id:FIX-076-->
+- [x] 🟢 S — **Replace hard-coded "$1.75B" in PlatformCostsSection footer** — read from `chord.total_flow_usd` passed as prop <!--id:FIX-077-->
+- [x] 🟢 S — **Delete CommunityComputeSection** — Phase 4 placeholder that always renders $0/$0; misleads visitors <!--id:FIX-078-->
 
 #### Dashboard Redesign — Phase B: Efficiency
 
-- [ ] 🟡 M — **Fix triple-fire in useDashboardData** — visibility handler + interval dedupe; on mount fetchData fires once then interval takes over; visibility change only fires on actual tab switch <!--id:FIX-079-->
-- [ ] 🟡 M — **Drop server-side duplicate queries in page.tsx** — remove `getActivity`, `getBrowsingFlows`, `getOfficialsBreakdown`; client reads all from `/api/claude/status` <!--id:FIX-080-->
-- [ ] 🟡 M — **Gate ModerationSection behind admin check** — `useSession()` check client-side; skip the fetch for non-admins <!--id:FIX-081-->
+- [x] 🟡 M — **Fix triple-fire in useDashboardData** — visibility handler + interval dedupe; on mount fetchData fires once then interval takes over; visibility change only fires on actual tab switch <!--id:FIX-079-->
+- [x] 🟡 M — **Drop server-side duplicate queries in page.tsx** — remove `getActivity`, `getBrowsingFlows`, `getOfficialsBreakdown`; client reads all from `/api/claude/status` <!--id:FIX-080-->
+- [x] 🟡 M — **Gate ModerationSection behind admin check** — `useSession()` check client-side; skip the fetch for non-admins <!--id:FIX-081-->
 - [ ] 🟠 L — **Split /api/claude/status into core + quality** — `/core` (meta, db, pipelines, ai_costs, activity) at 60s; `/quality` (quality, self_tests, chord) at 15min; reduces Warren search + chord RPC from every 60s to every 15min <!--id:FIX-082-->
 
 #### Dashboard Redesign — Phase C: IA + Tabs
 
-- [ ] 🟠 M — **Add TabBar to dashboard** — URL-synced `?tab=transparency|operations`; default transparency; browser back/forward works <!--id:FIX-083-->
-- [ ] 🟠 M — **Extract TransparencyTab + OperationsTab from DashboardClient** — reorganize sections per IA spec <!--id:FIX-084-->
-- [ ] 🟠 M — **Move ops content into Operations tab** — browsing flows, moderation, self-tests, pipelines, quality, costs, dev progress move to Operations <!--id:FIX-085-->
-- [ ] 🟢 S — **Delete amber receipt banner; append to PageHeader description** — "This page is our receipt." appended to description prop <!--id:FIX-086-->
+- [x] 🟠 M — **Add TabBar to dashboard** — URL-synced `?tab=transparency|operations`; default transparency; browser back/forward works <!--id:FIX-083-->
+- [x] 🟠 M — **Extract TransparencyTab + OperationsTab from DashboardClient** — reorganize sections per IA spec <!--id:FIX-084-->
+- [x] 🟠 M — **Move ops content into Operations tab** — browsing flows, moderation, self-tests, pipelines, quality, costs, dev progress move to Operations <!--id:FIX-085-->
+- [x] 🟢 S — **Delete amber receipt banner; append to PageHeader description** — "This page is our receipt." appended to description prop <!--id:FIX-086-->
 
 #### Dashboard Redesign — Phase D: Visual Polish
 
-- [ ] 🟢 S — **Add Lucide icon support to SectionHeader** — accept `icon: React.ReactNode`; keep string emoji as fallback <!--id:FIX-087-->
-- [ ] 🟢 S — **Replace dashboard emoji with Lucide icons** — per mapping in spec §3.2 <!--id:FIX-088-->
+- [x] 🟢 S — **Add Lucide icon support to SectionHeader** — accept `icon: React.ReactNode`; keep string emoji as fallback <!--id:FIX-087-->
+- [x] 🟢 S — **Replace dashboard emoji with Lucide icons** — per mapping in spec §3.2 <!--id:FIX-088-->
 - [ ] 🟡 M — **Reduce stat cards from 6 to 4** — Officials / Open Proposals / Votes / Donation Flow; bundle into `<StatsRow>` <!--id:FIX-089-->
 - [ ] 🟠 L — **Add sparklines to stat cards** — build `/api/stats/trends` returning last 30 days of daily counts per metric <!--id:FIX-090-->
-- [ ] 🟢 S — **Swap shadow for border-only on SectionCard; swap red→rose, yellow→amber across dashboard** <!--id:FIX-091-->
-- [ ] 🟢 S — **Move admin refresh button into page header; delete floating bottom-right variant** <!--id:FIX-092-->
+- [x] 🟢 S — **Swap shadow for border-only on SectionCard; swap red→rose, yellow→amber across dashboard** <!--id:FIX-091-->
+- [x] 🟢 S — **Move admin refresh button into page header; delete floating bottom-right variant** <!--id:FIX-092-->
 
 #### Dashboard Redesign — Phase E: Data-Drive Dev Progress
 
-- [ ] 🟡 M — **Add /api/phases route** — reads `docs/PHASE_GOALS.md` at runtime; returns `{ phase, label, pct, done }[]`; replaces hard-coded PHASES array <!--id:FIX-094-->
+- [x] 🟡 M — **Add /api/phases route** — reads `docs/PHASE_GOALS.md` at runtime; returns `{ phase, label, pct, done }[]`; replaces hard-coded PHASES array <!--id:FIX-094-->
 - [ ] 🟡 M — **Parse FIXES.md into per-phase task lists with real done state** — reads `docs/done.log`; replaces hard-coded PHASE1_TASKS <!--id:FIX-095-->
-- [ ] 🟢 S — **Drop non-engineering tasks from tracker** — delete "500 beta users" and "Grant applications submitted" items <!--id:FIX-096-->
+- [x] 🟢 S — **Drop non-engineering tasks from tracker** — delete "500 beta users" and "Grant applications submitted" items <!--id:FIX-096-->
 
 ### INFRASTRUCTURE & PERFORMANCE
 

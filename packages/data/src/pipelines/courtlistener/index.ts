@@ -19,7 +19,7 @@
 
 import { createAdminClient } from "@civitics/db";
 import type { Database } from "@civitics/db";
-import { shadowClient, sleep, fetchJson } from "../utils";
+import { shadowClient, sleep, fetchJson, QuotaExhaustedError } from "../utils";
 import { startSync, completeSync, failSync, type PipelineResult } from "../sync-log";
 
 // ---------------------------------------------------------------------------
@@ -301,6 +301,10 @@ export async function runCourtListenerPipeline(
           });
         }
       } catch (err) {
+        if (err instanceof QuotaExhaustedError) {
+          console.warn(`  CourtListener daily quota exhausted — stopping pipeline. Re-run tomorrow.`);
+          break;
+        }
         console.error(`  Judges page ${page}: fetch error —`, err instanceof Error ? err.message : err);
         break;
       }
@@ -377,7 +381,9 @@ export async function runCourtListenerPipeline(
 
     console.log("  Fetching recent court opinions...");
 
+    let opinionQuotaHit = false;
     for (const courtId of FEDERAL_COURTS) {
+      if (opinionQuotaHit) break;
       console.log(`    Court: ${courtId}`);
       let nextClusters: string | null = null;
 
@@ -396,6 +402,11 @@ export async function runCourtListenerPipeline(
             });
           }
         } catch (err) {
+          if (err instanceof QuotaExhaustedError) {
+            console.warn(`    CourtListener daily quota exhausted — stopping opinions phase. Re-run tomorrow.`);
+            opinionQuotaHit = true;
+            break;
+          }
           console.error(`    ${courtId} page ${p}: error —`, err instanceof Error ? err.message : err);
           break;
         }

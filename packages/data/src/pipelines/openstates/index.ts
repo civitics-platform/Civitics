@@ -16,7 +16,7 @@
 
 import { createAdminClient } from "@civitics/db";
 import type { Database } from "@civitics/db";
-import { shadowClient, sleep, fetchJson } from "../utils";
+import { shadowClient, sleep, fetchJson, QuotaExhaustedError } from "../utils";
 import { startSync, completeSync, failSync, type PipelineResult } from "../sync-log";
 import { STATE_DATA } from "../../jurisdictions/us-states";
 
@@ -235,9 +235,11 @@ export async function runOpenStatesPipeline(
   // ── Phase A: Legislators ───────────────────────────────────────────────────
 
   let billsInserted = 0, billsUpdated = 0, billsFailed = 0;
+  let quotaHit = false;
 
   try {
     for (const state of STATE_DATA) {
+      if (quotaHit) break;
       const jurisdictionId = stateIds.get(state.name);
       if (!jurisdictionId) {
         console.warn(`    No jurisdiction ID for ${state.name}, skipping`);
@@ -253,10 +255,16 @@ export async function runOpenStatesPipeline(
         let page = 1;
 
         while (true) {
+          if (quotaHit) break;
           let list: OSPersonList;
           try {
             list = await fetchLegislators(apiKey, ocdId, chamberClass, page);
           } catch (err) {
+            if (err instanceof QuotaExhaustedError) {
+              console.warn(`    OpenStates daily quota exhausted — stopping pipeline. Re-run tomorrow; upserts are idempotent.`);
+              quotaHit = true;
+              break;
+            }
             console.error(`    ${state.abbr} ${chamberClass} page ${page}: fetch error —`, err instanceof Error ? err.message : err);
             break;
           }
@@ -334,6 +342,8 @@ export async function runOpenStatesPipeline(
 
       console.log(`    ${state.abbr}: ${totalFetched} legislators`);
 
+      if (quotaHit) break;
+
       // ── Phase B: Bills for this state ──────────────────────────────────────
 
       console.log(`  ${state.abbr} — bills...`);
@@ -345,6 +355,11 @@ export async function runOpenStatesPipeline(
         try {
           list = await fetchBills(apiKey, ocdId, billPage);
         } catch (err) {
+          if (err instanceof QuotaExhaustedError) {
+            console.warn(`    OpenStates daily quota exhausted — stopping pipeline. Re-run tomorrow; upserts are idempotent.`);
+            quotaHit = true;
+            break;
+          }
           console.error(`    ${state.abbr} bills page ${billPage}: fetch error —`, err instanceof Error ? err.message : err);
           break;
         }

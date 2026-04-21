@@ -249,11 +249,14 @@ function parseSenateDate(dateStr: string): string | null {
 // ---------------------------------------------------------------------------
 // Shadow-schema vote mirror (Stage 1B dual-write)
 //
-// After every public.votes insert we mirror the batch into shadow.votes. The
-// shadow schema re-keys votes on (roll_call_id, official_id) rather than the
-// legacy (official_id, proposal_id), which is what lets us store every roll
-// call for a bill instead of just the first. roll_call_id is synthesized the
-// same way source_ids.roll_call is already built at the call sites.
+// shadow.votes re-keys on (roll_call_id, official_id) — one row per official
+// per roll call, not per bill. Bills must exist in shadow BEFORE this runs so
+// the FK constraint (shadow.votes → shadow.bill_details) is satisfied without
+// synthesizing fake proposals (the core design win of the Stage 1 rebuild).
+//
+// Ordering contract: the Congress.gov bill-list sync runs first in
+// runVotesPipeline so shadow bills with proper titles are present by the time
+// the XML vote sections execute.
 // ---------------------------------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -262,38 +265,81 @@ function shadowDb(db: ReturnType<typeof createAdminClient>): any {
   return (db as any).schema("shadow");
 }
 
-async function insertShadowVotes(
+/**
+ * Look up a shadow bill by Congress.gov bill key.
+ * Returns the proposal UUID (shared with public) or null if not in shadow yet.
+ * Never creates — shadow bills must come from the proactive bills sync.
+ */
+async function findShadowBillId(
   db: ReturnType<typeof createAdminClient>,
+  billKey: string
+): Promise<string | null> {
+  const { data, error } = await shadowDb(db)
+    .from("external_source_refs")
+    .select("entity_id")
+    .eq("source", "congress_gov")
+    .eq("external_id", billKey)
+    .eq("entity_type", "proposal")
+    .maybeSingle();
+
+  if (error) {
+    console.error(`    shadow bill lookup error for ${billKey}: ${error.message}`);
+    return null;
+  }
+  return (data?.entity_id as string) ?? null;
+}
+
+/**
+ * Write a roll-call batch to shadow.votes.
+ *
+ * Looks up the shadow bill independently (does not use the public proposal_id)
+ * so votes never link to synthetic proposals created by the vote-ingestion path.
+ * If the bill is not yet in shadow, the batch is skipped — it will be written
+ * on the next run after the proactive bill sync has created the shadow row.
+ */
+async function insertShadowVotesBatch(
+  db: ReturnType<typeof createAdminClient>,
+  billKey: string,
+  voteQuestion: string | null,
   publicRecords: VoteInsert[]
 ): Promise<void> {
+  if (!billKey) return;
+
+  const shadowBillId = await findShadowBillId(db, billKey);
+  if (!shadowBillId) {
+    // Bill not yet in shadow (may not have been synced from Congress.gov API yet).
+    // Skip rather than creating a synthetic shadow row with a vote-question title.
+    console.log(`    shadow.votes: ${billKey} not in shadow yet, skipping ${publicRecords.length} votes`);
+    return;
+  }
+
   const shadowRecords = publicRecords
-    .filter((r) => r.voted_at != null && r.proposal_id)
+    .filter((r) => r.voted_at != null)
     .map((r) => {
       const sourceIds = (r.source_ids ?? {}) as Record<string, string | undefined>;
-      const metadata = (r.metadata ?? {}) as Record<string, unknown>;
       const rollCallId =
         sourceIds["roll_call"] ??
         `${String(r.chamber ?? "unknown").toLowerCase()}-${r.session ?? "0"}-${r.roll_call_number ?? ""}`;
 
       return {
-        bill_proposal_id: r.proposal_id,
+        bill_proposal_id: shadowBillId,
         official_id: r.official_id,
         vote: r.vote,
         voted_at: r.voted_at,
         roll_call_id: rollCallId,
-        vote_question: (metadata["vote_question"] as string | undefined) ?? null,
+        vote_question: voteQuestion,
         chamber: r.chamber,
         session: r.session,
         // agenda_item_id intentionally null for federal votes (per L4)
         source_url: sourceIds["house_clerk_url"] ?? sourceIds["senate_lis_url"] ?? null,
-        metadata,
+        metadata: (r.metadata ?? {}) as Record<string, unknown>,
       };
     });
 
   if (shadowRecords.length === 0) return;
 
   const { error } = await shadowDb(db).from("votes").insert(shadowRecords);
-  // 23505 is expected on re-runs / backfill overlap — not worth logging per batch.
+  // 23505 is expected on re-runs / backfill overlap.
   if (error && error.code !== "23505") {
     console.error(`    shadow.votes insert error: ${error.message}`);
   }
@@ -403,7 +449,85 @@ export async function runVotesPipeline(
   let votesInserted = 0;
 
   // -------------------------------------------------------------------------
-  // Build official lookup maps
+  // Step 1: Sync bills from Congress.gov API
+  //
+  // Must run BEFORE XML vote feeds so shadow.bill_details rows with proper
+  // titles exist when insertShadowVotesBatch tries to link votes to them.
+  // (Ordering contract documented in the shadow-vote mirror section above.)
+  // -------------------------------------------------------------------------
+
+  console.log("\n--- Step 1: Syncing bills from Congress.gov API ---");
+
+  const billTypes = [
+    { type: "hr",    label: "House bills" },
+    { type: "s",     label: "Senate bills" },
+    { type: "hjres", label: "House joint resolutions" },
+    { type: "sjres", label: "Senate joint resolutions" },
+  ] as const;
+
+  for (const { type, label } of billTypes) {
+    console.log(`\n  Fetching recent ${label}...`);
+
+    let bills: BillSummary[] = [];
+
+    try {
+      const listData = await fetchCongressApi<BillListResponse>(
+        `bill/${CURRENT_CONGRESS}/${type}?sort=updateDate+desc&limit=50`,
+        apiKey
+      );
+      bills = listData.bills ?? [];
+      console.log(`  Got ${bills.length} ${label}`);
+    } catch (err) {
+      console.error(`  Error fetching ${label}:`, err);
+      continue;
+    }
+
+    for (const bill of bills) {
+      const billKey = `${bill.congress}-${bill.type}-${bill.number}`;
+      const billNumber = `${bill.type} ${bill.number}`;
+      const title = (bill.title ?? billNumber).slice(0, 500);
+      const proposalType = mapLegislationType(bill.type) as ProposalType;
+      const status = mapBillStatus(bill.latestAction?.text) as ProposalStatus;
+      const govBodyId = chamberGovBodyId(bill.type, senateGovBodyId, houseGovBodyId);
+      const congressGovUrl = congressGovBillUrl(bill.congress, bill.type, bill.number);
+
+      try {
+        const proposalId = await upsertBillProposal(db, {
+          billKey,
+          title,
+          billNumber,
+          billType: bill.type,
+          chamber: chamberForBillType(bill.type),
+          type: proposalType,
+          status,
+          jurisdictionId: federalId,
+          governingBodyId: govBodyId,
+          congressGovUrl,
+          introducedAt: bill.introducedDate
+            ? new Date(bill.introducedDate).toISOString()
+            : null,
+          lastActionAt: bill.latestAction?.actionDate
+            ? new Date(bill.latestAction.actionDate).toISOString()
+            : null,
+          latestActionText: bill.latestAction?.text,
+          congressNumber: CURRENT_CONGRESS,
+          session: String(CURRENT_CONGRESS),
+        });
+
+        if (proposalId) proposalsUpserted++;
+      } catch (err) {
+        console.error(`  Unexpected error processing bill ${billKey}:`, err);
+      }
+
+      // Small pause between records
+      await sleep(50);
+    }
+
+    console.log(`  Proposals upserted so far: ${proposalsUpserted}`);
+  }
+
+  // -------------------------------------------------------------------------
+  // Step 2: Build official lookup maps (needed for XML vote feeds)
   // -------------------------------------------------------------------------
 
   const { officialMap, senatorByNameState } = await buildOfficialMaps(db, senateGovBodyId);
@@ -419,10 +543,10 @@ export async function runVotesPipeline(
   ];
 
   // -------------------------------------------------------------------------
-  // House Clerk XML vote feeds
+  // Step 3: House Clerk XML vote feeds
   // -------------------------------------------------------------------------
 
-  console.log("\n--- Fetching House Clerk XML votes ---");
+  console.log("\n--- Step 3: Fetching House Clerk XML votes ---");
 
   let houseSenateUnmatched = 0;
 
@@ -488,8 +612,10 @@ export async function runVotesPipeline(
 
         // Find or create proposal if we have a bill reference
         let proposalId: string | null = null;
+        let houseBillKey: string | null = null;  // hoisted for shadow call site below
         if (billRef) {
           const billKey = `${CURRENT_CONGRESS}-${billRef.type}-${billRef.number}`;
+          houseBillKey = billKey;
           const billTitle = voteQuestion || `${billRef.type} ${billRef.number}`;
           const proposalType = mapLegislationType(billRef.type) as ProposalType;
           const govBodyId = chamberGovBodyId(billRef.type, senateGovBodyId, houseGovBodyId);
@@ -583,8 +709,9 @@ export async function runVotesPipeline(
             votesInserted += voteRecords.length;
             console.log(`    Roll ${rollNum}: inserted ${voteRecords.length} votes`);
           }
-          // Stage 1B dual-write: mirror into shadow.votes (best-effort).
-          await insertShadowVotes(db, voteRecords);
+          // Stage 1B dual-write: mirror into shadow.votes using independent shadow
+          // bill lookup (never synthesizes shadow proposals from vote-question titles).
+          await insertShadowVotesBatch(db, houseBillKey ?? "", voteQuestion, voteRecords);
         } else {
           console.log(`    Roll ${rollNum}: no matchable vote records`);
         }
@@ -595,10 +722,10 @@ export async function runVotesPipeline(
   }
 
   // -------------------------------------------------------------------------
-  // Senate LIS XML vote feeds
+  // Step 4: Senate LIS XML vote feeds
   // -------------------------------------------------------------------------
 
-  console.log("\n--- Fetching Senate LIS XML votes ---");
+  console.log("\n--- Step 4: Fetching Senate LIS XML votes ---");
 
   let senateUnmatched = 0;
 
@@ -656,6 +783,7 @@ export async function runVotesPipeline(
         // Parse bill reference from document block
         const docBlock = root["document"] as Record<string, unknown> | null;
         let proposalId: string | null = null;
+        let senateBillKey: string | null = null;  // hoisted for shadow call site below
 
         if (docBlock) {
           const rawDocType = String(docBlock["document_type"] ?? "");
@@ -663,6 +791,7 @@ export async function runVotesPipeline(
           if (rawDocType && docNumber) {
             const billType = normalizeSenateDocType(rawDocType);
             const billKey = `${CURRENT_CONGRESS}-${billType}-${docNumber}`;
+            senateBillKey = billKey;
             const voteQuestion = String(root["question"] ?? "");
             const resultStr = String(root["result"] ?? "");
             const proposalStatus = mapVoteResult(resultStr) as ProposalStatus;
@@ -769,8 +898,9 @@ export async function runVotesPipeline(
             votesInserted += voteRecords.length;
             console.log(`    Roll ${rollNum}: inserted ${voteRecords.length} votes`);
           }
-          // Stage 1B dual-write: mirror into shadow.votes (best-effort).
-          await insertShadowVotes(db, voteRecords);
+          // Stage 1B dual-write: mirror into shadow.votes using independent shadow
+          // bill lookup (never synthesizes shadow proposals from vote-question titles).
+          await insertShadowVotesBatch(db, senateBillKey ?? "", voteQuestion, voteRecords);
         } else {
           console.log(`    Roll ${rollNum}: no matchable vote records`);
         }
@@ -785,80 +915,6 @@ export async function runVotesPipeline(
   }
   if (senateUnmatched > 0) {
     console.log(`  Senate unmatched name:state keys (no official in DB): ${senateUnmatched}`);
-  }
-
-  // -------------------------------------------------------------------------
-  // Fetch recent bills from Congress.gov to populate proposals
-  // -------------------------------------------------------------------------
-
-  console.log("\n--- Fetching Congress.gov bills for proposal records ---");
-
-  const billTypes = [
-    { type: "hr",    label: "House bills" },
-    { type: "s",     label: "Senate bills" },
-    { type: "hjres", label: "House joint resolutions" },
-    { type: "sjres", label: "Senate joint resolutions" },
-  ] as const;
-
-  for (const { type, label } of billTypes) {
-    console.log(`\n  Fetching recent ${label}...`);
-
-    let bills: BillSummary[] = [];
-
-    try {
-      const listData = await fetchCongressApi<BillListResponse>(
-        `bill/${CURRENT_CONGRESS}/${type}?sort=updateDate+desc&limit=50`,
-        apiKey
-      );
-      bills = listData.bills ?? [];
-      console.log(`  Got ${bills.length} ${label}`);
-    } catch (err) {
-      console.error(`  Error fetching ${label}:`, err);
-      continue;
-    }
-
-    for (const bill of bills) {
-      const billKey = `${bill.congress}-${bill.type}-${bill.number}`;
-      const billNumber = `${bill.type} ${bill.number}`;
-      const title = (bill.title ?? billNumber).slice(0, 500);
-      const proposalType = mapLegislationType(bill.type) as ProposalType;
-      const status = mapBillStatus(bill.latestAction?.text) as ProposalStatus;
-      const govBodyId = chamberGovBodyId(bill.type, senateGovBodyId, houseGovBodyId);
-      const congressGovUrl = congressGovBillUrl(bill.congress, bill.type, bill.number);
-
-      try {
-        const proposalId = await upsertBillProposal(db, {
-          billKey,
-          title,
-          billNumber,
-          billType: bill.type,
-          chamber: chamberForBillType(bill.type),
-          type: proposalType,
-          status,
-          jurisdictionId: federalId,
-          governingBodyId: govBodyId,
-          congressGovUrl,
-          introducedAt: bill.introducedDate
-            ? new Date(bill.introducedDate).toISOString()
-            : null,
-          lastActionAt: bill.latestAction?.actionDate
-            ? new Date(bill.latestAction.actionDate).toISOString()
-            : null,
-          latestActionText: bill.latestAction?.text,
-          congressNumber: CURRENT_CONGRESS,
-          session: String(CURRENT_CONGRESS),
-        });
-
-        if (proposalId) proposalsUpserted++;
-      } catch (err) {
-        console.error(`  Unexpected error processing bill ${billKey}:`, err);
-      }
-
-      // Small pause between records
-      await sleep(50);
-    }
-
-    console.log(`  Proposals upserted so far: ${proposalsUpserted}`);
   }
 
   console.log(

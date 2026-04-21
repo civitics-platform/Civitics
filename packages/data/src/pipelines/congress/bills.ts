@@ -308,6 +308,7 @@ export async function upsertBillProposal(
     const { error: pubErr } = await db
       .from("proposals")
       .update({
+        title: args.title.slice(0, 500),
         status: args.status,
         last_action_at: args.lastActionAt,
         updated_at: now,
@@ -325,6 +326,7 @@ export async function upsertBillProposal(
         .schema("shadow")
         .from("proposals")
         .update({
+          title: args.title.slice(0, 500),
           status: args.status,
           last_action_at: args.lastActionAt,
           updated_at: now,

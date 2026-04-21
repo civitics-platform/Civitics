@@ -319,95 +319,85 @@ async function deriveFinancialConnections(
 // ---------------------------------------------------------------------------
 // 2. Vote connections
 //
-// Reads public.votes, derives connection_type via voteToConnectionType().
-// Only creates connections for proposals that exist in shadow.proposals
-// (dual-written bills share UUIDs — direct join works during Stage 1B).
+// Reads shadow.votes — the clean, re-keyed table written by the Priority 1
+// votes pipeline fix. UNIQUE(roll_call_id, official_id) means multiple roll
+// calls per bill are separate rows; evidence_ids accumulates all of them.
+//
+// vote_question is a first-class column here (not buried in metadata JSON)
+// so procedural and nomination detection is reliable without needing
+// vote_category (which shadow.proposals doesn't have).
+//
+// No public.votes or shadow proposal pre-load needed: shadow.votes only
+// contains rows linked to shadow.bill_details via FK, so every row is
+// already scoped to the shadow schema.
 // ---------------------------------------------------------------------------
 
 async function deriveVoteConnections(
   sdb: ShadowDb,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  db: any,
   counts: ShadowConnectionCounts,
 ): Promise<void> {
-  console.log("\n  [2/4] Vote connections...");
+  console.log("\n  [2/4] Vote connections (shadow.votes)...");
 
-  // Load all shadow.proposal IDs into a Set for O(1) membership check.
-  const shadowProposalIds = new Set<string>();
-  let pidPage = 0;
-  while (true) {
-    const { data: page, error } = await sdb
-      .from("proposals")
-      .select("id")
-      .range(pidPage * FETCH_SIZE, pidPage * FETCH_SIZE + FETCH_SIZE - 1);
-    if (error) { console.error("    Error loading shadow proposal IDs:", error.message); return; }
-    if (!page || page.length === 0) break;
-    for (const row of page) shadowProposalIds.add(String(row.id));
-    if (page.length < FETCH_SIZE) break;
-    pidPage++;
-  }
-  console.log(`    ${shadowProposalIds.size} shadow proposals loaded`);
-  if (shadowProposalIds.size === 0) {
-    console.log("    No shadow proposals yet — skipping vote connections.");
-    return;
-  }
-
-  // Stream public.votes with proposals JOIN for vote_category + title.
   let lastId: string | null = null;
   let votePage = 0;
   let totalFetched = 0;
 
   while (true) {
     votePage++;
-    let q = db
+    let q = sdb
       .from("votes")
-      .select("id, official_id, proposal_id, vote, voted_at, metadata, proposals!proposal_id(title, vote_category)")
+      .select("id, official_id, bill_proposal_id, vote, voted_at, vote_question")
       .order("id")
       .limit(FETCH_SIZE);
     if (lastId) q = q.gt("id", lastId);
 
     const { data: votes, error } = await q;
-    if (error) { console.error(`    Error fetching votes page ${votePage}:`, error.message); return; }
+    if (error) { console.error(`    Error fetching shadow.votes page ${votePage}:`, error.message); return; }
     if (!votes || votes.length === 0) break;
 
     lastId = String(votes[votes.length - 1].id);
     totalFetched += votes.length;
 
-    // Deduplicate by (from_id, to_id, connection_type) within the page.
+    // Deduplicate within page by (from_id, to_id, connType).
+    // Multiple roll calls for the same (official, bill, direction) accumulate evidence_ids.
     const batchMap = new Map<string, ShadowConnectionRow>();
     for (const v of votes) {
-      if (!shadowProposalIds.has(String(v.proposal_id))) continue;
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const proposal    = (v.proposals as any) ?? {};
-      const connType    = voteToConnectionType(
+      const connType = voteToConnectionType(
         String(v.vote ?? ""),
-        proposal.vote_category ?? null,
-        proposal.title ?? null,
-        v.metadata,
+        null,                                          // shadow.proposals has no vote_category
+        null,                                          // title not needed — vote_question handles both
+        { vote_question: v.vote_question ?? "" },     // first-class column → reliable procedural/nom detection
       );
       if (!connType) continue;
 
       const fromId    = String(v.official_id);
-      const toId      = String(v.proposal_id);
+      const toId      = String(v.bill_proposal_id);  // shared UUID with public/shadow proposals
       const dedupeKey = `${fromId}|${toId}|${connType}`;
-      if (batchMap.has(dedupeKey)) continue;
 
-      batchMap.set(dedupeKey, {
-        from_type:       "official",
-        from_id:         fromId,
-        to_type:         "proposal",
-        to_id:           toId,
-        connection_type: connType,
-        strength:        1.0,
-        amount_cents:    null,
-        occurred_at:     v.voted_at ? String(v.voted_at).slice(0, 10) : null,
-        ended_at:        null,
-        evidence_count:  1,
-        evidence_source: "votes",
-        evidence_ids:    [String(v.id)],
-        derived_at:      new Date().toISOString(),
-      });
+      const existing = batchMap.get(dedupeKey);
+      if (existing) {
+        // Accumulate evidence_ids across multiple roll calls for the same edge.
+        if (existing.evidence_ids.length < MAX_EVIDENCE_IDS) {
+          existing.evidence_ids.push(String(v.id));
+          existing.evidence_count++;
+        }
+      } else {
+        batchMap.set(dedupeKey, {
+          from_type:       "official",
+          from_id:         fromId,
+          to_type:         "proposal",
+          to_id:           toId,
+          connection_type: connType,
+          strength:        1.0,
+          amount_cents:    null,
+          occurred_at:     v.voted_at ? String(v.voted_at).slice(0, 10) : null,
+          ended_at:        null,
+          evidence_count:  1,
+          evidence_source: "votes",
+          evidence_ids:    [String(v.id)],
+          derived_at:      new Date().toISOString(),
+        });
+      }
     }
 
     const batch = [...batchMap.values()];
@@ -417,7 +407,7 @@ async function deriveVoteConnections(
 
     if (votePage % 20 === 0) {
       console.log(
-        `    Processed ${totalFetched} votes... ` +
+        `    Processed ${totalFetched} shadow votes... ` +
         `(yes: ${counts.vote_yes}, no: ${counts.vote_no}, abstain: ${counts.vote_abstain})`
       );
     }
@@ -426,7 +416,7 @@ async function deriveVoteConnections(
   }
 
   console.log(
-    `    Processed ${totalFetched} votes → ` +
+    `    Processed ${totalFetched} shadow votes → ` +
     `${counts.vote_yes} yes / ${counts.vote_no} no / ${counts.vote_abstain} abstain / ` +
     `${counts.nom_vote_yes} nom_yes / ${counts.nom_vote_no} nom_no`
   );
@@ -580,7 +570,7 @@ export async function runShadowConnectionsPipeline(): Promise<PipelineResult> {
 
   try {
     await deriveFinancialConnections(sdb, counts);
-    await deriveVoteConnections(sdb, db, counts);
+    await deriveVoteConnections(sdb, counts);
     await deriveOversightConnections(sdb, db, counts);
     await deriveAppointmentConnections(sdb, db, counts);
 

@@ -26,10 +26,10 @@ _Update this file at the end of every session that touches rebuild work._
 | Legistar — Seattle, Austin, SF | ✅ Done | 67,148 proposals · 1,619 officials · 127 meetings |
 | shadow-initiatives backfill | ✅ Done | civic_initiatives → shadow.proposals type='initiative' |
 | shadow-connections (vote + donation edges) | ✅ Done | |
-| **Congress votes → shadow (bill re-anchoring)** | 🔄 In progress | Priority 1 — the central design win |
+| **Congress votes → shadow (bill re-anchoring)** | ✅ Done | `b039e0ca` — bills-first ordering, lookup-only shadow inserts, title self-healing |
+| **`shadow.rebuild_entity_connections()` L5 job** | ✅ Done | `shadow/connections/shadow.ts` upgraded to read shadow.votes; full 4-type derivation |
 | CourtListener → shadow.case_details | ⬜ Not started | Priority 4 |
 | OpenStates → shadow | ⬜ Not started | Priority 5 |
-| `shadow.rebuild_entity_connections()` L5 job | ⬜ Not started | Priority 2 — blocked on votes landing first |
 | spending_records → financial_relationships | ⬜ Not started | Decision C — merge as type=contract/grant in Stage 1 |
 | FEC bulk 2022/2020 cycles | ⬜ Not started | Low priority until shadow is complete |
 | NYC Legistar | 🔴 Blocked | 403 — needs API token. Skipped for Stage 2; document for grant applications |

@@ -184,7 +184,7 @@ export async function runAllPipelines(): Promise<void> {
       results.push({ name: "courtlistener", inserted: 0, updated: 0, failed: 0, estimatedMb: 0, error: "API key missing" });
     } else {
       try {
-        const r = await runCourtListenerPipeline(apiKey, federalId, senateGovBodyId);
+        const r = await runCourtListenerPipeline(apiKey, federalId);
         results.push({ name: "courtlistener", ...r });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -414,7 +414,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
     if (clKey) {
       const t0 = Date.now();
       try {
-        const r = await runCourtListenerPipeline(clKey, federalId, senateGovBodyId);
+        const r = await runCourtListenerPipeline(clKey, federalId);
         results.pipelines.courtlistener = { status: "complete", rows_added: r.inserted, duration_ms: Date.now() - t0 };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

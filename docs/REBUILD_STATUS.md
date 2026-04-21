@@ -28,7 +28,7 @@ _Update this file at the end of every session that touches rebuild work._
 | shadow-connections (vote + donation edges) | ✅ Done | |
 | **Congress votes → shadow (bill re-anchoring)** | ✅ Done | `b039e0ca` — bills-first ordering, lookup-only shadow inserts, title self-healing |
 | **`shadow.rebuild_entity_connections()` L5 job** | ✅ Done | `shadow/connections/shadow.ts` upgraded to read shadow.votes; full 4-type derivation |
-| CourtListener → shadow.case_details | ⬜ Not started | Priority 4 |
+| CourtListener → shadow.case_details | ✅ Done | `41c40618` — 280 opinions, 365 judges re-anchored to judicial govbodies |
 | OpenStates → shadow | ⬜ Not started | Priority 5 |
 | spending_records → financial_relationships | ✅ Done | `ccfa5ff7` — agency→entity, contract/grant type, dedup on usaspending_award_id |
 | FEC bulk 2022/2020 cycles | ⬜ Not started | Low priority until shadow is complete |
@@ -65,7 +65,7 @@ These are correctness and integrity issues — do not cut over to shadow until a
 ### Critical (wrong data if skipped)
 1. **Votes anchor to bills, not vote-questions** — 216k public.votes currently point at synthetic "On Passage" proposals. Shadow rewrite fixes this; don't cut over until shadow vote count is sane.
 2. **One FEC aggregation path** — retire `connections/delta.ts` and `financial-entities/index.ts` donor paths; shadow FEC writer is now canonical.
-3. **Federal judges governing_body** — CourtListener currently writes `governing_body_id = senateId` for all judges. Shadow rewrite seeds proper judicial bodies.
+3. **Federal judges governing_body** — ✅ Fixed. 14 judicial governing bodies seeded; 365 judges re-anchored to correct circuit courts.
 4. **`data_sync_log` column name** — `pipeline` vs `pipeline_name` split; one path silently fails. Fix in shadow.
 
 ### Important (UX / query correctness)
@@ -84,7 +84,7 @@ These are correctness and integrity issues — do not cut over to shadow until a
 1. Congress votes shadow rewrite                    ✅ done (b039e0ca)
 2. shadow.rebuild_entity_connections() L5 job       ✅ done (shadow.ts upgraded)
 3. spending_records → financial_relationships merge  ✅ done (ccfa5ff7)
-4. CourtListener → shadow.case_details              ← next
+4. CourtListener → shadow.case_details              ✅ done (41c40618)
 5. OpenStates → shadow
 6. App query audit (grep every from("proposals")/from("votes") in apps/civitics/app/)
 7. Provision new Supabase Pro project

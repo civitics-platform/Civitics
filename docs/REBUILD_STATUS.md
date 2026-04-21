@@ -30,7 +30,7 @@ _Update this file at the end of every session that touches rebuild work._
 | **`shadow.rebuild_entity_connections()` L5 job** | ✅ Done | `shadow/connections/shadow.ts` upgraded to read shadow.votes; full 4-type derivation |
 | CourtListener → shadow.case_details | ⬜ Not started | Priority 4 |
 | OpenStates → shadow | ⬜ Not started | Priority 5 |
-| spending_records → financial_relationships | ⬜ Not started | Decision C — merge as type=contract/grant in Stage 1 |
+| spending_records → financial_relationships | ✅ Done | `ccfa5ff7` — agency→entity, contract/grant type, dedup on usaspending_award_id |
 | FEC bulk 2022/2020 cycles | ⬜ Not started | Low priority until shadow is complete |
 | NYC Legistar | 🔴 Blocked | 403 — needs API token. Skipped for Stage 2; document for grant applications |
 | Cosponsorship pipeline | ⬜ Stub | Migration `20260420000000` exists |
@@ -81,10 +81,10 @@ These are correctness and integrity issues — do not cut over to shadow until a
 ## Critical Path to Stage 2
 
 ```
-1. Congress votes shadow rewrite       ← in progress
-2. spending_records → financial_relationships merge
-3. shadow.rebuild_entity_connections()
-4. CourtListener → shadow.case_details
+1. Congress votes shadow rewrite                    ✅ done (b039e0ca)
+2. shadow.rebuild_entity_connections() L5 job       ✅ done (shadow.ts upgraded)
+3. spending_records → financial_relationships merge  ✅ done (ccfa5ff7)
+4. CourtListener → shadow.case_details              ← next
 5. OpenStates → shadow
 6. App query audit (grep every from("proposals")/from("votes") in apps/civitics/app/)
 7. Provision new Supabase Pro project

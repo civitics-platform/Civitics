@@ -98,7 +98,7 @@ export async function GET(request: Request) {
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
   // ── All 10 sections run in parallel ──────────────────────────────────────
-  const [version, database, connectionTypes, pipelines, aiCosts, quality, selfTests, chordSection, activitySection, resourceWarnings] =
+  const [version, database, connectionTypes, pipelines, aiCosts, quality, selfTests, chordSection, activitySection, resourceWarnings, officialsBreakdown] =
     await Promise.all([
       // ── 1. Platform version ──────────────────────────────────────────────
       section(async () => {
@@ -586,6 +586,18 @@ export async function GET(request: Request) {
           egress_critical: egressMb > 4750,
         };
       }),
+
+      // ── 11. Officials breakdown ──────────────────────────────────────
+      section(async () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const anyDb = db as any;
+        const { data } = await anyDb.rpc("get_officials_breakdown").catch(() => ({ data: null }));
+        if (!data) return null;
+        type Row = { category: string; count: number };
+        const rows = data as Row[];
+        const get = (cat: string) => rows.find((r) => r.category === cat)?.count ?? 0;
+        return { federal: get("federal"), state: get("state"), judges: get("judges") };
+      }),
     ]);
 
   const query_time_ms = Date.now() - t0;
@@ -606,6 +618,7 @@ export async function GET(request: Request) {
       chord: chordSection,
       activity: activitySection,
       resource_warnings: resourceWarnings,
+      officials_breakdown: officialsBreakdown,
     },
     {},
   );

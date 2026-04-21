@@ -2,6 +2,11 @@
 
 import { useState, useEffect } from "react";
 import {
+  Users, ScrollText, Vote, Network, DollarSign, Sparkles,
+  RefreshCw, BarChart3, Lightbulb, Eye, Rocket, CircleCheck, CircleX,
+  Megaphone,
+} from "lucide-react";
+import {
   StatCard,
   SectionCard,
   SectionHeader,
@@ -22,6 +27,7 @@ import {
   type AiCosts,
   type PipelineRun,
   type ActivitySectionData,
+  type OfficialsBreakdown,
 } from "./useDashboardData";
 import dynamic from "next/dynamic";
 
@@ -35,7 +41,7 @@ const PlatformCostsSection = dynamic(
   { ssr: false },
 );
 
-// ── Types from server ─────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 type OpenProposal = {
   id: string;
@@ -44,21 +50,11 @@ type OpenProposal = {
   comment_period_end: string;
 };
 
-type ActivityRow = {
-  path: string;
-  views: number;
-};
-
-type OfficialsBreakdown = {
-  federal: number;
-  state: number;
-  judges: number;
-} | null;
+type ActivityRow = { path: string; views: number };
 
 interface DashboardClientProps {
   openProposals: OpenProposal[];
-  activity: ActivityRow[];
-  officialsBreakdown: OfficialsBreakdown;
+  tab: "transparency" | "operations";
 }
 
 // ── Pipeline display name mapping ────────────────────────────────────────────
@@ -90,7 +86,7 @@ const SELF_TEST_LABELS: Record<string, string> = {
 
 // ── Phase / task data (FIX 4) ────────────────────────────────────────────────
 
-const PHASES = [
+const PHASES_FALLBACK = [
   { name: "Phase 0", label: "Foundation", pct: 100, done: true },
   { name: "Phase 1", label: "Civic Core", pct: 88, done: false },
   { name: "Phase 2", label: "Community", pct: 0, done: false },
@@ -118,8 +114,6 @@ const PHASE1_TASKS: Array<{ label: string; done: boolean }> = [
   { label: "Community commenting", done: false },
   { label: "Position tracking", done: false },
   { label: "Follow officials/agencies", done: false },
-  { label: "500 beta users", done: false },
-  { label: "Grant applications submitted", done: false },
 ];
 
 // ── Pipeline freshness helper ────────────────────────────────────────────────
@@ -176,7 +170,7 @@ function StatsSection({
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <StatCard
-        icon="👤"
+        icon={<Users size={16} />}
         label="Officials"
         value={db?.officials ?? 0}
         formatAs="number"
@@ -185,7 +179,7 @@ function StatsSection({
         loading={!db}
       />
       <StatCard
-        icon="📋"
+        icon={<ScrollText size={16} />}
         label="Proposals"
         value={db?.proposals ?? 0}
         formatAs="number"
@@ -203,7 +197,7 @@ function StatsSection({
         loading={!db}
       />
       <StatCard
-        icon="🗳"
+        icon={<Vote size={16} />}
         label="Votes on Record"
         value={db?.votes ?? 0}
         formatAs="number"
@@ -212,7 +206,7 @@ function StatsSection({
         loading={!db}
       />
       <StatCard
-        icon="🔗"
+        icon={<Network size={16} />}
         label="Connections"
         value={db?.entity_connections ?? 0}
         formatAs="number"
@@ -223,7 +217,7 @@ function StatsSection({
         loading={!db}
       />
       <StatCard
-        icon="💰"
+        icon={<DollarSign size={16} />}
         label="Donor Records"
         value={db?.financial_relationships ?? 0}
         formatAs="number"
@@ -232,8 +226,8 @@ function StatsSection({
         loading={!db}
       />
       <StatCard
-        icon="🤖"
-        label="AI Summaries X"
+        icon={<Sparkles size={16} />}
+        label="AI Summaries"
         value={db?.ai_summary_cache ?? 0}
         formatAs="number"
         sublabel="Plain-language summaries generated"
@@ -253,7 +247,7 @@ function CommentPeriodsSection({ openProposals }: { openProposals: OpenProposal[
   return (
     <SectionCard>
       <SectionHeader
-        icon="📢"
+        icon={<Megaphone size={16} />}
         title="Open Comment Periods"
         description="Your voice is public record"
         action={
@@ -319,8 +313,8 @@ function PipelinesSection({
   if (isPartial(pipelines)) {
     return (
       <SectionCard>
-        <SectionHeader icon="🔄" title="Data Pipelines" status="error" />
-        <p className="mt-3 text-sm text-red-600">{pipelines.error}</p>
+        <SectionHeader icon={<RefreshCw size={16} />} title="Data Pipelines" status="error" />
+        <p className="mt-3 text-sm text-rose-600">{pipelines.error}</p>
       </SectionCard>
     );
   }
@@ -363,7 +357,7 @@ function PipelinesSection({
     <SectionCard noPadding>
       <div className="p-6 pb-0">
         <SectionHeader
-          icon="🔄"
+          icon={<RefreshCw size={16} />}
           title="Data Pipelines"
           status={overallFreshness === "ok" ? "ok" : overallFreshness === "warning" ? "warning" : "error"}
           description={
@@ -448,8 +442,8 @@ function DataQualitySection({
   if (isPartial(quality)) {
     return (
       <SectionCard>
-        <SectionHeader icon="📊" title="Data Quality & Coverage" />
-        <p className="mt-3 text-sm text-red-600">{quality.error}</p>
+        <SectionHeader icon={<BarChart3 size={16} />} title="Data Quality & Coverage" />
+        <p className="mt-3 text-sm text-rose-600">{quality.error}</p>
       </SectionCard>
     );
   }
@@ -463,7 +457,7 @@ function DataQualitySection({
 
   return (
     <SectionCard>
-      <SectionHeader icon="📊" title="Data Quality & Coverage" />
+      <SectionHeader icon={<BarChart3 size={16} />} title="Data Quality & Coverage" />
       <div className="mt-4 space-y-5">
         <DataQualityBar
           label="FEC ID coverage"
@@ -525,7 +519,7 @@ function ConnectionHighlightsSection({
     return (
       <SectionCard>
         <SectionHeader
-          icon="💡"
+          icon={<Lightbulb size={16} />}
           title="Notable Connections"
           description="Top donation flows this cycle"
         />
@@ -544,7 +538,7 @@ function ConnectionHighlightsSection({
   return (
     <SectionCard>
       <SectionHeader
-        icon="💡"
+        icon={<Lightbulb size={16} />}
         title="Notable Connections"
         description="Top donation flows this cycle"
         action={{ label: "Explore graph", href: "/graph?preset=follow-the-money" }}
@@ -578,7 +572,7 @@ function ActivitySection({
   return (
     <SectionCard>
       <SectionHeader
-        icon="👀"
+        icon={<Eye size={16} />}
         title="Site Activity"
         description={`${formatNumber(totalViews)} human page views in the last 24h`}
       />
@@ -604,26 +598,35 @@ function ActivitySection({
 
 // PlatformCostsSection is now DB-driven — imported from ./PlatformCostsSection
 
-// ── FIX 4: Development Progress ───────────────────────────────────────────────
+type PhaseData = { name: string; label: string; pct: number; done: boolean };
 
 function DevelopmentProgressSection() {
+  const [phases, setPhases] = useState<PhaseData[]>(PHASES_FALLBACK);
+
+  useEffect(() => {
+    fetch("/api/phases")
+      .then((r) => r.json())
+      .then((d) => { if (d.phases?.length) setPhases(d.phases as PhaseData[]); })
+      .catch(() => {/* keep fallback */});
+  }, []);
+
   return (
     <SectionCard>
-      <SectionHeader icon="🚀" title="Development Progress" description="Phase 1 of 5" />
+      <SectionHeader icon={<Rocket size={16} />} title="Development Progress" description="Phase 1 of 5" />
       <div className="mt-4 space-y-3">
-        {PHASES.map((phase) => (
+        {phases.map((phase) => (
           <div key={phase.name}>
             <div className="mb-1 flex items-center justify-between">
               <span className="text-sm font-medium text-gray-900">
                 {phase.name} — {phase.label}
-                {phase.done && <span className="ml-2 text-green-600">✓</span>}
+                {phase.done && <span className="ml-2 text-emerald-600">✓</span>}
               </span>
               <span className="tabular-nums text-sm text-gray-600">{phase.pct}%</span>
             </div>
             <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
               <div
                 className={`h-full rounded-full transition-all duration-200 ${
-                  phase.done ? "bg-green-500" : phase.pct > 0 ? "bg-blue-500" : "bg-gray-200"
+                  phase.done ? "bg-emerald-500" : phase.pct > 0 ? "bg-blue-500" : "bg-gray-200"
                 }`}
                 style={{ width: `${phase.pct}%` }}
               />
@@ -638,7 +641,7 @@ function DevelopmentProgressSection() {
             <li key={task.label} className="flex items-start gap-2">
               <span
                 className={`mt-0.5 shrink-0 text-xs ${
-                  task.done ? "text-green-600" : "text-gray-400"
+                  task.done ? "text-emerald-600" : "text-gray-400"
                 }`}
               >
                 {task.done ? "✓" : "○"}
@@ -652,34 +655,6 @@ function DevelopmentProgressSection() {
           ))}
         </ul>
       </div>
-    </SectionCard>
-  );
-}
-
-// ── FIX 5: Community Compute Pool ─────────────────────────────────────────────
-
-function CommunityComputeSection() {
-  return (
-    <SectionCard>
-      <SectionHeader
-        icon="⛏"
-        title="Community Compute Pool"
-        description="Phase 4 — launches with blockchain integration on Optimism"
-      />
-      <div className="mt-4 grid grid-cols-2 gap-4">
-        <div className="rounded-lg bg-gray-50 p-4 text-center">
-          <p className="text-2xl font-bold text-gray-900">$0</p>
-          <p className="mt-1 text-xs text-gray-500">Community donations</p>
-        </div>
-        <div className="rounded-lg bg-gray-50 p-4 text-center">
-          <p className="text-2xl font-bold text-gray-900">$0</p>
-          <p className="mt-1 text-xs text-gray-500">API costs covered</p>
-        </div>
-      </div>
-      <p className="mt-4 text-sm leading-relaxed text-gray-600">
-        Every dollar donated and every dollar spent will be tracked on-chain and visible here in
-        real time.
-      </p>
     </SectionCard>
   );
 }
@@ -752,8 +727,8 @@ function SelfTestsSection({
   if (isPartial(selfTests)) {
     return (
       <SectionCard>
-        <SectionHeader icon="🔍" title="System Self-Tests" />
-        <p className="mt-3 text-sm text-red-600">{selfTests.error}</p>
+        <SectionHeader icon={<CircleCheck size={16} />} title="System Self-Tests" />
+        <p className="mt-3 text-sm text-rose-600">{selfTests.error}</p>
       </SectionCard>
     );
   }
@@ -764,7 +739,7 @@ function SelfTestsSection({
   return (
     <SectionCard>
       <SectionHeader
-        icon="🔍"
+        icon={<CircleCheck size={16} />}
         title="System Self-Tests"
         description="Run on every status check"
         status={allPassed ? "ok" : "error"}
@@ -779,15 +754,15 @@ function SelfTestsSection({
           return (
             <li key={test.name} className="flex items-start gap-2">
               <span
-                className={`shrink-0 mt-0.5 text-sm font-bold ${
-                  test.passed ? "text-green-600" : "text-red-600"
-                }`}
+                className={`shrink-0 mt-0.5 ${test.passed ? "text-emerald-600" : "text-rose-600"}`}
                 title={test.detail}
               >
-                {test.passed ? "✓" : "✗"}
+                {test.passed
+                  ? <CircleCheck size={14} />
+                  : <CircleX size={14} />}
               </span>
               <span
-                className={`text-sm ${test.passed ? "text-gray-700" : "text-red-700 font-medium"}`}
+                className={`text-sm ${test.passed ? "text-gray-700" : "text-rose-700 font-medium"}`}
               >
                 {displayLabel}
               </span>
@@ -806,8 +781,7 @@ function SelfTestsSection({
 
 export function DashboardClient({
   openProposals,
-  activity,
-  officialsBreakdown,
+  tab,
 }: DashboardClientProps) {
   const { data, error, refresh } = useDashboardData();
   const [_secondsAgo] = useState(0);
@@ -835,6 +809,12 @@ export function DashboardClient({
   }, []);
 
   const db = data && !isPartial(data.status.database) ? data.status.database : null;
+
+  const officialsBreakdown: OfficialsBreakdown =
+    data?.status.officials_breakdown && !isPartial(data.status.officials_breakdown)
+      ? (data.status.officials_breakdown as OfficialsBreakdown)
+      : null;
+
   const failedTests =
     data && !isPartial(data.status.self_tests)
       ? data.status.self_tests.filter((t) => !t.passed)
@@ -845,17 +825,16 @@ export function DashboardClient({
     data?.status.chord && !isPartial(data.status.chord) ? data.status.chord : null;
   const chordTotalFlowUsd = chordSection?.total_flow_usd ?? 0;
 
-  // FIX 7: activity from status API
   const activitySectionData: ActivitySectionData | null =
     data?.status.activity && !isPartial(data.status.activity)
       ? (data.status.activity as ActivitySectionData)
       : null;
-  const topPages = activitySectionData?.top_pages ?? activity;
-  const totalViews = activitySectionData?.page_views_24h ?? db?.page_views_24h ?? 0;
+  const topPages = activitySectionData?.top_pages ?? [];
+  const totalViews = activitySectionData?.page_views_24h ?? 0;
 
-  return (
-    <div className="space-y-6">
-      {/* Alert banner if self-tests fail */}
+  // Shared banners (shown on both tabs when there's a problem)
+  const banners = (
+    <>
       {failedTests.length > 0 && (
         <AlertBanner
           level="warning"
@@ -863,8 +842,6 @@ export function DashboardClient({
           detail="The team has been notified and is investigating."
         />
       )}
-
-      {/* Error banner if status fetch failed */}
       {error && (
         <AlertBanner
           level="error"
@@ -872,25 +849,66 @@ export function DashboardClient({
           detail={error}
         />
       )}
+    </>
+  );
 
-      {/* Refresh timestamp */}
-      {mounted && data && (
-        <p className="text-xs text-gray-400" suppressHydrationWarning>
-          Updated {new Date(data.status.meta.timestamp).toLocaleTimeString()} ·
-          query took {data.status.meta.query_time_ms}ms · auto-refreshes every 60s
-        </p>
-      )}
+  // Refresh timestamp + admin button (shown on operations tab)
+  const opsHeader = mounted && data ? (
+    <div className="flex items-center justify-between">
+      <p className="text-xs text-gray-400" suppressHydrationWarning>
+        Updated {new Date(data.status.meta.timestamp).toLocaleTimeString()} ·
+        {data.status.meta.query_time_ms}ms
+      </p>
+      <button
+        onClick={handleAdminRefresh}
+        disabled={refreshing}
+        title="Force refresh all platform data"
+        className="text-xs bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white px-2 py-1 rounded transition-colors disabled:opacity-50"
+      >
+        {refreshing ? "⟳" : "↺ Refresh"}
+      </button>
+    </div>
+  ) : null;
 
-      {/* ── Stat Cards ── */}
-      <StatsSection
-        database={data?.status.database ?? { error: "Loading", partial: true }}
+  if (tab === "transparency") {
+    return (
+      <div className="space-y-6">
+        {banners}
+
+        {/* ── Hero: Stat Cards ── */}
+        <StatsSection
+          database={data?.status.database ?? { error: "Loading", partial: true }}
+          aiCosts={data?.status.ai_costs ?? { error: "Loading", partial: true }}
+          officialsBreakdown={officialsBreakdown}
+          openProposalCount={openProposals.length}
+        />
+
+        {/* ── Comment Periods ── */}
+        <CommentPeriodsSection openProposals={openProposals} />
+
+        {/* ── Donation Flows ── */}
+        <ConnectionHighlightsSection chordFlows={data?.chordFlows ?? []} />
+
+        {/* ── What Civitics Tracks ── */}
+        <PlatformStorySection
+          database={data?.status.database ?? { error: "Loading", partial: true }}
+          chordTotalFlowUsd={chordTotalFlowUsd}
+        />
+      </div>
+    );
+  }
+
+  // ── Operations tab ────────────────────────────────────────────────────────
+  return (
+    <div className="space-y-6">
+      {banners}
+      {opsHeader}
+
+      {/* ── Self-Tests (promoted to top) ── */}
+      <SelfTestsSection
+        selfTests={data?.status.self_tests ?? { error: "Loading", partial: true }}
         aiCosts={data?.status.ai_costs ?? { error: "Loading", partial: true }}
-        officialsBreakdown={officialsBreakdown}
-        openProposalCount={openProposals.length}
       />
-
-      {/* ── Comment Periods ── */}
-      <CommentPeriodsSection openProposals={openProposals} />
 
       {/* ── Two-column: Pipelines + Quality ── */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -903,13 +921,7 @@ export function DashboardClient({
         />
       </div>
 
-      {/* ── Two-column: Connections + Activity ── */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <ConnectionHighlightsSection chordFlows={data?.chordFlows ?? []} />
-        <ActivitySection activity={topPages} totalViews={totalViews} />
-      </div>
-
-      {/* ── Platform Costs — data from useDashboardData, no independent fetch ── */}
+      {/* ── Platform Costs ── */}
       <PlatformCostsSection
         platformUsage={data?.platformUsage ?? null}
         onRefresh={refresh}
@@ -919,46 +931,14 @@ export function DashboardClient({
             ? (data.status.ai_costs as AiCosts)
             : null
         }
+        chordTotalFlowUsd={chordTotalFlowUsd}
       />
 
-      {/* ── Anthropic AI — data from status ai_costs, no independent fetch ── */}
-      {/* <AnthropicCard
-        aiCosts={
-          data?.status.ai_costs && !isPartial(data.status.ai_costs)
-            ? (data.status.ai_costs as AiCosts)
-            : null
-        }
-      /> */}
+      {/* ── Site Activity ── */}
+      <ActivitySection activity={topPages} totalViews={totalViews} />
 
-      {/* ── FIX 4: Development Progress + FIX 5: Community Compute ── */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <DevelopmentProgressSection />
-        <CommunityComputeSection />
-      </div>
-
-      {/* ── Two-column: Platform Story + Self Tests ── */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <PlatformStorySection
-          database={data?.status.database ?? { error: "Loading", partial: true }}
-          chordTotalFlowUsd={chordTotalFlowUsd}
-        />
-        <SelfTestsSection
-          selfTests={data?.status.self_tests ?? { error: "Loading", partial: true }}
-          aiCosts={data?.status.ai_costs ?? { error: "Loading", partial: true }}
-        />
-      </div>
-
-      {/* Admin refresh — sits above the layout dev badge (fixed bottom-2 right-2) */}
-      <div className="fixed bottom-10 right-2 z-50">
-        <button
-          onClick={handleAdminRefresh}
-          disabled={refreshing}
-          title="Force refresh all platform data"
-          className="text-xs bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white px-2 py-1 rounded transition-colors disabled:opacity-50"
-        >
-          {refreshing ? "⟳" : "↺ Refresh"}
-        </button>
-      </div>
+      {/* ── Development Progress ── */}
+      <DevelopmentProgressSection />
     </div>
   );
 }

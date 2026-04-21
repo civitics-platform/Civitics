@@ -702,6 +702,7 @@ interface PlatformCostsSectionProps {
   onRefresh: () => void;
   anthropicDetail?: AnthropicDetail | null;
   aiCosts?: AiCosts | null;
+  chordTotalFlowUsd?: number;
 }
 
 export function PlatformCostsSection({
@@ -709,6 +710,7 @@ export function PlatformCostsSection({
   onRefresh,
   anthropicDetail,
   aiCosts,
+  chordTotalFlowUsd = 0,
 }: PlatformCostsSectionProps) {
   const [mounted, setMounted] = useState(false);
   const [updatingMetric, setUpdatingMetric] = useState<PlatformMetric | null>(null);
@@ -855,8 +857,13 @@ export function PlatformCostsSection({
 
         {/* Footer */}
         <p className="text-xs text-center text-gray-400 mt-4">
-          Running a civic accountability platform tracking $1.75B in donations costs less
-          than a streaming subscription
+          Running a civic accountability platform tracking{" "}
+          {chordTotalFlowUsd >= 1_000_000_000
+            ? `$${(chordTotalFlowUsd / 1_000_000_000).toFixed(2)}B`
+            : chordTotalFlowUsd >= 1_000_000
+            ? `$${(chordTotalFlowUsd / 1_000_000).toFixed(0)}M`
+            : "billions"}{" "}
+          in donations costs less than a streaming subscription
         </p>
       </SectionCard>
 

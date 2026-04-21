@@ -2,6 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+function useIsAdmin(): boolean {
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setIsAdmin(!!(window as any).CIVITICS_ADMIN);
+  }, []);
+  return isAdmin;
+}
+
 type Flag = {
   id: string;
   content_type: "civic_comment" | "official_community_comment";
@@ -49,12 +58,14 @@ function contextLink(flag: Flag): string | null {
 }
 
 export function ModerationSection() {
+  const isAdmin = useIsAdmin();
   const [flags, setFlags] = useState<Flag[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"pending" | "resolved">("pending");
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    if (!isAdmin) return;
     setError(null);
     try {
       const res = await fetch(
@@ -72,11 +83,13 @@ export function ModerationSection() {
       setError(e instanceof Error ? e.message : "Failed to load");
       setFlags([]);
     }
-  }, [tab]);
+  }, [tab, isAdmin]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  if (!isAdmin) return null;
 
   const act = async (flagId: string, action: "dismiss" | "delete") => {
     setBusy(flagId);

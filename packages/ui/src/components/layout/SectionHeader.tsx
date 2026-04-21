@@ -8,14 +8,15 @@ interface SectionHeaderProps {
     href?: string;
     onClick?: () => void;
   };
-  icon?: string;
+  /** Pass a string emoji (legacy) or a React node (e.g. a Lucide icon) */
+  icon?: string | React.ReactNode;
   status?: "ok" | "warning" | "error";
 }
 
 const statusDot: Record<NonNullable<SectionHeaderProps["status"]>, string> = {
-  ok: "bg-green-500",
+  ok: "bg-emerald-500",
   warning: "bg-amber-500",
-  error: "bg-red-500",
+  error: "bg-rose-500",
 };
 
 export function SectionHeader({
@@ -29,7 +30,11 @@ export function SectionHeader({
     <div className="flex items-start justify-between gap-4">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          {icon && <span className="text-base">{icon}</span>}
+          {icon && (
+            typeof icon === "string"
+              ? <span className="text-base">{icon}</span>
+              : <span className="text-gray-500 flex-shrink-0">{icon}</span>
+          )}
           <h2 className="text-base font-semibold text-gray-900">{title}</h2>
           {status && (
             <span

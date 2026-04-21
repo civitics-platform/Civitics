@@ -77,6 +77,12 @@ export type ActivitySectionData = {
   top_pages: Array<{ path: string; views: number }>;
 };
 
+export type OfficialsBreakdown = {
+  federal: number;
+  state: number;
+  judges: number;
+} | null;
+
 export type StatusData = {
   meta: { query_time_ms: number; timestamp: string };
   version: { commit_sha: string; env: string; latest_sync_at: string | null; latest_pipeline: string | null } | PartialError;
@@ -87,6 +93,7 @@ export type StatusData = {
   self_tests: SelfTest[] | PartialError;
   chord?: ChordSectionData | PartialError;
   activity?: ActivitySectionData | PartialError;
+  officials_breakdown?: OfficialsBreakdown | PartialError;
 };
 
 export type ChordFlow = {
@@ -209,22 +216,29 @@ export function useDashboardData() {
   }, []);
 
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
+    let interval: ReturnType<typeof setInterval> | undefined;
 
-    const start = () => { interval = setInterval(fetchData, 900_000); };
-    const stop = () => { clearInterval(interval); };
+    const start = () => {
+      if (interval) return; // guard against double-start
+      interval = setInterval(fetchData, 900_000);
+    };
+    const stop = () => {
+      clearInterval(interval);
+      interval = undefined;
+    };
 
     const onVisibility = () => {
       if (document.hidden) {
         stop();
       } else {
+        // Re-fetch once on tab focus, then resume interval
         fetchData();
         start();
       }
     };
 
     document.addEventListener("visibilitychange", onVisibility);
-    fetchData();
+    fetchData(); // single initial fetch
     start();
 
     return () => {

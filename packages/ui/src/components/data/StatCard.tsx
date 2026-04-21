@@ -1,11 +1,13 @@
 "use client";
 
+import * as React from "react";
 import { useState, useEffect } from "react";
 import { formatUSD, formatNumber } from "../../utils";
 import { LoadingSkeleton } from "../feedback/LoadingSkeleton";
 
 interface StatCardProps {
-  icon?: string;
+  /** String emoji (legacy) or React node (e.g. Lucide icon) */
+  icon?: string | React.ReactNode;
   label: string;
   value: number | string;
   formatAs?: "number" | "usd" | "string";
@@ -74,7 +76,11 @@ function CardInner({
     <div className="h-full flex flex-col">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-1.5">
-          {icon && <span className="text-base" aria-hidden="true">{icon}</span>}
+          {icon && (
+            typeof icon === "string"
+              ? <span className="text-base" aria-hidden="true">{icon}</span>
+              : <span className="text-gray-500 flex-shrink-0" aria-hidden="true">{icon}</span>
+          )}
           <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
             {label}
           </span>

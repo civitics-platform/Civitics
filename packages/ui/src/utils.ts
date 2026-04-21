@@ -149,6 +149,7 @@ export function formatCountdown(isoDeadline: string): string {
   if (diffMs < 0) return "Closed";
   const diffHours = Math.floor(diffMs / 3_600_000);
   const diffDays = Math.floor(diffMs / 86_400_000);
+  if (diffHours < 1) return `Closes in ${Math.ceil(diffMs / 60_000)}m`;
   if (diffHours < 24) return `Closes in ${diffHours}h`;
   if (diffDays === 1) return "Closes tomorrow";
   return `Closes in ${diffDays} days`;

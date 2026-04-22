@@ -1,7 +1,9 @@
 # Civitics Platform — Operations Guide
 
 Daily operations reference for running, developing, and deploying the Civitics platform.
-Last updated: 2026-03-26.
+Last updated: 2026-04-22.
+
+> **Note (2026-04-22):** Supabase Pro cutover complete. Production is now on the `main` branch and the `shadow` schema has been promoted to `public` (migrations `20260422000000` + `20260422000001`). 11 RPCs were dropped during promotion — see `docs/FIXES.md` §POST-CUTOVER for the reimplementation backlog (FIX-097 through FIX-104).
 
 ---
 
@@ -9,13 +11,14 @@ Last updated: 2026-03-26.
 
 ### Two Environments
 
-| | LOCAL | PROD |
+| | LOCAL (dev) | PROD |
 |---|---|---|
-| App | `pnpm dev` on `localhost:3000` | Vercel (auto-deploy from `master`) |
-| Database | Local Supabase (`supabase start`) | Supabase project `xsazcoxinpgttgquwvuf` |
+| App | `pnpm dev` on `localhost:3000` | `https://civitics-civitics.vercel.app` (auto-deploy from `main`) |
+| Database | Local Supabase (`supabase start`) | Supabase **Pro** project `xsazcoxinpgttgquwvuf` |
 | Studio | `http://127.0.0.1:54323` | `supabase.com/dashboard/project/xsazcoxinpgttgquwvuf` |
-| DB URL | `postgresql://postgres:postgres@127.0.0.1:54322/postgres` | From Supabase dashboard |
+| DB URL | `postgresql://postgres:postgres@127.0.0.1:54322/postgres` | From Supabase dashboard → Project Settings → Database |
 | API | `http://127.0.0.1:54321` | `https://xsazcoxinpgttgquwvuf.supabase.co` |
+| Vercel plan | n/a | Hobby — crons limited to once/day |
 
 ### Required Tools
 
@@ -160,9 +163,11 @@ supabase stop --no-backup
 ### Branch Strategy
 
 ```
-master          → production (civitics.com) — auto-deploys to Vercel on every push
-feature/*       → local only, never pushed directly (merge to master when ready)
+main            → production (civitics-civitics.vercel.app) — auto-deploys to Vercel on every push
+feature/*       → local only, never pushed directly (merge to main when ready)
 ```
+
+*(Pre-cutover the production branch was `master`; that was renamed to `main` on 2026-04-22 and `qwen/phase1` was deleted. Local + remote converged to a single `main`.)*
 
 ### Commit Conventions
 
@@ -197,14 +202,14 @@ git add packages/... apps/...
 git commit -m "feat(scope): description"
 
 # 3. Push — Vercel build triggers automatically
-git push origin master
+git push origin main
 
 # 4. Monitor build
 # Vercel dashboard: vercel.com/civitics-platform/civitics
 
 # 5. Verify on production
-# https://civitics.com
-# (Invoke-WebRequest "https://civitics.com/api/claude/status" -UseBasicParsing).Content
+# https://civitics-civitics.vercel.app
+# (Invoke-WebRequest "https://civitics-civitics.vercel.app/api/claude/status" -UseBasicParsing).Content
 
 # 6. Resume local dev commits with [skip vercel]
 git commit -m "[skip vercel] chore: next change"
@@ -251,9 +256,16 @@ supabase db push
 
 ### Current Migration State
 
-All migrations live in `supabase/migrations/`. Current sequence: `0001` through `0024`.
+All migrations live in `supabase/migrations/`. As of 2026-04-22 the chain spans three eras:
+
+1. `0001`–`0024` — legacy public-schema era (pre-shadow).
+2. `20260417*`–`20260421000007` — Stage 1 shadow schema build-out (17 tables in `shadow.*`).
+3. `20260422000000` — **promote shadow → public**: renames `shadow.*` into `public.*`, drops pre-shadow `public.proposals`/`votes`/`financial_*`, drops 11 dependent RPCs, drops `proposal_trending_24h` mat view.
+4. `20260422000001` — fixes the `bill_details_sync_denorm()` trigger body (the promotion moved the function via `ALTER FUNCTION … SET SCHEMA`, which does NOT rewrite body text).
 
 **Known issue:** Migration `0008` was duplicated during early development and renumbered to `0021` to resolve the conflict. Run `supabase migration list --local` to verify your local state matches production.
+
+**After pulling post-cutover:** if your local DB was on shadow, the simplest reset is `supabase db reset --local`, which rebuilds from the full chain.
 
 ### Checking Migration Status
 
@@ -364,28 +376,30 @@ If a new pipeline crashes with this exit code, apply the same pattern.
 
 ## Resource Management
 
-### Current Monthly Costs (~Phase 1)
+### Current Monthly Costs (post-cutover, April 2026)
 
 | Service | Plan | Cost | Notes |
 |---------|------|------|-------|
-| Supabase | Free | $0 | Pause when not developing |
-| Vercel | Free | $0 | Use `[skip vercel]` to avoid unnecessary builds |
+| Supabase | **Pro** | $25/mo | Cutover 2026-04-22; 250 GB egress, 8 GB DB |
+| Vercel | Hobby | $0 | `[skip vercel]` still useful; crons limited to once/day |
 | Anthropic | Pay-as-you-go | ~$0.60/mo | Self-imposed $3.50 budget cap |
 | Cloudflare R2 | Free | $0 | 10GB free tier |
 | Mapbox | Free | $0 | 50k map loads/mo free |
-| **Total** | | **~$0.60/mo** | |
+| **Total** | | **~$25.60/mo** | |
 
-### Free Tier Limits
+### Plan Limits
 
-**Supabase (free):**
-- Egress: 5 GB/month (hard limit — project pauses if exceeded)
-- DB size: 500 MB
-- Storage: 1 GB
+**Supabase Pro:**
+- Egress: 250 GB/month (overage metered, not hard-capped)
+- DB size: 8 GB included, auto-scales
+- Storage: 100 GB
+- PITR retention: 7 days
 
-**Vercel (free):**
+**Vercel Hobby:**
 - Fluid Active CPU: 4 hours/month (14,400 seconds)
 - Function invocations: 1M/month
 - Fast Origin Transfer: 10 GB/month
+- **Cron jobs: once per day maximum** (upgrade to Pro for sub-daily crons — currently `notify-followers` is at 03:00 UTC)
 
 ### Conserving Resources
 
@@ -439,7 +453,7 @@ No code deploy needed — the dashboard reads from this table.
 (Invoke-WebRequest "http://localhost:3000/api/claude/status" -UseBasicParsing).Content
 
 # Production
-(Invoke-WebRequest "https://civitics.com/api/claude/status" -UseBasicParsing).Content
+(Invoke-WebRequest "https://civitics-civitics.vercel.app/api/claude/status" -UseBasicParsing).Content
 ```
 
 The status API runs 6 self-tests:
@@ -454,10 +468,10 @@ The status API runs 6 self-tests:
 
 | Service | URL |
 |---------|-----|
-| Supabase project | `supabase.com/dashboard/project/xsazcoxinpgttgquwvuf` |
+| Supabase project (Pro) | `supabase.com/dashboard/project/xsazcoxinpgttgquwvuf` |
 | Vercel deployments | `vercel.com/civitics-platform/civitics` |
-| Platform dashboard | `civitics.com/dashboard` (admin controls gated by `ADMIN_EMAIL`) |
-| Claude diagnostic snapshot | `civitics.com/api/claude/snapshot` |
+| Platform dashboard | `civitics-civitics.vercel.app/dashboard` (admin controls gated by `ADMIN_EMAIL`) |
+| Claude diagnostic snapshot | `civitics-civitics.vercel.app/api/claude/snapshot` |
 
 ---
 

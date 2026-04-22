@@ -11,8 +11,8 @@ _Update this file at the end of every session that touches rebuild work._
 |---|---|---|
 | Stage 0 — Investigation + writer catalog | ✅ Complete | `STAGE_0_WRITER_CATALOG.md` |
 | Stage 1A — Shadow schema + migrations | ✅ Complete | Migrations `20260421000000–20260421000007` applied locally |
-| Stage 1B — Pipeline shadow rewrites | 🔄 ~65% | See table below |
-| Stage 2 — Cutover | ⬜ Not started | Requires Stage 1B complete + audit green |
+| Stage 1B — Pipeline shadow rewrites | 🔄 Partial | See table below — Option C shipped only congress; rest deferred |
+| Stage 2 — Cutover to Pro | ✅ **Complete (2026-04-22)** | Shadow→public promoted; Vercel flipped; `main` is prod. See `docs/MIGRATION_RUNBOOK.md` |
 | Stage 3 — Local data rollout | ⬜ Not started | 5 metros locked in (SEA, SF, AUS, DC + NYC pending token) |
 
 ---
@@ -78,22 +78,34 @@ These are correctness and integrity issues — do not cut over to shadow until a
 
 ---
 
-## Critical Path to Stage 2
+## Critical Path to Stage 2 — ✅ Complete
 
 ```
 1. Congress votes shadow rewrite                    ✅ done (b039e0ca)
-2. shadow.rebuild_entity_connections() L5 job       ✅ done (shadow.ts upgraded)
+2. shadow.rebuild_entity_connections() L5 job       ✅ stubbed (full derivation → FIX-100)
 3. spending_records → financial_relationships merge  ✅ done (ccfa5ff7)
 4. CourtListener → shadow.case_details              ✅ done (41c40618)
-5. OpenStates → shadow
-6. App query audit (grep every from("proposals")/from("votes") in apps/civitics/app/)
-7. Provision new Supabase Pro project
-8. Run integrity audit against shadow — must be green
-9. Write Stage 2 cutover runbook
-10. Craig signs off → swap Vercel env vars
+5. OpenStates → shadow                              ⚠️  WIP (66b5032d) — deferred to post-cutover
+6. App query audit                                  ✅ done (promotion migration 20260422000000)
+7. Provision new Supabase Pro project               ✅ done (xsazcoxinpgttgquwvuf, 2026-04-22)
+8. Run integrity audit against shadow → Pro         ✅ done (docs/audits/post-cutover/2026-04-22.md)
+9. Write Stage 2 cutover runbook                    ✅ done (docs/MIGRATION_RUNBOOK.md)
+10. Craig signs off → swap Vercel env vars          ✅ done (2026-04-22)
 ```
 
-Items 1–6 are engineering. Items 7–10 are ops/sign-off. Nothing is currently blocked except NYC.
+## Post-cutover backlog
+
+The cutover was scoped as "Option C" — rewrite only `congress/bills.ts` + `congress/votes.ts` to write against `public` post-promotion, defer everything else. See `docs/FIXES.md` §POST-CUTOVER:
+
+- **FIX-097, 098, 099, 104** — reimplement the 11 dropped RPCs (chord, treemap, search, officials breakdown, etc.) against the new polymorphic `financial_relationships` shape.
+- **FIX-100** — build the `rebuild_entity_connections()` derivation rules; `entity_connections` is currently empty.
+- **FIX-101** — re-run against Pro: FEC bulk, USASpending, Regulations.gov, OpenStates, CourtListener, Legistar (4 metros), tag-rules, ai-summaries, tag-ai. Each needs its shadow→public writer rewrite similar to what was done for congress.
+- **FIX-102** — clean 307 orphan proposals from the early broken ingest runs.
+- **FIX-103** — fix `officials_breakdown` chain bug in `/api/claude/status`.
+
+Post-cutover Pro row counts (for reference):
+- 903 officials · 989 proposals · 682 bill_details · 217,548 votes
+- 0 entity_connections · 0 financial_relationships · 0 financial_entities (FIX-100, FIX-101)
 
 ---
 
@@ -104,6 +116,10 @@ Items 1–6 are engineering. Items 7–10 are ops/sign-off. Nothing is currently
 | `docs/PLATFORM_REBUILD_SPEC.md` | Why we're doing this, original decision questions |
 | `docs/STAGE_0_WRITER_CATALOG.md` | Full pipeline writer audit, 17 architectural findings |
 | `docs/STAGE_1_SCHEMA_DESIGN.md` | Schema decisions L1–L7, table-by-table design rationale |
-| `supabase/migrations/20260421*` | Shadow migrations (applied locally) |
-| `docs/audits/2026-04-19.md` | Last audit run — 6 errors against old public schema |
+| `supabase/migrations/20260421*` | Shadow migrations (applied locally, then moved to public via promotion) |
+| `supabase/migrations/20260422000000_promote_shadow_to_public.sql` | Cutover migration |
+| `supabase/migrations/20260422000001_fix_promoted_function_bodies.sql` | Trigger body fix (post-promotion) |
+| `docs/MIGRATION_RUNBOOK.md` | The runbook that executed the cutover |
+| `docs/audits/post-cutover/2026-04-22.md` | Post-cutover integrity audit |
+| `packages/data/docs/audits/post-cutover/2026-04-22.md` | Same, newer location |
 | `docs/SESSION_LOG.md` | Session-by-session work log |

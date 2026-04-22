@@ -1,7 +1,9 @@
 # CLAUDE.md — Civitics Platform
 
 Authoritative reference for the Civitics platform. Read before writing any code.
-Update when architecture decisions change. Last updated: April 2026.
+Update when architecture decisions change. Last updated: 2026-04-22 (Supabase Pro cutover).
+
+> **Cutover status (2026-04-22):** Production is live on Supabase Pro. The `shadow.*` schema has been promoted to `public.*` (migration `20260422000000`). Production branch is `main`. See `docs/MIGRATION_RUNBOOK.md` for the runbook that executed this and `docs/FIXES.md` §POST-CUTOVER for the reimplementation backlog (FIX-097–FIX-104).
 
 ---
 
@@ -261,11 +263,26 @@ apps/civitics/src/app/   ← INACTIVE — silently ignored by Next.js
 
 Run `pnpm build` locally before every push. Vercel uses strict TypeScript. Build must pass clean.
 
+**Branch model (post-cutover):**
+- `main` — production. Every push auto-deploys to Vercel (unless `[skip vercel]`).
+- `feature/<fix-id>` or `feature/<name>` — work branches. Land via PR or fast-forward merge to `main`.
+
+**Environments:**
+- **Local dev:** Docker Supabase at `127.0.0.1:54321–54324`. `supabase migration up --local` applies migrations here.
+- **Prod:** Supabase Pro project `xsazcoxinpgttgquwvuf`. `supabase db push --linked` applies migrations. Never run destructive SQL against Pro without explicit confirmation.
+
+**Git identity:** commits on this machine must use `civitics.platform@gmail.com` / `Civitics Platform`. The machine's default `craig.a.denny@gmail.com` routes GitHub attribution to a personal account. See `~/.claude/projects/.../memory/feedback_git_identity.md`.
+
 ---
 
-## Current Phase: Phase 1 (~90% complete)
+## Current Phase: Post-cutover cleanup (April 2026)
 
-See `docs/PHASE_GOALS.md` for detailed task tracking.
+Phase 1 cutover to Supabase Pro is complete (2026-04-22). Current focus:
+1. Reimplement the 11 RPCs dropped during promotion (FIX-097–FIX-099, FIX-104).
+2. Stand up `rebuild_entity_connections()` derivation (FIX-100).
+3. Re-run the deferred pipelines against Pro — FEC, regulations, OpenStates, CourtListener, Legistar, USASpending, tags, AI (FIX-101).
+
+See `docs/REBUILD_STATUS.md` + `docs/PHASE_GOALS.md` for detailed task tracking.
 
 ---
 
@@ -324,16 +341,19 @@ http://127.0.0.1:54323
 Standard autonomous loop after a code change with DB impact:
 
 ```
-supabase migration up --local
+supabase migration up --local                # apply migration against local Docker DB
+supabase db push --linked                    # apply migration against Pro (only after local is green)
 pnpm --filter @civitics/app-civitics build
 git add <files>
 git commit -m "...Fixes: FIX-NNN"
-git push
+git push origin main
 pnpm fixes:sync
 git add docs/done.log
 git commit -m "chore(fixes): sync status after FIX-NNN"
-git push
+git push origin main
 ```
+
+`supabase db push --linked` is the only CLI path to Pro. Never run ad-hoc SQL against Pro without explicit user confirmation.
 
 **Fallback (Cowork or any sandboxed environment):** If the active shell can't
 reach `127.0.0.1:54322` (Docker Supabase), Claude cannot run migrations, git,
@@ -358,25 +378,21 @@ or pnpm locally. In that case:
 
 ## Database Safety Rules
 
-NEVER run database commands against production:
+Two-tier environment: local Docker Supabase for development, Supabase **Pro** for production.
 
-- Always use --local flag:
-  `supabase migration up --local`
+**Local (dev):**
+- Studio URL: `http://127.0.0.1:54323`
+- DB connection: `postgresql://postgres:postgres@127.0.0.1:54322/postgres`
+- Apply migrations with `supabase migration up --local`
+- Free to run any SQL, including DROP/TRUNCATE/DELETE, for iteration.
 
-- Local Studio URL:
-  http://127.0.0.1:54323
-
-- Prod Studio URL (NEVER touch during development):
-  https://supabase.com/dashboard
-
-- Local DB connection:
-  postgresql://postgres:postgres@127.0.0.1:54322/postgres
-
-- If asked to run SQL, always use local Studio at 127.0.0.1:54323
-
-- If asked to run migrations, always add --local flag
-
-- Never unpause the Supabase project during development
+**Production (Pro):**
+- Studio URL: `https://supabase.com/dashboard/project/xsazcoxinpgttgquwvuf`
+- Connection details in Vercel env vars (`NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SECRET_KEY`).
+- Apply migrations with `supabase db push --linked` (requires prior `supabase link --project-ref xsazcoxinpgttgquwvuf`).
+- **Never run ad-hoc destructive SQL against Pro** without explicit user confirmation. If the user asks for a data cleanup, confirm the exact query first.
+- PITR retention is 7 days on Pro — mistakes are recoverable but costly. Still verify twice.
+- App is live at `https://civitics-civitics.vercel.app` — any schema change affects real users.
 
 ---
 

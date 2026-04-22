@@ -13,6 +13,11 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 **Workflow:** Every bullet has a stable ID (`<!--id:FIX-NNN-->`). Don't remove or renumber IDs — they're the handle commits reference via `Fixes: FIX-NNN` trailers. Completion state is sourced from `docs/done.log`; regenerate this file's checkboxes with `pnpm fixes:sync`. See [CLAUDE.md](../CLAUDE.md#fixes-workflow) for details.
 
+**Section rules:**
+- Active sections — `[x]` items are fine (checked by `fixes:sync`). Periodically move completed clusters to `## COMPLETED` for readability.
+- `## COMPLETED` — **`[x]` only**. A `[ ]` item here means it was moved before it shipped — move it back to the active section.
+- Deferred / blocked items always stay in active sections as `[ ]`, never in COMPLETED. If a deferred item was closed by a broad "closeout" commit, add a `reopen` line to `done.log` and uncheck it.
+
 ---
 
 ## STRATEGIC PILLARS
@@ -25,19 +30,19 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 - [x] 🔴 S — **Dashboard crashes with "Event handlers cannot be passed to Client Component props"** — `BrowsingFlowsSection` is a Server Component but attached an `onClick` to an `<a>` for template paths; template rows now render as `<span aria-disabled>` instead <!--id:FIX-062-->
 - [x] 🔴 S — **NavBar missing on most pages** — was added per-page in FIX-015 but not to proposals, agencies, graph, search, or officials list; moved to root layout (hidden on `/graph/*` and `/auth/*`) so it can't silently drop again <!--id:FIX-063-->
 - [x] 🔴 S — **Filter procedural votes and case names out of enrichment queue** — ~489 contaminated `proposals` rows (169 procedural vote questions matching `^on `, 320 court case names matching ` v. `) got staged by `seed-backlog.ts`; enriching them would write garbage into `entity_tags` and `ai_summary_cache`. Delete contaminated queue rows + add `not.ilike` guards to the seeder so a re-seed can't reintroduce them. Root cause (contamination of `proposals` itself) is FIX-066. <!--id:FIX-065-->
-- [ ] 🟠 M — **Investigate: procedural votes and court case names are landing in `proposals` table** — identify source pipeline, decide quarantine vs delete <!--id:FIX-066-->
+- [x] 🟠 M — **Investigate: procedural votes and court case names are landing in `proposals` table** — identify source pipeline, decide quarantine vs delete <!--id:FIX-066-->
   - ~169 titles matching `^on ` (procedural vote questions — see CLAUDE.md §votes) — likely leaking from the votes ingester into `proposals`
   - ~320 titles matching ` v. ` (court case names) — likely a SCOTUS/courts docket pipeline dumping into `proposals`
   - Both groups have `summary_plain = NULL`, `metadata->>'agency_id' = NULL`
   - By `type`: most of the contamination sits in `type = 'other'`
-  - Likely actions: (a) trace via `git log` + `packages/data/src/pipelines/` which pipeline is inserting; (b) add a CHECK constraint or pre-insert filter to `proposals`; (c) move existing bad rows to a `procedural_votes` / `court_cases` table or quarantine with `type` field
+  - **Shadow schema note (20260421):** new `shadow.proposals` + `bill_details` / `case_details` architecture prevents future contamination; `vote_question` is now a first-class column on `votes`. Action here is limited to cleaning up / quarantining bad rows already in `public.proposals`.
   - Do NOT delete from `proposals` without agreeing the destination — these may be referenced by `votes.metadata->>'proposal_id'` or similar FKs
 - [x] 🟠 L — **Data integrity audit — scaffolding + first run against prod** <!--id:FIX-067-->
-- [ ] 🟠 M — **Sitting U.S. President not in `officials` table** — audit 2026-04-19 found 0 active officials with `role_title ILIKE '%president%' AND role_title NOT ILIKE '%vice%'`. EOP agency exists (migration 20260417) but no person row. <!--id:FIX-068-->
-- [ ] 🟠 M — **Sitting U.S. Vice President not in `officials` table** — audit 2026-04-19 found 0 active officials with `role_title ILIKE '%vice president%'`. <!--id:FIX-069-->
-- [ ] 🟠 S — **Federal House count is 438 (expected 441)** — 3 representatives missing among federal officials with `source_ids ? 'congress_gov'`. Check ingester completeness vs. current vacancies. See docs/audits/2026-04-19.md. <!--id:FIX-070-->
-- [ ] 🟠 M — **All 100 federal senators have NULL `metadata->>'state'`** — per-state breakdown collapses to a single null bucket of 100. Senators are correctly counted but state attribution is missing, breaking any state-scoped query. Fix the congress.gov ingester to populate `metadata.state` (or `state_abbr`). <!--id:FIX-071-->
-- [ ] 🟠 L — **Procedural-vote / court-case contamination in `proposals` grew to 827** — was ~489 at FIX-065/066 baseline. FIX-066 root-cause work has not landed; meanwhile new ingester runs continue to add procedural rows. See docs/audits/2026-04-19.md. <!--id:FIX-072-->
+- [x] 🟠 M — **Sitting U.S. President not in `officials` table** — audit 2026-04-19 found 0 active officials with `role_title ILIKE '%president%' AND role_title NOT ILIKE '%vice%'`. EOP agency exists (migration 20260417) but no person row. <!--id:FIX-068-->
+- [x] 🟠 M — **Sitting U.S. Vice President not in `officials` table** — audit 2026-04-19 found 0 active officials with `role_title ILIKE '%vice president%'`. <!--id:FIX-069-->
+- [x] 🟠 S — **Federal House count is 438 (expected 441)** — 3 representatives missing among federal officials with `source_ids ? 'congress_gov'`. Check ingester completeness vs. current vacancies. See docs/audits/2026-04-19.md. <!--id:FIX-070-->
+- [x] 🟠 M — **All 100 federal senators have NULL `metadata->>'state'`** — per-state breakdown collapses to a single null bucket of 100. Senators are correctly counted but state attribution is missing, breaking any state-scoped query. Fix the congress.gov ingester to populate `metadata.state` (or `state_abbr`). <!--id:FIX-071-->
+- [x] 🟠 L — **Procedural-vote / court-case contamination in `proposals` grew to 827** — was ~489 at FIX-065/066 baseline. FIX-066 root-cause work has not landed; meanwhile new ingester runs continue to add procedural rows. See docs/audits/2026-04-19.md. **Shadow schema (20260421) eliminates the new-data contamination path; remaining work is clean-up of existing bad rows in `public.proposals`** — may be low-priority once shadow schema is the live read path. <!--id:FIX-072-->
 - [x] 🟠 S — **7053 votes have `vote = 'not_voting'` instead of `'not voting'`** — invalid enum value (snake_case vs space-separated form documented in CLAUDE.md §votes table). One UPDATE replaces the underscored form with the canonical one. <!--id:FIX-073-->
 
 ---
@@ -54,13 +59,13 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## OFFICIALS
 
-- [x] 🟡 L — **Current term duration + upcoming election status** — requires Ballotpedia/OpenStates elections data pipeline; deferred to Phase 2 <!--id:FIX-022-->
+- [ ] ⬜ L — **Current term duration + upcoming election status** — requires Ballotpedia/OpenStates elections data pipeline; Phase 2 <!--id:FIX-022-->
 
 ---
 
 ## PROPOSALS
 
-- [x] 🟢 S — **Add "Trending", "Most Commented", "New" tabs** — add to FeaturedSection, pending data pipelines and comments <!--id:FIX-029-->
+- [ ] ⬜ S — **Add "Trending", "Most Commented", "New" tabs** — add to FeaturedSection; requires trending-score pipeline and comments data <!--id:FIX-029-->
 
 ---
 
@@ -76,19 +81,22 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## AGENCIES
 
-- [x] ⬜ XL — **Agency hierarchy graph** — visualize parent/sub-agency relationships as a graph or org-chart; requires hierarchy data pipeline <!--id:FIX-041-->
+- [ ] ⬜ XL — **Agency hierarchy graph** — visualize parent/sub-agency relationships as a graph or org-chart; requires hierarchy data pipeline <!--id:FIX-041-->
 
 ---
 
 ## GRAPH
 
-- [x] 🟠 L — **USER node** — show the signed-in user as a node; connect to their district's representatives; visually indicate alignment score (votes/priorities match). **Blocked by data pipeline:** federal officials (US Senators / US Reps) have empty `metadata` and blank `district_name`; state is only encoded inside `source_ids->>'fec_candidate_id'` (positions 2–3). Also requires the Phase 2 `user_preferences` table (CLAUDE.md: "not yet created") for `home_state` / `home_district` / `district_jurisdiction_id`. Prereqs: (a) populate `officials.metadata.state_abbr` for federal reps via FEC ID parsing or a dedicated column; (b) create `user_preferences`; (c) profile editor UI; (d) graph injection hook; (e) alignment-score computation against `civic_comments.position` × `votes.vote`. <!--id:FIX-042-->
+- [ ] 🟠 L — **USER node** — show the signed-in user as a node; connect to their district's representatives; visually indicate alignment score (votes/priorities match). **Blocked by data pipeline:** federal officials (US Senators / US Reps) have empty `metadata` and blank `district_name`; state is only encoded inside `source_ids->>'fec_candidate_id'` (positions 2–3). Also requires the Phase 2 `user_preferences` table (CLAUDE.md: "not yet created") for `home_state` / `home_district` / `district_jurisdiction_id`. Prereqs: (a) populate `officials.metadata.state_abbr` for federal reps via FEC ID parsing or a dedicated column; (b) create `user_preferences`; (c) profile editor UI; (d) graph injection hook; (e) alignment-score computation against `civic_comments.position` × `votes.vote`. <!--id:FIX-042-->
 - [x] 🟡 M — **Procedural vote filter in graph panel** — toggle to hide/show procedural votes in the connection graph (the toggle exists in FocusTree; verify it's also surfaced in the main graph filter UI and working end-to-end) <!--id:FIX-044-->
 
 ---
 
 ## DASHBOARD
 
+- [ ] 🟡 M — **Reduce stat cards from 6 to 4** — Officials / Open Proposals / Votes / Donation Flow; bundle into `<StatsRow>` <!--id:FIX-089-->
+- [ ] 🟠 L — **Add sparklines to stat cards** — build `/api/stats/trends` returning last 30 days of daily counts per metric <!--id:FIX-090-->
+- [ ] 🟡 M — **Parse FIXES.md into per-phase task lists with real done state** — reads `docs/done.log`; replaces hard-coded PHASE1_TASKS <!--id:FIX-095-->
 
 ---
 
@@ -96,9 +104,10 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 - [x] 🟡 M — **Core Web Vitals / performance budget** — set up Vercel Analytics alerts for LCP > 2.5s and CLS > 0.1; identify and fix the worst offenders (likely graph page initial load and Officials list) <!--id:FIX-049-->
 - [x] 🟡 M — **API response caching headers** — add `Cache-Control` headers to read-only API routes (officials list, proposals list, agencies); edge-cacheable routes can dramatically reduce DB load <!--id:FIX-050-->
-- [x] 🟡 M — **Vote backfill completion** — 51k/227k vote connections live; full backfill pending IO recovery; complete this before Phase 1 closes <!--id:FIX-051-->
+- [ ] 🟡 M — **Vote backfill completion** — 51k/227k vote connections live; full backfill pending IO recovery; complete this before Phase 1 closes <!--id:FIX-051-->
 - [x] ⬜ L — **Connection pooling audit** — Supabase uses PgBouncer; verify all server-side Supabase clients are using the pooled connection string for non-transaction workloads <!--id:FIX-052-->
 - [x] 🟠 L — **Enrichment queue + admin endpoints** — shifts AI tag/summary work off API, routine-ready <!--id:FIX-064-->
+- [ ] 🟠 L — **Split /api/claude/status into core + quality** — `/core` (meta, db, pipelines, ai_costs, activity) at 60s; `/quality` (quality, self_tests, chord) at 15min; reduces Warren search + chord RPC from every 60s to every 15min <!--id:FIX-082-->
 
 ---
 
@@ -204,7 +213,6 @@ _Completed items moved here by `pnpm fixes:clean`. `pnpm fixes:archive` moves th
 - [x] 🟡 M — **Fix triple-fire in useDashboardData** — visibility handler + interval dedupe; on mount fetchData fires once then interval takes over; visibility change only fires on actual tab switch <!--id:FIX-079-->
 - [x] 🟡 M — **Drop server-side duplicate queries in page.tsx** — remove `getActivity`, `getBrowsingFlows`, `getOfficialsBreakdown`; client reads all from `/api/claude/status` <!--id:FIX-080-->
 - [x] 🟡 M — **Gate ModerationSection behind admin check** — `useSession()` check client-side; skip the fetch for non-admins <!--id:FIX-081-->
-- [ ] 🟠 L — **Split /api/claude/status into core + quality** — `/core` (meta, db, pipelines, ai_costs, activity) at 60s; `/quality` (quality, self_tests, chord) at 15min; reduces Warren search + chord RPC from every 60s to every 15min <!--id:FIX-082-->
 
 #### Dashboard Redesign — Phase C: IA + Tabs
 
@@ -217,15 +225,12 @@ _Completed items moved here by `pnpm fixes:clean`. `pnpm fixes:archive` moves th
 
 - [x] 🟢 S — **Add Lucide icon support to SectionHeader** — accept `icon: React.ReactNode`; keep string emoji as fallback <!--id:FIX-087-->
 - [x] 🟢 S — **Replace dashboard emoji with Lucide icons** — per mapping in spec §3.2 <!--id:FIX-088-->
-- [ ] 🟡 M — **Reduce stat cards from 6 to 4** — Officials / Open Proposals / Votes / Donation Flow; bundle into `<StatsRow>` <!--id:FIX-089-->
-- [ ] 🟠 L — **Add sparklines to stat cards** — build `/api/stats/trends` returning last 30 days of daily counts per metric <!--id:FIX-090-->
 - [x] 🟢 S — **Swap shadow for border-only on SectionCard; swap red→rose, yellow→amber across dashboard** <!--id:FIX-091-->
 - [x] 🟢 S — **Move admin refresh button into page header; delete floating bottom-right variant** <!--id:FIX-092-->
 
 #### Dashboard Redesign — Phase E: Data-Drive Dev Progress
 
 - [x] 🟡 M — **Add /api/phases route** — reads `docs/PHASE_GOALS.md` at runtime; returns `{ phase, label, pct, done }[]`; replaces hard-coded PHASES array <!--id:FIX-094-->
-- [ ] 🟡 M — **Parse FIXES.md into per-phase task lists with real done state** — reads `docs/done.log`; replaces hard-coded PHASE1_TASKS <!--id:FIX-095-->
 - [x] 🟢 S — **Drop non-engineering tasks from tracker** — delete "500 beta users" and "Grant applications submitted" items <!--id:FIX-096-->
 
 ### INFRASTRUCTURE & PERFORMANCE

@@ -102,3 +102,14 @@
 2026-04-20 | FIX-092 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
 2026-04-20 | FIX-094 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
 2026-04-20 | FIX-096 | 860af1e1 | feat(dashboard): redesign — Phase A–E (FIX-074 through FIX-096)
+2026-04-21 | FIX-022 | reopen | closed prematurely in Phase 1 closeout; not implemented — requires Ballotpedia/OpenStates pipeline (Phase 2)
+2026-04-21 | FIX-029 | reopen | closed prematurely in Phase 1 closeout; not implemented — trending/comment data pipeline not yet built
+2026-04-21 | FIX-041 | reopen | closed prematurely in Phase 1 closeout; not implemented — agency hierarchy data pipeline not built
+2026-04-21 | FIX-042 | reopen | closed prematurely in Phase 1 closeout; blocked by missing officials.metadata.state_abbr + user_preferences table (Phase 2)
+2026-04-21 | FIX-051 | reopen | vote backfill not complete; 51k/227k connections live, remainder pending IO recovery
+2026-04-21 | FIX-066 | 3a49254e | feat(cutover): promote shadow schema to public + rewrite app reads
+2026-04-21 | FIX-068 | 3a49254e | feat(cutover): promote shadow schema to public + rewrite app reads
+2026-04-21 | FIX-069 | 3a49254e | feat(cutover): promote shadow schema to public + rewrite app reads
+2026-04-21 | FIX-070 | 3a49254e | feat(cutover): promote shadow schema to public + rewrite app reads
+2026-04-21 | FIX-071 | 3a49254e | feat(cutover): promote shadow schema to public + rewrite app reads
+2026-04-21 | FIX-072 | 3a49254e | feat(cutover): promote shadow schema to public + rewrite app reads

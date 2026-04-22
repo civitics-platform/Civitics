@@ -113,3 +113,4 @@
 2026-04-21 | FIX-070 | 3a49254e | feat(cutover): promote shadow schema to public + rewrite app reads
 2026-04-21 | FIX-071 | 3a49254e | feat(cutover): promote shadow schema to public + rewrite app reads
 2026-04-21 | FIX-072 | 3a49254e | feat(cutover): promote shadow schema to public + rewrite app reads
+2026-04-21 | FIX-105 | 12ce7992 | fix(proposals): default landing filter to "all" instead of "open"

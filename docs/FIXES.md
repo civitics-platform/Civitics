@@ -59,6 +59,7 @@ The shadow→public promotion migration (`20260422000000_promote_shadow_to_publi
 - [ ] 🟡 M — **Clean up 307 orphan proposals from early broken Pro ingest runs** — duplicates of real bills, created before the trigger-body fix (migration 20260422000001). Their sibling proposals have the bill_details row and hold the votes; these orphans clutter counts. Safe to `DELETE FROM proposals WHERE id IN (…)` after confirming zero vote FKs. <!--id:FIX-102-->
 - [ ] 🟡 S — **Fix `a.rpc(...).catch is not a function` in officials_breakdown handler** — `/api/claude/status` reports `officials_breakdown: {error, partial: true}`. The handler is chaining `.catch()` onto a supabase-js `rpc()` call, which returns a thenable-with-error-shape, not a Promise. Replace with a try/await. <!--id:FIX-103-->
 - [ ] 🟡 S — **Recreate proposal_trending_24h materialized view + refresh_proposal_trending()** — both were dropped in the promotion migration; recreate against public.proposals. Currently nothing on the homepage "trending" path. <!--id:FIX-104-->
+- [x] 🟡 S — **Default /proposals landing filter to "all"** — "open" requires status='open_comment' AND metadata->>comment_period_end > now(). Post-cutover, 989 congress-bill proposals have status='introduced' with no comment period, so the "open" default landed users on an empty page. Users can still pick "Open for comment" explicitly. <!--id:FIX-105-->
 
 ---
 

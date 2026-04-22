@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/notify-followers",
-      "schedule": "0 */6 * * *"
+      "schedule": "0 3 * * *"
     }
   ]
 }

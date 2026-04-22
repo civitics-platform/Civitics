@@ -30,7 +30,7 @@ export async function listVotesByProposal(
   const { data, error } = await db
     .from("votes")
     .select("*")
-    .eq("proposal_id", proposalId)
+    .eq("bill_proposal_id", proposalId)
     .order("voted_at");
   if (error) throw error;
   return data;
@@ -46,7 +46,7 @@ export async function getVoteRecord(
     .from("votes")
     .select("*")
     .eq("official_id", officialId)
-    .eq("proposal_id", proposalId)
+    .eq("bill_proposal_id", proposalId)
     .maybeSingle();
   if (error) throw error;
   return data;
@@ -63,7 +63,7 @@ export async function getVoteSummary(
   const { data, error } = await db
     .from("votes")
     .select("*")
-    .eq("proposal_id", proposalId);
+    .eq("bill_proposal_id", proposalId);
   if (error) throw error;
 
   const summary = {} as Record<VoteValue, number>;

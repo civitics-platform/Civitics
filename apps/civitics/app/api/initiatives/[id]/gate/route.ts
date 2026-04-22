@@ -19,21 +19,27 @@ export async function GET(
     const cookieStore = await cookies();
     const supabase = createServerClient(cookieStore);
 
-    // Verify initiative exists and is in deliberate stage
-    const { data: initiative } = await supabase
-      .from("civic_initiatives")
-      .select("id,stage,mobilise_started_at,jurisdiction_id,scope")
+    // Verify initiative exists — join initiative_details for stage/scope, proposals for jurisdiction_id
+    const { data: proposal } = await supabase
+      .from("proposals")
+      .select("id, jurisdiction_id, initiative_details(stage, mobilise_started_at, scope)")
       .eq("id", params.id)
-      .single();
+      .eq("type", "initiative")
+      .maybeSingle();
 
-    if (!initiative) {
+    if (!proposal || !proposal.initiative_details) {
       return NextResponse.json({ error: "Initiative not found" }, { status: 404 });
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const details = Array.isArray(proposal.initiative_details)
+      ? (proposal.initiative_details[0] as any)
+      : (proposal.initiative_details as any);
+
     // Gate only applies to deliberate stage — but return status for any stage
-    const gate = await computeGate(supabase, params.id, initiative.mobilise_started_at, {
-      jurisdictionId: initiative.jurisdiction_id,
-      scope:          initiative.scope,
+    const gate = await computeGate(supabase, params.id, details.mobilise_started_at, {
+      jurisdictionId: proposal.jurisdiction_id,
+      scope:          details.scope,
     });
 
     return NextResponse.json(gate);

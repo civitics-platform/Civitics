@@ -79,7 +79,6 @@ type RelatedProposal = {
   title: string;
   type: string;
   status: string;
-  comment_period_end: string | null;
   metadata: Record<string, string>;
 };
 
@@ -152,16 +151,30 @@ export default async function ProposalDetailPage({
   const cookieStore = await cookies();
   const supabase = createServerClient(cookieStore);
 
-  // Main proposal
-  const { data: proposal, error } = await supabase
+  // Main proposal — regulations_gov_id, congress_gov_url, comment_period_end
+  // moved into metadata JSONB post-promotion. Flatten back into the legacy shape
+  // this page expects.
+  const { data: proposalRow, error } = await supabase
     .from("proposals")
-    .select("id,title,type,status,regulations_gov_id,congress_gov_url,comment_period_end,summary_plain,introduced_at,metadata")
+    .select("id,title,type,status,summary_plain,introduced_at,metadata")
     .eq("id", params.id)
     .single();
 
-  if (error || !proposal) notFound();
+  if (error || !proposalRow) notFound();
 
-  const p = proposal as Proposal;
+  const rawMeta = (proposalRow.metadata as Record<string, string> | null) ?? {};
+  const p: Proposal = {
+    id:                 proposalRow.id,
+    title:              proposalRow.title,
+    type:               proposalRow.type,
+    status:             proposalRow.status,
+    regulations_gov_id: rawMeta.regulations_gov_id ?? null,
+    congress_gov_url:   rawMeta.congress_gov_url   ?? null,
+    comment_period_end: rawMeta.comment_period_end ?? null,
+    summary_plain:      proposalRow.summary_plain,
+    introduced_at:      proposalRow.introduced_at,
+    metadata:           rawMeta,
+  };
   const open = isOpenForComment(p);
   const statusBadge = STATUS_BADGE[p.status] ?? { label: p.status, color: "bg-gray-100 text-gray-600 border-gray-200" };
   const typeLabel = TYPE_LABEL[p.type] ?? p.type;
@@ -171,20 +184,22 @@ export default async function ProposalDetailPage({
 
   const agencyFullName = agencyAcronym ? (AGENCY_FULL_NAMES[agencyAcronym] ?? null) : null;
 
-  // Votes (for congressional bills)
+  // Votes (for congressional bills). Post-promotion, votes.proposal_id was
+  // renamed to votes.bill_proposal_id.
   const votesPromise = p.type === "bill"
     ? supabase
         .from("votes")
         .select("id,vote,voted_at,official:officials(id,full_name,party,district_name,role_title)")
-        .eq("proposal_id", p.id)
+        .eq("bill_proposal_id", p.id)
         .order("voted_at", { ascending: false })
         .limit(100)
     : Promise.resolve({ data: [] });
 
-  // Related proposals (same agency or type, excluding current)
+  // Related proposals (same agency or type, excluding current). comment_period_end
+  // now lives in metadata — pulled client-side after fetch.
   const relatedQuery = supabase
     .from("proposals")
-    .select("id,title,type,status,comment_period_end,metadata")
+    .select("id,title,type,status,metadata")
     .neq("id", p.id)
     .eq("status", "open_comment")
     .limit(4);
@@ -206,9 +221,12 @@ export default async function ProposalDetailPage({
     .eq("entity_id", p.id)
     .maybeSingle();
 
+  // Initiatives that linked this proposal. Post-promotion, civic_initiative_proposal_links
+  // still uses `initiative_id` but that FK now targets proposals(id). Pull the initiative
+  // proposal row + its initiative_details satellite in one nested join.
   const relatedInitiativesQuery = supabase
     .from("civic_initiative_proposal_links")
-    .select("civic_initiatives!initiative_id(id, title, stage, scope, issue_area_tags)")
+    .select("proposals!initiative_id(id, title, initiative_details(stage, scope, issue_area_tags))")
     .eq("proposal_id", p.id)
     .limit(5);
 
@@ -219,9 +237,24 @@ export default async function ProposalDetailPage({
   const votes = (votesRes.data ?? []) as Vote[];
   const related = (relatedRes.data ?? []) as RelatedProposal[];
   const cachedAiSummary: string | null = aiSummaryRes?.data?.summary_text ?? null;
+  // Flatten proposals + initiative_details join back into the legacy InitiativeLink shape.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const relatedInitiatives = ((relatedInitiativesRes.data ?? []) as any[])
-    .map((row) => row.civic_initiatives)
+    .map((row) => {
+      const proposal = Array.isArray(row.proposals) ? row.proposals[0] : row.proposals;
+      if (!proposal) return null;
+      const details = Array.isArray(proposal.initiative_details)
+        ? proposal.initiative_details[0]
+        : proposal.initiative_details;
+      if (!details) return null;
+      return {
+        id:              proposal.id,
+        title:           proposal.title,
+        stage:           details.stage,
+        scope:           details.scope,
+        issue_area_tags: details.issue_area_tags ?? [],
+      };
+    })
     .filter(Boolean) as InitiativeLink[];
 
   // Vote tally

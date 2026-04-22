@@ -22,7 +22,7 @@ type Proposal = {
 
 type SpendingRow = {
   recipient_name: string;
-  award_type: string | null;
+  award_type: "contract" | "grant" | string;
   amount_cents: number;
   award_date: string | null;
 };
@@ -163,7 +163,9 @@ export default async function AgencyProfilePage({
   // Step 2: use agency key for proposal queries (metadata->>agency_id stores acronym or name)
   const agencyKey = agency.acronym ?? agency.name;
 
-  // All proposal/spending fetches in parallel
+  const proposalSelect =
+    "id, title, status, type, introduced_at, summary_plain, metadata, bill_details(bill_number)";
+
   const [
     activeRulesRes,
     recentRulesRes,
@@ -173,24 +175,26 @@ export default async function AgencyProfilePage({
   ] = await Promise.all([
     supabase
       .from("proposals")
-      .select("id, title, status, type, bill_number, regulations_gov_id, introduced_at, comment_period_end, summary_plain")
-      .in("status", ["open_comment", "introduced", "in_committee", "floor_vote"])
+      .select(proposalSelect)
+      .in("status", ["introduced", "in_committee"])
       .filter("metadata->>agency_id", "eq", agencyKey)
-      .order("comment_period_end", { ascending: true })
+      .order("metadata->>comment_period_end", { ascending: true })
       .limit(20),
 
     supabase
       .from("proposals")
-      .select("id, title, status, type, bill_number, regulations_gov_id, introduced_at, comment_period_end, summary_plain")
-      .in("status", ["comment_closed", "final_rule", "enacted", "signed", "failed", "withdrawn"])
+      .select(proposalSelect)
+      .in("status", ["enacted", "failed", "withdrawn", "tabled"])
       .filter("metadata->>agency_id", "eq", agencyKey)
       .order("updated_at", { ascending: false })
       .limit(5),
 
     supabase
-      .from("spending_records")
-      .select("recipient_name, award_type, amount_cents, award_date")
-      .ilike("awarding_agency", `%${agency.name}%`)
+      .from("financial_relationships")
+      .select("to_id, to_type, relationship_type, amount_cents, occurred_at")
+      .in("relationship_type", ["contract", "grant"])
+      .eq("from_type", "agency")
+      .eq("from_id", agency.id)
       .order("amount_cents", { ascending: false })
       .limit(100),
 
@@ -203,17 +207,58 @@ export default async function AgencyProfilePage({
       .from("proposals")
       .select("id", { count: "exact", head: true })
       .filter("metadata->>agency_id", "eq", agencyKey)
-      .eq("status", "open_comment")
-      .gt("comment_period_end", now),
+      .eq("status", "introduced")
+      .gt("metadata->>comment_period_end", now),
   ]);
 
-  const activeRules: Proposal[] = (activeRulesRes.data ?? []) as Proposal[];
-  const recentRules: Proposal[] = (recentRulesRes.data ?? []) as Proposal[];
-  const totalRules  = totalCountRes.count ?? 0;
-  const openRules   = openCountRes.count ?? 0;
+  const mapProposal = (row: any): Proposal => ({
+    id: row.id,
+    title: row.title,
+    status: row.status,
+    type: row.type,
+    bill_number: row.bill_details?.bill_number ?? null,
+    regulations_gov_id: (row.metadata ?? {}).regulations_gov_id ?? null,
+    introduced_at: row.introduced_at,
+    comment_period_end: (row.metadata ?? {}).comment_period_end ?? null,
+    summary_plain: row.summary_plain,
+  });
+
+  const activeRules: Proposal[] = (activeRulesRes.data ?? []).map(mapProposal);
+  const recentRules: Proposal[] = (recentRulesRes.data ?? []).map(mapProposal);
+  const totalRules = totalCountRes.count ?? 0;
+  const openRules = openCountRes.count ?? 0;
+
+  // Look up recipient display names for contract/grant counterparties.
+  const spendingRows = (spendingRes.data ?? []) as Array<{
+    to_id: string;
+    to_type: string;
+    relationship_type: string;
+    amount_cents: number | null;
+    occurred_at: string | null;
+  }>;
+
+  const entityIds = Array.from(
+    new Set(spendingRows.filter((r) => r.to_type === "financial_entity").map((r) => r.to_id))
+  );
+
+  const entityNames = new Map<string, string>();
+  if (entityIds.length > 0) {
+    const { data: entityRows } = await supabase
+      .from("financial_entities")
+      .select("id, display_name, canonical_name")
+      .in("id", entityIds);
+    for (const e of entityRows ?? []) {
+      entityNames.set(e.id, e.display_name || e.canonical_name || "Unknown recipient");
+    }
+  }
 
   const spendingGroups = aggregateSpending(
-    (spendingRes.data ?? []) as SpendingRow[]
+    spendingRows.map<SpendingRow>((r) => ({
+      recipient_name: entityNames.get(r.to_id) ?? "Unknown recipient",
+      award_type: r.relationship_type,
+      amount_cents: r.amount_cents ?? 0,
+      award_date: r.occurred_at,
+    }))
   );
 
   const totalSpentCents = spendingGroups.reduce((sum, g) => sum + g.totalCents, 0);

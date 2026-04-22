@@ -19,25 +19,70 @@ export async function GET(req: Request) {
 
   const supabase = createAdminClient();
 
-  // Single RPC call: fuzzy (trigram + ILIKE) across officials, agencies,
-  // proposals, and financial_entities. Fetch 20 per type so ranking has room.
-  // QWEN-ADDED: Add generic type to withDbTimeout for RPC call
-  const { data, error } = await withDbTimeout<{
-    data: SearchRow[] | null;
-    error: { message: string } | null;
-  }>(
-    supabase.rpc("search_graph_entities", {
-      q,
-      lim: 20,
-    })
-  );
+  // search_graph_entities RPC was retired in the shadow→public promotion.
+  // Direct ILIKE queries across the four entity tables; results merged below.
+  const like = `%${q}%`;
+  const [officialsRes, agenciesRes, financialRes, proposalsRes] = await Promise.all([
+    withDbTimeout(
+      supabase
+        .from("officials")
+        .select("id, full_name, role_title, party")
+        .ilike("full_name", like)
+        .limit(20),
+    ),
+    withDbTimeout(
+      supabase
+        .from("agencies")
+        .select("id, name, acronym, agency_type")
+        .or(`name.ilike.${like},acronym.ilike.${like}`)
+        .limit(20),
+    ),
+    withDbTimeout(
+      supabase
+        .from("financial_entities")
+        .select("id, display_name, entity_type, industry")
+        .ilike("display_name", like)
+        .limit(20),
+    ),
+    withDbTimeout(
+      supabase
+        .from("proposals")
+        .select("id, title, type")
+        .ilike("title", like)
+        .limit(20),
+    ),
+  ]);
 
-  if (error) {
-    console.error("[graph/search] RPC error:", error.message);
-    return Response.json([], { status: 500 });
+  type OfficialRow = { id: string; full_name: string; role_title: string | null; party: string | null };
+  type AgencyRow = { id: string; name: string; acronym: string | null; agency_type: string | null };
+  type FinancialRow = { id: string; display_name: string; entity_type: string | null; industry: string | null };
+  type ProposalRow = { id: string; title: string; type: string | null };
+
+  const rows: SearchRow[] = [];
+  for (const o of ((officialsRes as { data: OfficialRow[] | null }).data ?? [])) {
+    rows.push({ id: o.id, label: o.full_name, entity_type: "official", subtitle: o.role_title, party: o.party });
   }
-
-  const rows = data ?? [];
+  for (const a of ((agenciesRes as { data: AgencyRow[] | null }).data ?? [])) {
+    rows.push({
+      id: a.id,
+      label: a.acronym ? `${a.acronym} — ${a.name}` : a.name,
+      entity_type: "agency",
+      subtitle: a.agency_type,
+      party: null,
+    });
+  }
+  for (const f of ((financialRes as { data: FinancialRow[] | null }).data ?? [])) {
+    rows.push({
+      id: f.id,
+      label: f.display_name,
+      entity_type: "financial_entity",
+      subtitle: f.industry ?? f.entity_type,
+      party: null,
+    });
+  }
+  for (const p of ((proposalsRes as { data: ProposalRow[] | null }).data ?? [])) {
+    rows.push({ id: p.id, label: p.title, entity_type: "proposal", subtitle: p.type, party: null });
+  }
 
   // Attach connection counts for all result entities
   const allIds = rows.map((r) => r.id);

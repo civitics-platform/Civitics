@@ -7,10 +7,30 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "14.4"
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -99,13 +119,77 @@ export type Database = {
           },
         ]
       }
+      agenda_items: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          item_type: string | null
+          meeting_id: string
+          metadata: Json
+          outcome: string | null
+          proposal_id: string | null
+          sequence: number
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          item_type?: string | null
+          meeting_id: string
+          metadata?: Json
+          outcome?: string | null
+          proposal_id?: string | null
+          sequence: number
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          item_type?: string | null
+          meeting_id?: string
+          metadata?: Json
+          outcome?: string | null
+          proposal_id?: string | null
+          sequence?: number
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agenda_items_meeting_id_fkey"
+            columns: ["meeting_id"]
+            isOneToOne: false
+            referencedRelation: "meetings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agenda_items_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "agenda_items_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
+            referencedRelation: "proposals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_summary_cache: {
         Row: {
           created_at: string
           entity_id: string
           entity_type: string
           id: string
-          metadata: Json | null
+          metadata: Json
           model: string
           summary_text: string
           summary_type: string
@@ -116,7 +200,7 @@ export type Database = {
           entity_id: string
           entity_type: string
           id?: string
-          metadata?: Json | null
+          metadata?: Json
           model: string
           summary_text: string
           summary_type: string
@@ -127,7 +211,7 @@ export type Database = {
           entity_id?: string
           entity_type?: string
           id?: string
-          metadata?: Json | null
+          metadata?: Json
           model?: string
           summary_text?: string
           summary_type?: string
@@ -173,6 +257,67 @@ export type Database = {
           tokens_used?: number | null
         }
         Relationships: []
+      }
+      bill_details: {
+        Row: {
+          bill_number: string
+          chamber: string | null
+          congress_gov_url: string | null
+          congress_number: number | null
+          fiscal_impact_cents: number | null
+          jurisdiction_id: string
+          legistar_matter_id: string | null
+          primary_sponsor_id: string | null
+          proposal_id: string
+          session: string | null
+        }
+        Insert: {
+          bill_number: string
+          chamber?: string | null
+          congress_gov_url?: string | null
+          congress_number?: number | null
+          fiscal_impact_cents?: number | null
+          jurisdiction_id: string
+          legistar_matter_id?: string | null
+          primary_sponsor_id?: string | null
+          proposal_id: string
+          session?: string | null
+        }
+        Update: {
+          bill_number?: string
+          chamber?: string | null
+          congress_gov_url?: string | null
+          congress_number?: number | null
+          fiscal_impact_cents?: number | null
+          jurisdiction_id?: string
+          legistar_matter_id?: string | null
+          primary_sponsor_id?: string | null
+          proposal_id?: string
+          session?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bill_details_primary_sponsor_id_fkey"
+            columns: ["primary_sponsor_id"]
+            isOneToOne: false
+            referencedRelation: "officials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bill_details_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: true
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "bill_details_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: true
+            referencedRelation: "proposals"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       career_history: {
         Row: {
@@ -233,6 +378,60 @@ export type Database = {
             columns: ["official_id"]
             isOneToOne: false
             referencedRelation: "officials"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      case_details: {
+        Row: {
+          case_name: string | null
+          court_name: string
+          courtlistener_id: string | null
+          docket_number: string
+          filed_at: string | null
+          outcome: string | null
+          outcome_at: string | null
+          pacer_id: string | null
+          parties: Json
+          proposal_id: string
+        }
+        Insert: {
+          case_name?: string | null
+          court_name: string
+          courtlistener_id?: string | null
+          docket_number: string
+          filed_at?: string | null
+          outcome?: string | null
+          outcome_at?: string | null
+          pacer_id?: string | null
+          parties?: Json
+          proposal_id: string
+        }
+        Update: {
+          case_name?: string | null
+          court_name?: string
+          courtlistener_id?: string | null
+          docket_number?: string
+          filed_at?: string | null
+          outcome?: string | null
+          outcome_at?: string | null
+          pacer_id?: string | null
+          parties?: Json
+          proposal_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "case_details_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: true
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "case_details_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: true
+            referencedRelation: "proposals"
             referencedColumns: ["id"]
           },
         ]
@@ -470,7 +669,14 @@ export type Database = {
             foreignKeyName: "civic_initiative_arguments_initiative_id_fkey"
             columns: ["initiative_id"]
             isOneToOne: false
-            referencedRelation: "civic_initiatives"
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "civic_initiative_arguments_initiative_id_fkey"
+            columns: ["initiative_id"]
+            isOneToOne: false
+            referencedRelation: "proposals"
             referencedColumns: ["id"]
           },
           {
@@ -506,7 +712,14 @@ export type Database = {
             foreignKeyName: "civic_initiative_follows_initiative_id_fkey"
             columns: ["initiative_id"]
             isOneToOne: false
-            referencedRelation: "civic_initiatives"
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "civic_initiative_follows_initiative_id_fkey"
+            columns: ["initiative_id"]
+            isOneToOne: false
+            referencedRelation: "proposals"
             referencedColumns: ["id"]
           },
           {
@@ -548,7 +761,14 @@ export type Database = {
             foreignKeyName: "civic_initiative_milestone_events_initiative_id_fkey"
             columns: ["initiative_id"]
             isOneToOne: false
-            referencedRelation: "civic_initiatives"
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "civic_initiative_milestone_events_initiative_id_fkey"
+            columns: ["initiative_id"]
+            isOneToOne: false
+            referencedRelation: "proposals"
             referencedColumns: ["id"]
           },
         ]
@@ -580,7 +800,14 @@ export type Database = {
             foreignKeyName: "civic_initiative_proposal_links_initiative_id_fkey"
             columns: ["initiative_id"]
             isOneToOne: false
-            referencedRelation: "civic_initiatives"
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "civic_initiative_proposal_links_initiative_id_fkey"
+            columns: ["initiative_id"]
+            isOneToOne: false
+            referencedRelation: "proposals"
             referencedColumns: ["id"]
           },
           {
@@ -651,7 +878,14 @@ export type Database = {
             foreignKeyName: "civic_initiative_responses_initiative_id_fkey"
             columns: ["initiative_id"]
             isOneToOne: false
-            referencedRelation: "civic_initiatives"
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "civic_initiative_responses_initiative_id_fkey"
+            columns: ["initiative_id"]
+            isOneToOne: false
+            referencedRelation: "proposals"
             referencedColumns: ["id"]
           },
           {
@@ -693,7 +927,14 @@ export type Database = {
             foreignKeyName: "civic_initiative_signatures_initiative_id_fkey"
             columns: ["initiative_id"]
             isOneToOne: false
-            referencedRelation: "civic_initiatives"
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "civic_initiative_signatures_initiative_id_fkey"
+            columns: ["initiative_id"]
+            isOneToOne: false
+            referencedRelation: "proposals"
             referencedColumns: ["id"]
           },
           {
@@ -729,7 +970,14 @@ export type Database = {
             foreignKeyName: "civic_initiative_upvotes_initiative_id_fkey"
             columns: ["initiative_id"]
             isOneToOne: false
-            referencedRelation: "civic_initiatives"
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "civic_initiative_upvotes_initiative_id_fkey"
+            columns: ["initiative_id"]
+            isOneToOne: false
+            referencedRelation: "proposals"
             referencedColumns: ["id"]
           },
           {
@@ -781,123 +1029,63 @@ export type Database = {
             foreignKeyName: "civic_initiative_versions_initiative_id_fkey"
             columns: ["initiative_id"]
             isOneToOne: false
-            referencedRelation: "civic_initiatives"
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "civic_initiative_versions_initiative_id_fkey"
+            columns: ["initiative_id"]
+            isOneToOne: false
+            referencedRelation: "proposals"
             referencedColumns: ["id"]
           },
         ]
       }
-      civic_initiatives: {
+      claim_queue: {
         Row: {
-          authorship_type: Database["public"]["Enums"]["initiative_authorship"]
-          body_md: string
           created_at: string
-          from_comment_id: string | null
           id: string
-          issue_area_tags: string[]
-          jurisdiction_id: string | null
-          linked_proposal_id: string | null
-          mobilise_started_at: string | null
-          parent_problem_id: string | null
-          primary_author_id: string | null
-          quality_gate_score: Json
-          resolution_type:
-            | Database["public"]["Enums"]["initiative_resolution"]
-            | null
+          jurisdiction_id: string
+          reason: string | null
+          rejection_reason: string | null
+          requested_by: string
           resolved_at: string | null
-          scope: Database["public"]["Enums"]["initiative_scope"]
-          stage: Database["public"]["Enums"]["initiative_stage"]
-          summary: string | null
-          target_district: string | null
-          title: string
-          updated_at: string
+          status: string
+          upvote_count: number
         }
         Insert: {
-          authorship_type?: Database["public"]["Enums"]["initiative_authorship"]
-          body_md: string
           created_at?: string
-          from_comment_id?: string | null
           id?: string
-          issue_area_tags?: string[]
-          jurisdiction_id?: string | null
-          linked_proposal_id?: string | null
-          mobilise_started_at?: string | null
-          parent_problem_id?: string | null
-          primary_author_id?: string | null
-          quality_gate_score?: Json
-          resolution_type?:
-            | Database["public"]["Enums"]["initiative_resolution"]
-            | null
+          jurisdiction_id: string
+          reason?: string | null
+          rejection_reason?: string | null
+          requested_by: string
           resolved_at?: string | null
-          scope?: Database["public"]["Enums"]["initiative_scope"]
-          stage?: Database["public"]["Enums"]["initiative_stage"]
-          summary?: string | null
-          target_district?: string | null
-          title: string
-          updated_at?: string
+          status?: string
+          upvote_count?: number
         }
         Update: {
-          authorship_type?: Database["public"]["Enums"]["initiative_authorship"]
-          body_md?: string
           created_at?: string
-          from_comment_id?: string | null
           id?: string
-          issue_area_tags?: string[]
-          jurisdiction_id?: string | null
-          linked_proposal_id?: string | null
-          mobilise_started_at?: string | null
-          parent_problem_id?: string | null
-          primary_author_id?: string | null
-          quality_gate_score?: Json
-          resolution_type?:
-            | Database["public"]["Enums"]["initiative_resolution"]
-            | null
+          jurisdiction_id?: string
+          reason?: string | null
+          rejection_reason?: string | null
+          requested_by?: string
           resolved_at?: string | null
-          scope?: Database["public"]["Enums"]["initiative_scope"]
-          stage?: Database["public"]["Enums"]["initiative_stage"]
-          summary?: string | null
-          target_district?: string | null
-          title?: string
-          updated_at?: string
+          status?: string
+          upvote_count?: number
         }
         Relationships: [
           {
-            foreignKeyName: "civic_initiatives_from_comment_id_fkey"
-            columns: ["from_comment_id"]
-            isOneToOne: false
-            referencedRelation: "civic_initiative_arguments"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "civic_initiatives_jurisdiction_id_fkey"
+            foreignKeyName: "claim_queue_jurisdiction_id_fkey"
             columns: ["jurisdiction_id"]
             isOneToOne: false
             referencedRelation: "jurisdictions"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "civic_initiatives_linked_proposal_id_fkey"
-            columns: ["linked_proposal_id"]
-            isOneToOne: false
-            referencedRelation: "proposal_trending_24h"
-            referencedColumns: ["proposal_id"]
-          },
-          {
-            foreignKeyName: "civic_initiatives_linked_proposal_id_fkey"
-            columns: ["linked_proposal_id"]
-            isOneToOne: false
-            referencedRelation: "proposals"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "civic_initiatives_parent_problem_id_fkey"
-            columns: ["parent_problem_id"]
-            isOneToOne: false
-            referencedRelation: "civic_initiatives"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "civic_initiatives_primary_author_id_fkey"
-            columns: ["primary_author_id"]
+            foreignKeyName: "claim_queue_requested_by_fkey"
+            columns: ["requested_by"]
             isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
@@ -968,6 +1156,7 @@ export type Database = {
           error_message: string | null
           estimated_mb: number | null
           id: string
+          metadata: Json
           pipeline: string
           rows_failed: number
           rows_inserted: number
@@ -981,12 +1170,13 @@ export type Database = {
           error_message?: string | null
           estimated_mb?: number | null
           id?: string
+          metadata?: Json
           pipeline: string
           rows_failed?: number
           rows_inserted?: number
           rows_updated?: number
           started_at?: string
-          status?: string
+          status: string
         }
         Update: {
           completed_at?: string | null
@@ -994,6 +1184,7 @@ export type Database = {
           error_message?: string | null
           estimated_mb?: number | null
           id?: string
+          metadata?: Json
           pipeline?: string
           rows_failed?: number
           rows_inserted?: number
@@ -1055,53 +1246,53 @@ export type Database = {
         Row: {
           amount_cents: number | null
           connection_type: Database["public"]["Enums"]["connection_type"]
-          created_at: string
+          derived_at: string
           ended_at: string | null
-          evidence: Json
+          evidence_count: number
+          evidence_ids: string[]
+          evidence_source: string
           from_id: string
           from_type: string
           id: string
-          is_verified: boolean
           metadata: Json
           occurred_at: string | null
           strength: number
           to_id: string
           to_type: string
-          updated_at: string
         }
         Insert: {
           amount_cents?: number | null
           connection_type: Database["public"]["Enums"]["connection_type"]
-          created_at?: string
+          derived_at?: string
           ended_at?: string | null
-          evidence?: Json
+          evidence_count?: number
+          evidence_ids?: string[]
+          evidence_source: string
           from_id: string
           from_type: string
           id?: string
-          is_verified?: boolean
           metadata?: Json
           occurred_at?: string | null
           strength?: number
           to_id: string
           to_type: string
-          updated_at?: string
         }
         Update: {
           amount_cents?: number | null
           connection_type?: Database["public"]["Enums"]["connection_type"]
-          created_at?: string
+          derived_at?: string
           ended_at?: string | null
-          evidence?: Json
+          evidence_count?: number
+          evidence_ids?: string[]
+          evidence_source?: string
           from_id?: string
           from_type?: string
           id?: string
-          is_verified?: boolean
           metadata?: Json
           occurred_at?: string | null
           strength?: number
           to_id?: string
           to_type?: string
-          updated_at?: string
         }
         Relationships: []
       }
@@ -1156,126 +1347,163 @@ export type Database = {
         }
         Relationships: []
       }
-      financial_entities: {
+      external_source_refs: {
         Row: {
           created_at: string
+          entity_id: string
           entity_type: string
+          external_id: string
           id: string
-          industry: string | null
+          last_seen_at: string
           metadata: Json
-          name: string
-          source_ids: Json
-          total_donated_cents: number
-          updated_at: string
+          source: string
+          source_url: string | null
         }
         Insert: {
           created_at?: string
+          entity_id: string
           entity_type: string
+          external_id: string
           id?: string
-          industry?: string | null
+          last_seen_at?: string
           metadata?: Json
-          name: string
-          source_ids?: Json
-          total_donated_cents?: number
-          updated_at?: string
+          source: string
+          source_url?: string | null
         }
         Update: {
           created_at?: string
+          entity_id?: string
           entity_type?: string
+          external_id?: string
           id?: string
-          industry?: string | null
+          last_seen_at?: string
           metadata?: Json
-          name?: string
-          source_ids?: Json
-          total_donated_cents?: number
-          updated_at?: string
+          source?: string
+          source_url?: string | null
         }
         Relationships: []
       }
-      financial_relationships: {
+      financial_entities: {
         Row: {
-          amount_cents: number
-          contribution_date: string | null
+          canonical_name: string
           created_at: string
-          cycle_year: number | null
-          donor_name: string
-          donor_type: Database["public"]["Enums"]["donor_type"]
+          display_name: string
+          entity_type: string
           fec_committee_id: string | null
-          fec_filing_id: string | null
-          governing_body_id: string | null
           id: string
           industry: string | null
-          is_bundled: boolean
           metadata: Json
-          official_id: string | null
-          opensecrets_industry_code: string | null
-          source_ids: Json
-          source_url: string | null
+          parent_entity_id: string | null
+          total_donated_cents: number
+          total_received_cents: number
           updated_at: string
         }
         Insert: {
-          amount_cents: number
-          contribution_date?: string | null
+          canonical_name: string
           created_at?: string
-          cycle_year?: number | null
-          donor_name: string
-          donor_type: Database["public"]["Enums"]["donor_type"]
+          display_name: string
+          entity_type: string
           fec_committee_id?: string | null
-          fec_filing_id?: string | null
-          governing_body_id?: string | null
           id?: string
           industry?: string | null
-          is_bundled?: boolean
           metadata?: Json
-          official_id?: string | null
-          opensecrets_industry_code?: string | null
-          source_ids?: Json
-          source_url?: string | null
+          parent_entity_id?: string | null
+          total_donated_cents?: number
+          total_received_cents?: number
           updated_at?: string
         }
         Update: {
-          amount_cents?: number
-          contribution_date?: string | null
+          canonical_name?: string
           created_at?: string
-          cycle_year?: number | null
-          donor_name?: string
-          donor_type?: Database["public"]["Enums"]["donor_type"]
+          display_name?: string
+          entity_type?: string
           fec_committee_id?: string | null
-          fec_filing_id?: string | null
-          governing_body_id?: string | null
           id?: string
           industry?: string | null
-          is_bundled?: boolean
           metadata?: Json
-          official_id?: string | null
-          opensecrets_industry_code?: string | null
-          source_ids?: Json
-          source_url?: string | null
+          parent_entity_id?: string | null
+          total_donated_cents?: number
+          total_received_cents?: number
           updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "financial_relationships_governing_body_id_fkey"
-            columns: ["governing_body_id"]
+            foreignKeyName: "financial_entities_parent_entity_id_fkey"
+            columns: ["parent_entity_id"]
             isOneToOne: false
-            referencedRelation: "governing_bodies"
+            referencedRelation: "financial_entities"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "financial_relationships_official_id_fkey"
-            columns: ["official_id"]
-            isOneToOne: false
-            referencedRelation: "officials"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "financial_relationships_opensecrets_industry_code_fkey"
-            columns: ["opensecrets_industry_code"]
-            isOneToOne: false
-            referencedRelation: "industry_codes"
-            referencedColumns: ["code"]
           },
         ]
+      }
+      financial_relationships: {
+        Row: {
+          amount_cents: number | null
+          created_at: string
+          cycle_year: number | null
+          disclosure_form_id: string | null
+          ended_at: string | null
+          fec_filing_id: string | null
+          from_id: string
+          from_type: string
+          id: string
+          is_bundled: boolean
+          is_in_kind: boolean
+          metadata: Json
+          occurred_at: string | null
+          relationship_type: Database["public"]["Enums"]["financial_relationship_type"]
+          source_url: string | null
+          started_at: string | null
+          to_id: string
+          to_type: string
+          updated_at: string
+          usaspending_award_id: string | null
+        }
+        Insert: {
+          amount_cents?: number | null
+          created_at?: string
+          cycle_year?: number | null
+          disclosure_form_id?: string | null
+          ended_at?: string | null
+          fec_filing_id?: string | null
+          from_id: string
+          from_type: string
+          id?: string
+          is_bundled?: boolean
+          is_in_kind?: boolean
+          metadata?: Json
+          occurred_at?: string | null
+          relationship_type: Database["public"]["Enums"]["financial_relationship_type"]
+          source_url?: string | null
+          started_at?: string | null
+          to_id: string
+          to_type: string
+          updated_at?: string
+          usaspending_award_id?: string | null
+        }
+        Update: {
+          amount_cents?: number | null
+          created_at?: string
+          cycle_year?: number | null
+          disclosure_form_id?: string | null
+          ended_at?: string | null
+          fec_filing_id?: string | null
+          from_id?: string
+          from_type?: string
+          id?: string
+          is_bundled?: boolean
+          is_in_kind?: boolean
+          metadata?: Json
+          occurred_at?: string | null
+          relationship_type?: Database["public"]["Enums"]["financial_relationship_type"]
+          source_url?: string | null
+          started_at?: string | null
+          to_id?: string
+          to_type?: string
+          updated_at?: string
+          usaspending_award_id?: string | null
+        }
+        Relationships: []
       }
       governing_bodies: {
         Row: {
@@ -1336,33 +1564,33 @@ export type Database = {
       graph_snapshots: {
         Row: {
           code: string
-          created_at: string | null
+          created_at: string
           created_by: string | null
           id: string
-          is_public: boolean | null
+          is_public: boolean
           state: Json
           title: string | null
-          view_count: number | null
+          view_count: number
         }
         Insert: {
           code: string
-          created_at?: string | null
+          created_at?: string
           created_by?: string | null
           id?: string
-          is_public?: boolean | null
+          is_public?: boolean
           state: Json
           title?: string | null
-          view_count?: number | null
+          view_count?: number
         }
         Update: {
           code?: string
-          created_at?: string | null
+          created_at?: string
           created_by?: string | null
           id?: string
-          is_public?: boolean | null
+          is_public?: boolean
           state?: Json
           title?: string | null
-          view_count?: number | null
+          view_count?: number
         }
         Relationships: []
       }
@@ -1387,12 +1615,105 @@ export type Database = {
         }
         Relationships: []
       }
+      initiative_details: {
+        Row: {
+          authorship_type: Database["public"]["Enums"]["initiative_authorship"]
+          body_md: string
+          issue_area_tags: string[]
+          mobilise_started_at: string | null
+          primary_author_id: string | null
+          promoted_to_proposal_id: string | null
+          proposal_id: string
+          quality_gate_score: Json
+          resolution_type:
+            | Database["public"]["Enums"]["initiative_resolution"]
+            | null
+          scope: Database["public"]["Enums"]["initiative_scope"]
+          signature_threshold: number | null
+          stage: Database["public"]["Enums"]["initiative_stage"]
+          target_district: string | null
+        }
+        Insert: {
+          authorship_type?: Database["public"]["Enums"]["initiative_authorship"]
+          body_md: string
+          issue_area_tags?: string[]
+          mobilise_started_at?: string | null
+          primary_author_id?: string | null
+          promoted_to_proposal_id?: string | null
+          proposal_id: string
+          quality_gate_score?: Json
+          resolution_type?:
+            | Database["public"]["Enums"]["initiative_resolution"]
+            | null
+          scope?: Database["public"]["Enums"]["initiative_scope"]
+          signature_threshold?: number | null
+          stage?: Database["public"]["Enums"]["initiative_stage"]
+          target_district?: string | null
+        }
+        Update: {
+          authorship_type?: Database["public"]["Enums"]["initiative_authorship"]
+          body_md?: string
+          issue_area_tags?: string[]
+          mobilise_started_at?: string | null
+          primary_author_id?: string | null
+          promoted_to_proposal_id?: string | null
+          proposal_id?: string
+          quality_gate_score?: Json
+          resolution_type?:
+            | Database["public"]["Enums"]["initiative_resolution"]
+            | null
+          scope?: Database["public"]["Enums"]["initiative_scope"]
+          signature_threshold?: number | null
+          stage?: Database["public"]["Enums"]["initiative_stage"]
+          target_district?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "initiative_details_primary_author_id_fkey"
+            columns: ["primary_author_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "initiative_details_promoted_to_proposal_id_fkey"
+            columns: ["promoted_to_proposal_id"]
+            isOneToOne: false
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "initiative_details_promoted_to_proposal_id_fkey"
+            columns: ["promoted_to_proposal_id"]
+            isOneToOne: false
+            referencedRelation: "proposals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "initiative_details_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: true
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "initiative_details_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: true
+            referencedRelation: "proposals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       jurisdictions: {
         Row: {
           boundary_geometry: unknown
           census_geoid: string | null
           centroid: unknown
           country_code: string | null
+          coverage_completed_at: string | null
+          coverage_started_at: string | null
+          coverage_status: string
           created_at: string
           fips_code: string | null
           id: string
@@ -1411,6 +1732,9 @@ export type Database = {
           census_geoid?: string | null
           centroid?: unknown
           country_code?: string | null
+          coverage_completed_at?: string | null
+          coverage_started_at?: string | null
+          coverage_status?: string
           created_at?: string
           fips_code?: string | null
           id?: string
@@ -1429,6 +1753,9 @@ export type Database = {
           census_geoid?: string | null
           centroid?: unknown
           country_code?: string | null
+          coverage_completed_at?: string | null
+          coverage_started_at?: string | null
+          coverage_status?: string
           created_at?: string
           fips_code?: string | null
           id?: string
@@ -1508,6 +1835,136 @@ export type Database = {
             columns: ["official_id"]
             isOneToOne: false
             referencedRelation: "officials"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      measure_details: {
+        Row: {
+          ballot_id: string
+          ballotpedia_url: string | null
+          election_date: string
+          election_type: string | null
+          measure_type: string | null
+          no_votes: number | null
+          originating_initiative_id: string | null
+          passed: boolean | null
+          percent_yes: number | null
+          proposal_id: string
+          text_summary: string | null
+          yes_votes: number | null
+        }
+        Insert: {
+          ballot_id: string
+          ballotpedia_url?: string | null
+          election_date: string
+          election_type?: string | null
+          measure_type?: string | null
+          no_votes?: number | null
+          originating_initiative_id?: string | null
+          passed?: boolean | null
+          percent_yes?: number | null
+          proposal_id: string
+          text_summary?: string | null
+          yes_votes?: number | null
+        }
+        Update: {
+          ballot_id?: string
+          ballotpedia_url?: string | null
+          election_date?: string
+          election_type?: string | null
+          measure_type?: string | null
+          no_votes?: number | null
+          originating_initiative_id?: string | null
+          passed?: boolean | null
+          percent_yes?: number | null
+          proposal_id?: string
+          text_summary?: string | null
+          yes_votes?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "measure_details_originating_initiative_id_fkey"
+            columns: ["originating_initiative_id"]
+            isOneToOne: false
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "measure_details_originating_initiative_id_fkey"
+            columns: ["originating_initiative_id"]
+            isOneToOne: false
+            referencedRelation: "proposals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "measure_details_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: true
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "measure_details_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: true
+            referencedRelation: "proposals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meetings: {
+        Row: {
+          agenda_url: string | null
+          created_at: string
+          governing_body_id: string
+          id: string
+          location: string | null
+          meeting_type: string
+          metadata: Json
+          minutes_url: string | null
+          scheduled_at: string
+          status: string
+          title: string | null
+          updated_at: string
+          video_url: string | null
+        }
+        Insert: {
+          agenda_url?: string | null
+          created_at?: string
+          governing_body_id: string
+          id?: string
+          location?: string | null
+          meeting_type: string
+          metadata?: Json
+          minutes_url?: string | null
+          scheduled_at: string
+          status?: string
+          title?: string | null
+          updated_at?: string
+          video_url?: string | null
+        }
+        Update: {
+          agenda_url?: string | null
+          created_at?: string
+          governing_body_id?: string
+          id?: string
+          location?: string | null
+          meeting_type?: string
+          metadata?: Json
+          minutes_url?: string | null
+          scheduled_at?: string
+          status?: string
+          title?: string | null
+          updated_at?: string
+          video_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meetings_governing_body_id_fkey"
+            columns: ["governing_body_id"]
+            isOneToOne: false
+            referencedRelation: "governing_bodies"
             referencedColumns: ["id"]
           },
         ]
@@ -2098,6 +2555,64 @@ export type Database = {
           },
         ]
       }
+      proposal_actions: {
+        Row: {
+          action_at: string
+          action_type: string
+          created_at: string
+          description: string | null
+          id: string
+          metadata: Json
+          performed_by_id: string | null
+          proposal_id: string
+          source: string | null
+        }
+        Insert: {
+          action_at: string
+          action_type: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          metadata?: Json
+          performed_by_id?: string | null
+          proposal_id: string
+          source?: string | null
+        }
+        Update: {
+          action_at?: string
+          action_type?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          metadata?: Json
+          performed_by_id?: string | null
+          proposal_id?: string
+          source?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "proposal_actions_performed_by_id_fkey"
+            columns: ["performed_by_id"]
+            isOneToOne: false
+            referencedRelation: "officials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proposal_actions_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
+            referencedRelation: "proposal_trending_24h"
+            referencedColumns: ["proposal_id"]
+          },
+          {
+            foreignKeyName: "proposal_actions_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
+            referencedRelation: "proposals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       proposal_cosponsors: {
         Row: {
           created_at: string
@@ -2155,18 +2670,8 @@ export type Database = {
       }
       proposals: {
         Row: {
-          bill_number: string | null
-          comment_period_end: string | null
-          comment_period_start: string | null
-          congress_gov_url: string | null
-          congress_number: number | null
           created_at: string
-          enacted_at: string | null
-          executive_order_number: number | null
-          federal_register_document_number: string | null
-          federal_register_publication_date: string | null
-          fiscal_impact_cents: number | null
-          full_text_arweave: string | null
+          external_url: string | null
           full_text_r2_key: string | null
           full_text_url: string | null
           governing_body_id: string | null
@@ -2175,11 +2680,9 @@ export type Database = {
           jurisdiction_id: string
           last_action_at: string | null
           metadata: Json
-          regulations_gov_id: string | null
+          resolved_at: string | null
           search_vector: unknown
-          session: string | null
           short_title: string | null
-          source_ids: Json
           status: Database["public"]["Enums"]["proposal_status"]
           summary_generated_at: string | null
           summary_model: string | null
@@ -2187,21 +2690,10 @@ export type Database = {
           title: string
           type: Database["public"]["Enums"]["proposal_type"]
           updated_at: string
-          vote_category: string | null
         }
         Insert: {
-          bill_number?: string | null
-          comment_period_end?: string | null
-          comment_period_start?: string | null
-          congress_gov_url?: string | null
-          congress_number?: number | null
           created_at?: string
-          enacted_at?: string | null
-          executive_order_number?: number | null
-          federal_register_document_number?: string | null
-          federal_register_publication_date?: string | null
-          fiscal_impact_cents?: number | null
-          full_text_arweave?: string | null
+          external_url?: string | null
           full_text_r2_key?: string | null
           full_text_url?: string | null
           governing_body_id?: string | null
@@ -2210,11 +2702,9 @@ export type Database = {
           jurisdiction_id: string
           last_action_at?: string | null
           metadata?: Json
-          regulations_gov_id?: string | null
+          resolved_at?: string | null
           search_vector?: unknown
-          session?: string | null
           short_title?: string | null
-          source_ids?: Json
           status?: Database["public"]["Enums"]["proposal_status"]
           summary_generated_at?: string | null
           summary_model?: string | null
@@ -2222,21 +2712,10 @@ export type Database = {
           title: string
           type: Database["public"]["Enums"]["proposal_type"]
           updated_at?: string
-          vote_category?: string | null
         }
         Update: {
-          bill_number?: string | null
-          comment_period_end?: string | null
-          comment_period_start?: string | null
-          congress_gov_url?: string | null
-          congress_number?: number | null
           created_at?: string
-          enacted_at?: string | null
-          executive_order_number?: number | null
-          federal_register_document_number?: string | null
-          federal_register_publication_date?: string | null
-          fiscal_impact_cents?: number | null
-          full_text_arweave?: string | null
+          external_url?: string | null
           full_text_r2_key?: string | null
           full_text_url?: string | null
           governing_body_id?: string | null
@@ -2245,11 +2724,9 @@ export type Database = {
           jurisdiction_id?: string
           last_action_at?: string | null
           metadata?: Json
-          regulations_gov_id?: string | null
+          resolved_at?: string | null
           search_vector?: unknown
-          session?: string | null
           short_title?: string | null
-          source_ids?: Json
           status?: Database["public"]["Enums"]["proposal_status"]
           summary_generated_at?: string | null
           summary_model?: string | null
@@ -2257,7 +2734,6 @@ export type Database = {
           title?: string
           type?: Database["public"]["Enums"]["proposal_type"]
           updated_at?: string
-          vote_category?: string | null
         }
         Relationships: [
           {
@@ -2306,86 +2782,29 @@ export type Database = {
         }
         Relationships: []
       }
-      spending_records: {
+      spatial_ref_sys: {
         Row: {
-          amount_cents: number
-          award_date: string | null
-          award_type: string | null
-          awarding_agency: string
-          cfda_number: string | null
-          created_at: string
-          description: string | null
-          id: string
-          jurisdiction_id: string
-          metadata: Json
-          naics_code: string | null
-          period_of_performance_end: string | null
-          period_of_performance_start: string | null
-          recipient_location_jurisdiction_id: string | null
-          recipient_name: string
-          source_ids: Json
-          total_amount_cents: number | null
-          updated_at: string
-          usaspending_award_id: string | null
+          auth_name: string | null
+          auth_srid: number | null
+          proj4text: string | null
+          srid: number
+          srtext: string | null
         }
         Insert: {
-          amount_cents: number
-          award_date?: string | null
-          award_type?: string | null
-          awarding_agency: string
-          cfda_number?: string | null
-          created_at?: string
-          description?: string | null
-          id?: string
-          jurisdiction_id: string
-          metadata?: Json
-          naics_code?: string | null
-          period_of_performance_end?: string | null
-          period_of_performance_start?: string | null
-          recipient_location_jurisdiction_id?: string | null
-          recipient_name: string
-          source_ids?: Json
-          total_amount_cents?: number | null
-          updated_at?: string
-          usaspending_award_id?: string | null
+          auth_name?: string | null
+          auth_srid?: number | null
+          proj4text?: string | null
+          srid: number
+          srtext?: string | null
         }
         Update: {
-          amount_cents?: number
-          award_date?: string | null
-          award_type?: string | null
-          awarding_agency?: string
-          cfda_number?: string | null
-          created_at?: string
-          description?: string | null
-          id?: string
-          jurisdiction_id?: string
-          metadata?: Json
-          naics_code?: string | null
-          period_of_performance_end?: string | null
-          period_of_performance_start?: string | null
-          recipient_location_jurisdiction_id?: string | null
-          recipient_name?: string
-          source_ids?: Json
-          total_amount_cents?: number | null
-          updated_at?: string
-          usaspending_award_id?: string | null
+          auth_name?: string | null
+          auth_srid?: number | null
+          proj4text?: string | null
+          srid?: number
+          srtext?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "spending_records_jurisdiction_id_fkey"
-            columns: ["jurisdiction_id"]
-            isOneToOne: false
-            referencedRelation: "jurisdictions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "spending_records_recipient_location_jurisdiction_id_fkey"
-            columns: ["recipient_location_jurisdiction_id"]
-            isOneToOne: false
-            referencedRelation: "jurisdictions"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       user_follows: {
         Row: {
@@ -2514,67 +2933,73 @@ export type Database = {
       }
       votes: {
         Row: {
-          chamber: string | null
+          agenda_item_id: string | null
+          bill_proposal_id: string
+          chamber: string
           created_at: string
           id: string
           metadata: Json
           official_id: string
-          proposal_id: string
-          roll_call_number: string | null
+          roll_call_id: string
           session: string | null
-          source_ids: Json
+          source_url: string | null
           updated_at: string
           vote: string
-          voted_at: string | null
+          vote_question: string | null
+          voted_at: string
         }
         Insert: {
-          chamber?: string | null
+          agenda_item_id?: string | null
+          bill_proposal_id: string
+          chamber: string
           created_at?: string
           id?: string
           metadata?: Json
           official_id: string
-          proposal_id: string
-          roll_call_number?: string | null
+          roll_call_id: string
           session?: string | null
-          source_ids?: Json
+          source_url?: string | null
           updated_at?: string
           vote: string
-          voted_at?: string | null
+          vote_question?: string | null
+          voted_at: string
         }
         Update: {
-          chamber?: string | null
+          agenda_item_id?: string | null
+          bill_proposal_id?: string
+          chamber?: string
           created_at?: string
           id?: string
           metadata?: Json
           official_id?: string
-          proposal_id?: string
-          roll_call_number?: string | null
+          roll_call_id?: string
           session?: string | null
-          source_ids?: Json
+          source_url?: string | null
           updated_at?: string
           vote?: string
-          voted_at?: string | null
+          vote_question?: string | null
+          voted_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "votes_agenda_item_id_fkey"
+            columns: ["agenda_item_id"]
+            isOneToOne: false
+            referencedRelation: "agenda_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "votes_bill_proposal_id_fkey"
+            columns: ["bill_proposal_id"]
+            isOneToOne: false
+            referencedRelation: "bill_details"
+            referencedColumns: ["proposal_id"]
+          },
           {
             foreignKeyName: "votes_official_id_fkey"
             columns: ["official_id"]
             isOneToOne: false
             referencedRelation: "officials"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "votes_proposal_id_fkey"
-            columns: ["proposal_id"]
-            isOneToOne: false
-            referencedRelation: "proposal_trending_24h"
-            referencedColumns: ["proposal_id"]
-          },
-          {
-            foreignKeyName: "votes_proposal_id_fkey"
-            columns: ["proposal_id"]
-            isOneToOne: false
-            referencedRelation: "proposals"
             referencedColumns: ["id"]
           },
         ]
@@ -2647,6 +3072,48 @@ export type Database = {
       }
     }
     Views: {
+      geography_columns: {
+        Row: {
+          coord_dimension: number | null
+          f_geography_column: unknown
+          f_table_catalog: unknown
+          f_table_name: unknown
+          f_table_schema: unknown
+          srid: number | null
+          type: string | null
+        }
+        Relationships: []
+      }
+      geometry_columns: {
+        Row: {
+          coord_dimension: number | null
+          f_geometry_column: unknown
+          f_table_catalog: string | null
+          f_table_name: unknown
+          f_table_schema: unknown
+          srid: number | null
+          type: string | null
+        }
+        Insert: {
+          coord_dimension?: number | null
+          f_geometry_column?: unknown
+          f_table_catalog?: string | null
+          f_table_name?: unknown
+          f_table_schema?: unknown
+          srid?: number | null
+          type?: string | null
+        }
+        Update: {
+          coord_dimension?: number | null
+          f_geometry_column?: unknown
+          f_table_catalog?: string | null
+          f_table_name?: unknown
+          f_table_schema?: unknown
+          srid?: number | null
+          type?: string | null
+        }
+        Relationships: []
+      }
       proposal_comment_stats: {
         Row: {
           comment_count: number | null
@@ -2688,18 +3155,133 @@ export type Database = {
       }
     }
     Functions: {
-      chord_industry_flows: {
-        Args: never
-        Returns: {
-          display_icon: string
-          display_label: string
-          donor_count: number
-          industry: string
-          official_count: number
-          party_chamber: string
-          total_cents: number
-        }[]
+      _postgis_deprecate: {
+        Args: { newname: string; oldname: string; version: string }
+        Returns: undefined
       }
+      _postgis_index_extent: {
+        Args: { col: string; tbl: unknown }
+        Returns: unknown
+      }
+      _postgis_pgsql_version: { Args: never; Returns: string }
+      _postgis_scripts_pgsql_version: { Args: never; Returns: string }
+      _postgis_selectivity: {
+        Args: { att_name: string; geom: unknown; mode?: string; tbl: unknown }
+        Returns: number
+      }
+      _postgis_stats: {
+        Args: { ""?: string; att_name: string; tbl: unknown }
+        Returns: string
+      }
+      _st_3dintersects: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      _st_contains: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      _st_containsproperly: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      _st_coveredby:
+        | { Args: { geog1: unknown; geog2: unknown }; Returns: boolean }
+        | { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      _st_covers:
+        | { Args: { geog1: unknown; geog2: unknown }; Returns: boolean }
+        | { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      _st_crosses: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      _st_dwithin: {
+        Args: {
+          geog1: unknown
+          geog2: unknown
+          tolerance: number
+          use_spheroid?: boolean
+        }
+        Returns: boolean
+      }
+      _st_equals: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      _st_intersects: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      _st_linecrossingdirection: {
+        Args: { line1: unknown; line2: unknown }
+        Returns: number
+      }
+      _st_longestline: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      _st_maxdistance: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      _st_orderingequals: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      _st_overlaps: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      _st_sortablehash: { Args: { geom: unknown }; Returns: number }
+      _st_touches: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      _st_voronoi: {
+        Args: {
+          clip?: unknown
+          g1: unknown
+          return_polygons?: boolean
+          tolerance?: number
+        }
+        Returns: unknown
+      }
+      _st_within: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      addauth: { Args: { "": string }; Returns: boolean }
+      addgeometrycolumn:
+        | {
+            Args: {
+              catalog_name: string
+              column_name: string
+              new_dim: number
+              new_srid_in: number
+              new_type: string
+              schema_name: string
+              table_name: string
+              use_typmod?: boolean
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              column_name: string
+              new_dim: number
+              new_srid: number
+              new_type: string
+              schema_name: string
+              table_name: string
+              use_typmod?: boolean
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              column_name: string
+              new_dim: number
+              new_srid: number
+              new_type: string
+              table_name: string
+              use_typmod?: boolean
+            }
+            Returns: string
+          }
       claim_enrichment_batch: {
         Args: { p_claimed_by: string; p_limit: number; p_task_type: string }
         Returns: {
@@ -2724,6 +3306,38 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      disablelongtransactions: { Args: never; Returns: string }
+      dropgeometrycolumn:
+        | {
+            Args: {
+              catalog_name: string
+              column_name: string
+              schema_name: string
+              table_name: string
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              column_name: string
+              schema_name: string
+              table_name: string
+            }
+            Returns: string
+          }
+        | { Args: { column_name: string; table_name: string }; Returns: string }
+      dropgeometrytable:
+        | {
+            Args: {
+              catalog_name: string
+              schema_name: string
+              table_name: string
+            }
+            Returns: string
+          }
+        | { Args: { schema_name: string; table_name: string }; Returns: string }
+        | { Args: { table_name: string }; Returns: string }
+      enablelongtransactions: { Args: never; Returns: string }
       enqueue_enrichment: {
         Args: {
           p_context: Json
@@ -2733,6 +3347,7 @@ export type Database = {
         }
         Returns: string
       }
+      equals: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
       find_jurisdictions_by_location: {
         Args: { user_lat: number; user_lng: number }
         Returns: {
@@ -2753,21 +3368,104 @@ export type Database = {
           role_title: string
         }[]
       }
-      get_connection_counts: {
-        Args: { entity_ids: string[] }
-        Returns: {
-          connection_count: number
-          entity_id: string
-        }[]
+      geometry: { Args: { "": string }; Returns: unknown }
+      geometry_above: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
       }
-      get_crossgroup_sector_totals: {
-        Args: { p_group1_ids: string[]; p_group2_ids: string[] }
-        Returns: {
-          group1_usd: number
-          group2_usd: number
-          sector: string
-        }[]
+      geometry_below: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
       }
+      geometry_cmp: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      geometry_contained_3d: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_contains: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_contains_3d: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_distance_box: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      geometry_distance_centroid: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      geometry_eq: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_ge: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_gt: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_le: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_left: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_lt: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_overabove: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_overbelow: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_overlaps: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_overlaps_3d: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_overleft: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_overright: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_right: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_same: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_same_3d: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_within: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geomfromewkt: { Args: { "": string }; Returns: unknown }
       get_current_usage: {
         Args: { p_metric: string; p_service: string }
         Returns: {
@@ -2779,53 +3477,10 @@ export type Database = {
         }[]
       }
       get_database_size_bytes: { Args: never; Returns: number }
-      get_group_connections: {
-        Args: { p_limit?: number; p_member_ids: string[] }
-        Returns: {
-          amount_cents: number
-          connection_type: string
-          from_id: string
-          strength: number
-          to_id: string
-        }[]
-      }
       get_group_sector_totals: {
         Args: { p_member_ids: string[]; p_min_usd?: number }
         Returns: {
           sector: string
-          total_usd: number
-        }[]
-      }
-      get_official_donors: {
-        Args: { p_official_id: string }
-        Returns: {
-          entity_name: string
-          entity_type: string
-          financial_entity_id: string
-          industry_category: string
-          total_amount_usd: number
-          transaction_count: number
-        }[]
-      }
-      get_officials_breakdown: {
-        Args: never
-        Returns: {
-          category: string
-          count: number
-        }[]
-      }
-      get_officials_by_filter: {
-        Args: { p_chamber?: string; p_party?: string; p_state?: string }
-        Returns: {
-          id: string
-        }[]
-      }
-      get_pac_donations_by_party: {
-        Args: never
-        Returns: {
-          donation_count: number
-          donor_name: string
-          party: string
           total_usd: number
         }[]
       }
@@ -2905,55 +3560,666 @@ export type Database = {
           to_page: string
         }[]
       }
-      increment_service_usage: {
-        Args: { p_metric: string; p_period: string; p_service: string }
-        Returns: undefined
-      }
-      increment_snapshot_view: { Args: { p_code: string }; Returns: undefined }
+      gettransactionid: { Args: never; Returns: unknown }
+      longtransactionsenabled: { Args: never; Returns: boolean }
       normalize_pv_path: { Args: { p: string }; Returns: string }
+      populate_geometry_columns:
+        | { Args: { tbl_oid: unknown; use_typmod?: boolean }; Returns: number }
+        | { Args: { use_typmod?: boolean }; Returns: string }
+      postgis_constraint_dims: {
+        Args: { geomcolumn: string; geomschema: string; geomtable: string }
+        Returns: number
+      }
+      postgis_constraint_srid: {
+        Args: { geomcolumn: string; geomschema: string; geomtable: string }
+        Returns: number
+      }
+      postgis_constraint_type: {
+        Args: { geomcolumn: string; geomschema: string; geomtable: string }
+        Returns: string
+      }
+      postgis_extensions_upgrade: { Args: never; Returns: string }
+      postgis_full_version: { Args: never; Returns: string }
+      postgis_geos_version: { Args: never; Returns: string }
+      postgis_lib_build_date: { Args: never; Returns: string }
+      postgis_lib_revision: { Args: never; Returns: string }
+      postgis_lib_version: { Args: never; Returns: string }
+      postgis_libjson_version: { Args: never; Returns: string }
+      postgis_liblwgeom_version: { Args: never; Returns: string }
+      postgis_libprotobuf_version: { Args: never; Returns: string }
+      postgis_libxml_version: { Args: never; Returns: string }
+      postgis_proj_version: { Args: never; Returns: string }
+      postgis_scripts_build_date: { Args: never; Returns: string }
+      postgis_scripts_installed: { Args: never; Returns: string }
+      postgis_scripts_released: { Args: never; Returns: string }
+      postgis_svn_version: { Args: never; Returns: string }
+      postgis_type_name: {
+        Args: {
+          coord_dimension: number
+          geomname: string
+          use_new_name?: boolean
+        }
+        Returns: string
+      }
+      postgis_version: { Args: never; Returns: string }
+      postgis_wagyu_version: { Args: never; Returns: string }
+      rebuild_entity_connections: {
+        Args: never
+        Returns: {
+          connection_type: string
+          edges_upserted: number
+        }[]
+      }
       record_enrichment_failure: {
         Args: { p_error: string; p_queue_id: number }
         Returns: string
       }
       refresh_proposal_trending: { Args: never; Returns: undefined }
-      search_graph_entities: {
-        Args: { lim?: number; q: string }
-        Returns: {
-          entity_type: string
-          id: string
-          label: string
-          party: string
-          subtitle: string
-        }[]
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
+      st_3dclosestpoint: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
       }
-      treemap_officials_by_donations:
+      st_3ddistance: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      st_3dintersects: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      st_3dlongestline: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_3dmakebox: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_3dmaxdistance: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      st_3dshortestline: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_addpoint: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_angle:
+        | { Args: { line1: unknown; line2: unknown }; Returns: number }
         | {
-            Args: { lim?: number }
-            Returns: {
-              chamber: string
-              official_id: string
-              official_name: string
-              party: string
-              state: string
-              total_donated_cents: number
-            }[]
+            Args: { pt1: unknown; pt2: unknown; pt3: unknown; pt4?: unknown }
+            Returns: number
+          }
+      st_area:
+        | { Args: { geog: unknown; use_spheroid?: boolean }; Returns: number }
+        | { Args: { "": string }; Returns: number }
+      st_asencodedpolyline: {
+        Args: { geom: unknown; nprecision?: number }
+        Returns: string
+      }
+      st_asewkt: { Args: { "": string }; Returns: string }
+      st_asgeojson:
+        | {
+            Args: { geog: unknown; maxdecimaldigits?: number; options?: number }
+            Returns: string
+          }
+        | {
+            Args: { geom: unknown; maxdecimaldigits?: number; options?: number }
+            Returns: string
           }
         | {
             Args: {
-              lim?: number
-              p_chamber?: string
-              p_party?: string
-              p_state?: string
+              geom_column?: string
+              maxdecimaldigits?: number
+              pretty_bool?: boolean
+              r: Record<string, unknown>
             }
-            Returns: {
-              chamber: string
-              official_id: string
-              official_name: string
-              party: string
-              state: string
-              total_donated_cents: number
-            }[]
+            Returns: string
           }
+        | { Args: { "": string }; Returns: string }
+      st_asgml:
+        | {
+            Args: {
+              geog: unknown
+              id?: string
+              maxdecimaldigits?: number
+              nprefix?: string
+              options?: number
+            }
+            Returns: string
+          }
+        | {
+            Args: { geom: unknown; maxdecimaldigits?: number; options?: number }
+            Returns: string
+          }
+        | { Args: { "": string }; Returns: string }
+        | {
+            Args: {
+              geog: unknown
+              id?: string
+              maxdecimaldigits?: number
+              nprefix?: string
+              options?: number
+              version: number
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              geom: unknown
+              id?: string
+              maxdecimaldigits?: number
+              nprefix?: string
+              options?: number
+              version: number
+            }
+            Returns: string
+          }
+      st_askml:
+        | {
+            Args: { geog: unknown; maxdecimaldigits?: number; nprefix?: string }
+            Returns: string
+          }
+        | {
+            Args: { geom: unknown; maxdecimaldigits?: number; nprefix?: string }
+            Returns: string
+          }
+        | { Args: { "": string }; Returns: string }
+      st_aslatlontext: {
+        Args: { geom: unknown; tmpl?: string }
+        Returns: string
+      }
+      st_asmarc21: { Args: { format?: string; geom: unknown }; Returns: string }
+      st_asmvtgeom: {
+        Args: {
+          bounds: unknown
+          buffer?: number
+          clip_geom?: boolean
+          extent?: number
+          geom: unknown
+        }
+        Returns: unknown
+      }
+      st_assvg:
+        | {
+            Args: { geog: unknown; maxdecimaldigits?: number; rel?: number }
+            Returns: string
+          }
+        | {
+            Args: { geom: unknown; maxdecimaldigits?: number; rel?: number }
+            Returns: string
+          }
+        | { Args: { "": string }; Returns: string }
+      st_astext: { Args: { "": string }; Returns: string }
+      st_astwkb:
+        | {
+            Args: {
+              geom: unknown
+              prec?: number
+              prec_m?: number
+              prec_z?: number
+              with_boxes?: boolean
+              with_sizes?: boolean
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              geom: unknown[]
+              ids: number[]
+              prec?: number
+              prec_m?: number
+              prec_z?: number
+              with_boxes?: boolean
+              with_sizes?: boolean
+            }
+            Returns: string
+          }
+      st_asx3d: {
+        Args: { geom: unknown; maxdecimaldigits?: number; options?: number }
+        Returns: string
+      }
+      st_azimuth:
+        | { Args: { geog1: unknown; geog2: unknown }; Returns: number }
+        | { Args: { geom1: unknown; geom2: unknown }; Returns: number }
+      st_boundingdiagonal: {
+        Args: { fits?: boolean; geom: unknown }
+        Returns: unknown
+      }
+      st_buffer:
+        | {
+            Args: { geom: unknown; options?: string; radius: number }
+            Returns: unknown
+          }
+        | {
+            Args: { geom: unknown; quadsegs: number; radius: number }
+            Returns: unknown
+          }
+      st_centroid: { Args: { "": string }; Returns: unknown }
+      st_clipbybox2d: {
+        Args: { box: unknown; geom: unknown }
+        Returns: unknown
+      }
+      st_closestpoint: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_collect: { Args: { geom1: unknown; geom2: unknown }; Returns: unknown }
+      st_concavehull: {
+        Args: {
+          param_allow_holes?: boolean
+          param_geom: unknown
+          param_pctconvex: number
+        }
+        Returns: unknown
+      }
+      st_contains: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      st_containsproperly: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      st_coorddim: { Args: { geometry: unknown }; Returns: number }
+      st_coveredby:
+        | { Args: { geog1: unknown; geog2: unknown }; Returns: boolean }
+        | { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      st_covers:
+        | { Args: { geog1: unknown; geog2: unknown }; Returns: boolean }
+        | { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      st_crosses: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      st_curvetoline: {
+        Args: { flags?: number; geom: unknown; tol?: number; toltype?: number }
+        Returns: unknown
+      }
+      st_delaunaytriangles: {
+        Args: { flags?: number; g1: unknown; tolerance?: number }
+        Returns: unknown
+      }
+      st_difference: {
+        Args: { geom1: unknown; geom2: unknown; gridsize?: number }
+        Returns: unknown
+      }
+      st_disjoint: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      st_distance:
+        | {
+            Args: { geog1: unknown; geog2: unknown; use_spheroid?: boolean }
+            Returns: number
+          }
+        | { Args: { geom1: unknown; geom2: unknown }; Returns: number }
+      st_distancesphere:
+        | { Args: { geom1: unknown; geom2: unknown }; Returns: number }
+        | {
+            Args: { geom1: unknown; geom2: unknown; radius: number }
+            Returns: number
+          }
+      st_distancespheroid: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      st_dwithin: {
+        Args: {
+          geog1: unknown
+          geog2: unknown
+          tolerance: number
+          use_spheroid?: boolean
+        }
+        Returns: boolean
+      }
+      st_equals: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      st_expand:
+        | { Args: { box: unknown; dx: number; dy: number }; Returns: unknown }
+        | {
+            Args: { box: unknown; dx: number; dy: number; dz?: number }
+            Returns: unknown
+          }
+        | {
+            Args: {
+              dm?: number
+              dx: number
+              dy: number
+              dz?: number
+              geom: unknown
+            }
+            Returns: unknown
+          }
+      st_force3d: { Args: { geom: unknown; zvalue?: number }; Returns: unknown }
+      st_force3dm: {
+        Args: { geom: unknown; mvalue?: number }
+        Returns: unknown
+      }
+      st_force3dz: {
+        Args: { geom: unknown; zvalue?: number }
+        Returns: unknown
+      }
+      st_force4d: {
+        Args: { geom: unknown; mvalue?: number; zvalue?: number }
+        Returns: unknown
+      }
+      st_generatepoints:
+        | { Args: { area: unknown; npoints: number }; Returns: unknown }
+        | {
+            Args: { area: unknown; npoints: number; seed: number }
+            Returns: unknown
+          }
+      st_geogfromtext: { Args: { "": string }; Returns: unknown }
+      st_geographyfromtext: { Args: { "": string }; Returns: unknown }
+      st_geohash:
+        | { Args: { geog: unknown; maxchars?: number }; Returns: string }
+        | { Args: { geom: unknown; maxchars?: number }; Returns: string }
+      st_geomcollfromtext: { Args: { "": string }; Returns: unknown }
+      st_geometricmedian: {
+        Args: {
+          fail_if_not_converged?: boolean
+          g: unknown
+          max_iter?: number
+          tolerance?: number
+        }
+        Returns: unknown
+      }
+      st_geometryfromtext: { Args: { "": string }; Returns: unknown }
+      st_geomfromewkt: { Args: { "": string }; Returns: unknown }
+      st_geomfromgeojson:
+        | { Args: { "": Json }; Returns: unknown }
+        | { Args: { "": Json }; Returns: unknown }
+        | { Args: { "": string }; Returns: unknown }
+      st_geomfromgml: { Args: { "": string }; Returns: unknown }
+      st_geomfromkml: { Args: { "": string }; Returns: unknown }
+      st_geomfrommarc21: { Args: { marc21xml: string }; Returns: unknown }
+      st_geomfromtext: { Args: { "": string }; Returns: unknown }
+      st_gmltosql: { Args: { "": string }; Returns: unknown }
+      st_hasarc: { Args: { geometry: unknown }; Returns: boolean }
+      st_hausdorffdistance: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      st_hexagon: {
+        Args: { cell_i: number; cell_j: number; origin?: unknown; size: number }
+        Returns: unknown
+      }
+      st_hexagongrid: {
+        Args: { bounds: unknown; size: number }
+        Returns: Record<string, unknown>[]
+      }
+      st_interpolatepoint: {
+        Args: { line: unknown; point: unknown }
+        Returns: number
+      }
+      st_intersection: {
+        Args: { geom1: unknown; geom2: unknown; gridsize?: number }
+        Returns: unknown
+      }
+      st_intersects:
+        | { Args: { geog1: unknown; geog2: unknown }; Returns: boolean }
+        | { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      st_isvaliddetail: {
+        Args: { flags?: number; geom: unknown }
+        Returns: Database["public"]["CompositeTypes"]["valid_detail"]
+        SetofOptions: {
+          from: "*"
+          to: "valid_detail"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      st_length:
+        | { Args: { geog: unknown; use_spheroid?: boolean }; Returns: number }
+        | { Args: { "": string }; Returns: number }
+      st_letters: { Args: { font?: Json; letters: string }; Returns: unknown }
+      st_linecrossingdirection: {
+        Args: { line1: unknown; line2: unknown }
+        Returns: number
+      }
+      st_linefromencodedpolyline: {
+        Args: { nprecision?: number; txtin: string }
+        Returns: unknown
+      }
+      st_linefromtext: { Args: { "": string }; Returns: unknown }
+      st_linelocatepoint: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      st_linetocurve: { Args: { geometry: unknown }; Returns: unknown }
+      st_locatealong: {
+        Args: { geometry: unknown; leftrightoffset?: number; measure: number }
+        Returns: unknown
+      }
+      st_locatebetween: {
+        Args: {
+          frommeasure: number
+          geometry: unknown
+          leftrightoffset?: number
+          tomeasure: number
+        }
+        Returns: unknown
+      }
+      st_locatebetweenelevations: {
+        Args: { fromelevation: number; geometry: unknown; toelevation: number }
+        Returns: unknown
+      }
+      st_longestline: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_makebox2d: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_makeline: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_makevalid: {
+        Args: { geom: unknown; params: string }
+        Returns: unknown
+      }
+      st_maxdistance: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      st_minimumboundingcircle: {
+        Args: { inputgeom: unknown; segs_per_quarter?: number }
+        Returns: unknown
+      }
+      st_mlinefromtext: { Args: { "": string }; Returns: unknown }
+      st_mpointfromtext: { Args: { "": string }; Returns: unknown }
+      st_mpolyfromtext: { Args: { "": string }; Returns: unknown }
+      st_multilinestringfromtext: { Args: { "": string }; Returns: unknown }
+      st_multipointfromtext: { Args: { "": string }; Returns: unknown }
+      st_multipolygonfromtext: { Args: { "": string }; Returns: unknown }
+      st_node: { Args: { g: unknown }; Returns: unknown }
+      st_normalize: { Args: { geom: unknown }; Returns: unknown }
+      st_offsetcurve: {
+        Args: { distance: number; line: unknown; params?: string }
+        Returns: unknown
+      }
+      st_orderingequals: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      st_overlaps: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      st_perimeter: {
+        Args: { geog: unknown; use_spheroid?: boolean }
+        Returns: number
+      }
+      st_pointfromtext: { Args: { "": string }; Returns: unknown }
+      st_pointm: {
+        Args: {
+          mcoordinate: number
+          srid?: number
+          xcoordinate: number
+          ycoordinate: number
+        }
+        Returns: unknown
+      }
+      st_pointz: {
+        Args: {
+          srid?: number
+          xcoordinate: number
+          ycoordinate: number
+          zcoordinate: number
+        }
+        Returns: unknown
+      }
+      st_pointzm: {
+        Args: {
+          mcoordinate: number
+          srid?: number
+          xcoordinate: number
+          ycoordinate: number
+          zcoordinate: number
+        }
+        Returns: unknown
+      }
+      st_polyfromtext: { Args: { "": string }; Returns: unknown }
+      st_polygonfromtext: { Args: { "": string }; Returns: unknown }
+      st_project: {
+        Args: { azimuth: number; distance: number; geog: unknown }
+        Returns: unknown
+      }
+      st_quantizecoordinates: {
+        Args: {
+          g: unknown
+          prec_m?: number
+          prec_x: number
+          prec_y?: number
+          prec_z?: number
+        }
+        Returns: unknown
+      }
+      st_reduceprecision: {
+        Args: { geom: unknown; gridsize: number }
+        Returns: unknown
+      }
+      st_relate: { Args: { geom1: unknown; geom2: unknown }; Returns: string }
+      st_removerepeatedpoints: {
+        Args: { geom: unknown; tolerance?: number }
+        Returns: unknown
+      }
+      st_segmentize: {
+        Args: { geog: unknown; max_segment_length: number }
+        Returns: unknown
+      }
+      st_setsrid:
+        | { Args: { geog: unknown; srid: number }; Returns: unknown }
+        | { Args: { geom: unknown; srid: number }; Returns: unknown }
+      st_sharedpaths: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_shortestline: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_simplifypolygonhull: {
+        Args: { geom: unknown; is_outer?: boolean; vertex_fraction: number }
+        Returns: unknown
+      }
+      st_split: { Args: { geom1: unknown; geom2: unknown }; Returns: unknown }
+      st_square: {
+        Args: { cell_i: number; cell_j: number; origin?: unknown; size: number }
+        Returns: unknown
+      }
+      st_squaregrid: {
+        Args: { bounds: unknown; size: number }
+        Returns: Record<string, unknown>[]
+      }
+      st_srid:
+        | { Args: { geog: unknown }; Returns: number }
+        | { Args: { geom: unknown }; Returns: number }
+      st_subdivide: {
+        Args: { geom: unknown; gridsize?: number; maxvertices?: number }
+        Returns: unknown[]
+      }
+      st_swapordinates: {
+        Args: { geom: unknown; ords: unknown }
+        Returns: unknown
+      }
+      st_symdifference: {
+        Args: { geom1: unknown; geom2: unknown; gridsize?: number }
+        Returns: unknown
+      }
+      st_symmetricdifference: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_tileenvelope: {
+        Args: {
+          bounds?: unknown
+          margin?: number
+          x: number
+          y: number
+          zoom: number
+        }
+        Returns: unknown
+      }
+      st_touches: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      st_transform:
+        | {
+            Args: { from_proj: string; geom: unknown; to_proj: string }
+            Returns: unknown
+          }
+        | {
+            Args: { from_proj: string; geom: unknown; to_srid: number }
+            Returns: unknown
+          }
+        | { Args: { geom: unknown; to_proj: string }; Returns: unknown }
+      st_triangulatepolygon: { Args: { g1: unknown }; Returns: unknown }
+      st_union:
+        | { Args: { geom1: unknown; geom2: unknown }; Returns: unknown }
+        | {
+            Args: { geom1: unknown; geom2: unknown; gridsize: number }
+            Returns: unknown
+          }
+      st_voronoilines: {
+        Args: { extend_to?: unknown; g1: unknown; tolerance?: number }
+        Returns: unknown
+      }
+      st_voronoipolygons: {
+        Args: { extend_to?: unknown; g1: unknown; tolerance?: number }
+        Returns: unknown
+      }
+      st_within: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      st_wkbtosql: { Args: { wkb: string }; Returns: unknown }
+      st_wkttosql: { Args: { "": string }; Returns: unknown }
+      st_wrapx: {
+        Args: { geom: unknown; move: number; wrap: number }
+        Returns: unknown
+      }
+      treemap_officials_by_donations: {
+        Args: { lim?: number }
+        Returns: {
+          chamber: string
+          official_id: string
+          official_name: string
+          party: string
+          state: string
+          total_donated_cents: number
+        }[]
+      }
+      unlockrows: { Args: { "": string }; Returns: number }
+      updategeometrysrid: {
+        Args: {
+          catalogn_name: string
+          column_name: string
+          new_srid_in: number
+          schema_name: string
+          table_name: string
+        }
+        Returns: string
+      }
     }
     Enums: {
       argument_flag: "off_topic" | "misleading" | "duplicate" | "other"
@@ -2975,6 +4241,8 @@ export type Database = {
         | "contract_award"
         | "nomination_vote_yes"
         | "nomination_vote_no"
+        | "holds_position"
+        | "gift_received"
       donor_type:
         | "individual"
         | "pac"
@@ -2983,6 +4251,18 @@ export type Database = {
         | "union"
         | "party_committee"
         | "small_donor_aggregate"
+        | "other"
+      financial_relationship_type:
+        | "donation"
+        | "gift"
+        | "honorarium"
+        | "loan"
+        | "owns_stock"
+        | "owns_bond"
+        | "property"
+        | "contract"
+        | "grant"
+        | "lobbying_spend"
         | "other"
       flag_content_type: "civic_comment" | "official_community_comment"
       flag_reason:
@@ -3023,6 +4303,8 @@ export type Database = {
         | "district"
         | "precinct"
         | "other"
+        | "school_district"
+        | "special_district"
       notification_event_type:
         | "official_vote"
         | "new_proposal"
@@ -3082,7 +4364,15 @@ export type Database = {
       signature_verification: "unverified" | "email" | "district"
     }
     CompositeTypes: {
-      [_ in never]: never
+      geometry_dump: {
+        path: number[] | null
+        geom: unknown
+      }
+      valid_detail: {
+        valid: boolean | null
+        reason: string | null
+        location: unknown
+      }
     }
   }
 }
@@ -3205,6 +4495,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       argument_flag: ["off_topic", "misleading", "duplicate", "other"],
@@ -3226,6 +4519,8 @@ export const Constants = {
         "contract_award",
         "nomination_vote_yes",
         "nomination_vote_no",
+        "holds_position",
+        "gift_received",
       ],
       donor_type: [
         "individual",
@@ -3235,6 +4530,19 @@ export const Constants = {
         "union",
         "party_committee",
         "small_donor_aggregate",
+        "other",
+      ],
+      financial_relationship_type: [
+        "donation",
+        "gift",
+        "honorarium",
+        "loan",
+        "owns_stock",
+        "owns_bond",
+        "property",
+        "contract",
+        "grant",
+        "lobbying_spend",
         "other",
       ],
       flag_content_type: ["civic_comment", "official_community_comment"],
@@ -3279,6 +4587,8 @@ export const Constants = {
         "district",
         "precinct",
         "other",
+        "school_district",
+        "special_district",
       ],
       notification_event_type: [
         "official_vote",

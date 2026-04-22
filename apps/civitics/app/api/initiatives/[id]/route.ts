@@ -5,14 +5,13 @@ import type { Database } from "@civitics/db";
 
 export const dynamic = "force-dynamic";
 
-type InitiativeDetail = Database["public"]["Tables"]["civic_initiatives"]["Row"];
 type ResponseRow = Database["public"]["Tables"]["civic_initiative_responses"]["Row"];
 
-const VALID_STAGES = ["draft", "deliberate", "mobilise", "resolved"] as const;
 const VALID_SCOPES = ["federal", "state", "local"] as const;
 
 // ─── GET /api/initiatives/[id] ────────────────────────────────────────────────
 // Full initiative detail with signature counts and official responses.
+// Reads from proposals (core) + initiative_details (initiative-specific fields).
 
 export async function GET(
   _request: NextRequest,
@@ -22,19 +21,49 @@ export async function GET(
     const cookieStore = await cookies();
     const supabase = createServerClient(cookieStore);
 
-    // Fetch initiative detail
-    const { data: initiative, error: initError } = await supabase
-      .from("civic_initiatives")
-      .select("*")
+    // Fetch proposal + initiative_details
+    const { data: proposal, error: fetchErr } = await supabase
+      .from("proposals")
+      .select("*, initiative_details(*)")
       .eq("id", params.id)
-      .single();
+      .eq("type", "initiative")
+      .maybeSingle();
 
-    if (initError || !initiative) {
+    if (fetchErr || !proposal || !proposal.initiative_details) {
       return NextResponse.json(
         { error: "Initiative not found" },
         { status: 404 }
       );
     }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const details: any = Array.isArray(proposal.initiative_details)
+      ? proposal.initiative_details[0]
+      : proposal.initiative_details;
+
+    // Flatten to the shape the frontend expects (legacy civic_initiatives shape)
+    const initiative = {
+      id:                   proposal.id,
+      title:                proposal.title,
+      summary:              proposal.summary_plain,
+      status:               proposal.status,
+      jurisdiction_id:      proposal.jurisdiction_id,
+      created_at:           proposal.created_at,
+      updated_at:           proposal.updated_at,
+      resolved_at:          proposal.resolved_at,
+      body_md:              details.body_md,
+      scope:                details.scope,
+      stage:                details.stage,
+      primary_author_id:    details.primary_author_id,
+      authorship_type:      details.authorship_type,
+      issue_area_tags:      details.issue_area_tags,
+      mobilise_started_at:  details.mobilise_started_at,
+      quality_gate_score:   details.quality_gate_score,
+      resolution_type:      details.resolution_type,
+      signature_threshold:  details.signature_threshold,
+      target_district:      details.target_district,
+      promoted_to_proposal_id: details.promoted_to_proposal_id,
+    };
 
     // Fetch counts and responses in parallel
     const [totalRes, verifiedRes, upvoteRes, responsesRes] = await Promise.all([
@@ -60,7 +89,7 @@ export async function GET(
     ]);
 
     return NextResponse.json({
-      initiative: initiative as InitiativeDetail,
+      initiative,
       signature_counts: {
         total: totalRes.count ?? 0,
         constituent_verified: verifiedRes.count ?? 0,
@@ -98,18 +127,25 @@ export async function PATCH(
 
     // Fetch current initiative — must be author, and stage must be draft or deliberate
     const { data: current, error: fetchErr } = await supabase
-      .from("civic_initiatives")
-      .select("id,title,body_md,stage,primary_author_id")
+      .from("proposals")
+      .select("id, title, summary_plain, initiative_details(body_md, stage, primary_author_id)")
       .eq("id", params.id)
-      .single();
+      .eq("type", "initiative")
+      .maybeSingle();
 
-    if (fetchErr || !current) {
+    if (fetchErr || !current || !current.initiative_details) {
       return NextResponse.json({ error: "Initiative not found" }, { status: 404 });
     }
-    if (current.primary_author_id !== user.id) {
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const details: any = Array.isArray(current.initiative_details)
+      ? current.initiative_details[0]
+      : current.initiative_details;
+
+    if (details.primary_author_id !== user.id) {
       return NextResponse.json({ error: "Only the author can edit this initiative" }, { status: 403 });
     }
-    if (current.stage !== "draft" && current.stage !== "deliberate") {
+    if (details.stage !== "draft" && details.stage !== "deliberate") {
       return NextResponse.json(
         { error: "Proposal text is frozen once mobilising begins" },
         { status: 400 }
@@ -135,7 +171,7 @@ export async function PATCH(
     const admin = createAdminClient();
 
     // Snapshot the current version before overwriting
-    const bodyChanged = body_md !== undefined && body_md.trim() !== current.body_md;
+    const bodyChanged = body_md !== undefined && body_md.trim() !== details.body_md;
     const titleChanged = title !== undefined && title.trim() !== current.title;
 
     if (bodyChanged || titleChanged) {
@@ -146,39 +182,69 @@ export async function PATCH(
         .eq("initiative_id", params.id)
         .order("version_number", { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       const nextVersion = (latestVersion?.version_number ?? 0) + 1;
 
       await admin.from("civic_initiative_versions").insert({
         initiative_id: params.id,
         version_number: nextVersion,
-        body_md: current.body_md,
+        body_md: details.body_md,
         title: current.title,
         edited_by: user.id,
       });
     }
 
-    // Apply update
-    const updates: Record<string, unknown> = {};
-    if (title !== undefined) updates.title = title.trim();
-    if (summary !== undefined) updates.summary = summary?.trim() ?? null;
-    if (body_md !== undefined) updates.body_md = body_md.trim();
-    if (scope !== undefined) updates.scope = scope;
-    if (Array.isArray(issue_area_tags)) updates.issue_area_tags = issue_area_tags;
+    // Apply update — split between proposals (title, summary_plain) and initiative_details (body_md, scope, issue_area_tags)
+    const proposalUpdates: Record<string, unknown> = {};
+    if (title !== undefined) proposalUpdates.title = title.trim();
+    if (summary !== undefined) proposalUpdates.summary_plain = summary?.trim() ?? null;
 
-    const { data: updated, error: updateErr } = await admin
-      .from("civic_initiatives")
-      .update(updates)
-      .eq("id", params.id)
-      .select("id,title,stage,updated_at")
-      .single();
+    const detailUpdates: Record<string, unknown> = {};
+    if (body_md !== undefined) detailUpdates.body_md = body_md.trim();
+    if (scope !== undefined) detailUpdates.scope = scope;
+    if (Array.isArray(issue_area_tags)) detailUpdates.issue_area_tags = issue_area_tags;
 
-    if (updateErr) {
-      return NextResponse.json({ error: "Failed to update initiative" }, { status: 500 });
+    if (Object.keys(proposalUpdates).length > 0) {
+      const { error: pErr } = await admin
+        .from("proposals")
+        .update(proposalUpdates)
+        .eq("id", params.id);
+      if (pErr) {
+        return NextResponse.json({ error: "Failed to update initiative" }, { status: 500 });
+      }
     }
 
-    return NextResponse.json({ initiative: updated });
+    if (Object.keys(detailUpdates).length > 0) {
+      const { error: dErr } = await admin
+        .from("initiative_details")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .update(detailUpdates as any)
+        .eq("proposal_id", params.id);
+      if (dErr) {
+        return NextResponse.json({ error: "Failed to update initiative" }, { status: 500 });
+      }
+    }
+
+    const { data: updated } = await admin
+      .from("proposals")
+      .select("id, title, updated_at, initiative_details(stage)")
+      .eq("id", params.id)
+      .single();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const updatedDetails: any = updated?.initiative_details
+      ? (Array.isArray(updated.initiative_details) ? updated.initiative_details[0] : updated.initiative_details)
+      : null;
+
+    return NextResponse.json({
+      initiative: {
+        id: updated?.id,
+        title: updated?.title,
+        stage: updatedDetails?.stage,
+        updated_at: updated?.updated_at,
+      },
+    });
   } catch {
     return NextResponse.json({ error: "Failed to update initiative" }, { status: 500 });
   }

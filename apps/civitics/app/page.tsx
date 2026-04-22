@@ -299,18 +299,18 @@ export default async function HomePage({
       .in("status", ["open_comment", "introduced", "in_committee", "floor_vote"]),
     supabase
       .from("financial_relationships")
-      .select("id", { count: "exact", head: true }),
+      .select("id", { count: "exact", head: true })
+      .eq("relationship_type", "donation"),
     supabase
-      .from("spending_records")
-      .select("id", { count: "exact", head: true }),
+      .from("financial_relationships")
+      .select("id", { count: "exact", head: true })
+      .in("relationship_type", ["contract", "grant"]),
     supabase
       .from("proposals")
-      .select(
-        "id,title,type,status,regulations_gov_id,congress_gov_url,comment_period_end,summary_plain,summary_model,introduced_at,metadata"
-      )
+      .select("id,title,type,status,summary_plain,summary_model,introduced_at,metadata")
       .eq("status", "open_comment")
-      .gt("comment_period_end", now)
-      .order("comment_period_end", { ascending: true })
+      .gt("metadata->>comment_period_end", now)
+      .order("metadata->>comment_period_end", { ascending: true })
       .limit(3),
     supabase
       .from("agencies")
@@ -326,17 +326,44 @@ export default async function HomePage({
       .limit(5000),
   ]);
 
+  // Flatten proposals rows into legacy ProposalCardData shape — post-promotion
+  // regulations_gov_id / congress_gov_url / comment_period_end live in metadata.
+  type ProposalRow = {
+    id: string;
+    title: string;
+    type: string;
+    status: string;
+    summary_plain: string | null;
+    summary_model: string | null;
+    introduced_at: string | null;
+    metadata: Record<string, string> | null;
+  };
+  function toCardShape(r: ProposalRow): ProposalCardData {
+    const meta = (r.metadata ?? {}) as Record<string, string>;
+    return {
+      id:                 r.id,
+      title:              r.title,
+      type:               r.type,
+      status:             r.status,
+      regulations_gov_id: meta.regulations_gov_id ?? null,
+      congress_gov_url:   meta.congress_gov_url   ?? null,
+      comment_period_end: meta.comment_period_end ?? null,
+      summary_plain:      r.summary_plain,
+      summary_model:      r.summary_model,
+      introduced_at:      r.introduced_at,
+      metadata:           meta,
+    };
+  }
+
   // ── Proposal fallback: if no open comment periods, show most recent ────────
-  let rawProposals = (openProposalsRes.data ?? []) as ProposalCardData[];
+  let rawProposals: ProposalCardData[] = ((openProposalsRes.data ?? []) as ProposalRow[]).map(toCardShape);
   if (rawProposals.length === 0) {
     const { data: fallback } = await supabase
       .from("proposals")
-      .select(
-        "id,title,type,status,regulations_gov_id,congress_gov_url,comment_period_end,summary_plain,summary_model,introduced_at,metadata"
-      )
+      .select("id,title,type,status,summary_plain,summary_model,introduced_at,metadata")
       .order("introduced_at", { ascending: false, nullsFirst: false })
       .limit(3);
-    rawProposals = (fallback ?? []) as ProposalCardData[];
+    rawProposals = ((fallback ?? []) as ProposalRow[]).map(toCardShape);
   }
 
   // ── Initiatives ranked by upvote count ─────────────────────────────────────
@@ -350,28 +377,74 @@ export default async function HomePage({
     .slice(0, 4)
     .map(([id]) => id);
 
-  // Fetch the top-4 rows, plus a fallback newest-4 if there aren't enough upvotes
+  // Fetch the top-4 rows, plus a fallback newest-4 if there aren't enough upvotes.
+  // Post-promotion, initiatives = proposals(type='initiative') + initiative_details
+  // satellite row (keyed by proposal_id). We join initiative_details → proposals and
+  // flatten back to the legacy InitiativeCardData shape.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sbAny = supabase as any;
-  const initiativeSelect =
-    "id,title,summary,stage,scope,authorship_type,issue_area_tags,target_district,mobilise_started_at,created_at,resolved_at";
+  const initiativeJoinSelect =
+    "proposal_id,stage,scope,authorship_type,issue_area_tags,target_district,mobilise_started_at,resolved_at,proposals!inner(id,title,summary_plain,type,created_at)";
   const [topInitiativesRes, fallbackInitiativesRes] = await Promise.all([
     topInitiativeIds.length > 0
       ? sbAny
-          .from("civic_initiatives")
-          .select(initiativeSelect)
-          .in("id", topInitiativeIds)
+          .from("initiative_details")
+          .select(initiativeJoinSelect)
+          .in("proposal_id", topInitiativeIds)
           .neq("stage", "draft")
-      : Promise.resolve({ data: [] as InitiativeCardData[] }),
+          .eq("proposals.type", "initiative")
+      : Promise.resolve({ data: [] }),
     topInitiativeIds.length < 4
       ? sbAny
-          .from("civic_initiatives")
-          .select(initiativeSelect)
+          .from("initiative_details")
+          .select(initiativeJoinSelect)
           .neq("stage", "draft")
-          .order("created_at", { ascending: false })
+          .eq("proposals.type", "initiative")
+          .order("created_at", { ascending: false, referencedTable: "proposals" })
           .limit(4)
-      : Promise.resolve({ data: [] as InitiativeCardData[] }),
+      : Promise.resolve({ data: [] }),
   ]);
+
+  type InitiativeJoinRow = {
+    proposal_id:         string;
+    stage:               string;
+    scope:               string;
+    authorship_type:     string;
+    issue_area_tags:     string[] | null;
+    target_district:     string | null;
+    mobilise_started_at: string | null;
+    resolved_at:         string | null;
+    proposals: {
+      id:            string;
+      title:         string;
+      summary_plain: string | null;
+      type:          string;
+      created_at:    string;
+    } | Array<{
+      id:            string;
+      title:         string;
+      summary_plain: string | null;
+      type:          string;
+      created_at:    string;
+    }>;
+  };
+
+  function flattenInitiativeRow(r: InitiativeJoinRow): InitiativeCardData {
+    const p = Array.isArray(r.proposals) ? r.proposals[0]! : r.proposals;
+    return {
+      id:                  r.proposal_id,
+      title:               p.title,
+      summary:             p.summary_plain,
+      stage:               r.stage,
+      scope:               r.scope,
+      authorship_type:     r.authorship_type,
+      issue_area_tags:     r.issue_area_tags ?? [],
+      target_district:     r.target_district,
+      mobilise_started_at: r.mobilise_started_at,
+      created_at:          p.created_at,
+      resolved_at:         r.resolved_at,
+    };
+  }
 
   // ── Wave 2: officials + agency stats + proposal enrichment (parallel) ──────
   const proposalIds = rawProposals.map((p) => p.id);
@@ -415,7 +488,7 @@ export default async function HomePage({
           .select("id", { count: "exact", head: true })
           .filter("metadata->>agency_id", "eq", key)
           .eq("status", "open_comment")
-          .gt("comment_period_end", now),
+          .gt("metadata->>comment_period_end", now),
       ]);
     }),
   ]);
@@ -517,9 +590,9 @@ export default async function HomePage({
   });
 
   // Initiatives → InitiativeCardData (attach upvote count)
-  const initiativeRows = [
-    ...((topInitiativesRes.data as InitiativeCardData[] | null) ?? []),
-    ...((fallbackInitiativesRes.data as InitiativeCardData[] | null) ?? []),
+  const initiativeRows: InitiativeCardData[] = [
+    ...((topInitiativesRes.data as InitiativeJoinRow[] | null) ?? []).map(flattenInitiativeRow),
+    ...((fallbackInitiativesRes.data as InitiativeJoinRow[] | null) ?? []).map(flattenInitiativeRow),
   ];
   // Dedupe by id, preserve insertion order (top-by-upvotes first)
   const seenInit = new Set<string>();

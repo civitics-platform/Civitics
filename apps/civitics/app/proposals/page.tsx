@@ -112,15 +112,15 @@ export default async function ProposalsPage({
   // ─── Featured section queries (all three tabs) ────────────────────────────
   const openFeaturedQuery = supabase
     .from("proposals")
-    .select("id,title,type,status,regulations_gov_id,congress_gov_url,comment_period_end,summary_plain,summary_model,introduced_at,metadata")
+    .select("id,title,type,status,summary_plain,summary_model,introduced_at,metadata")
     .eq("status", "open_comment")
-    .gt("comment_period_end", now)
-    .order("comment_period_end", { ascending: true })
+    .gt("metadata->>comment_period_end", now)
+    .order("metadata->>comment_period_end", { ascending: true })
     .limit(6);
 
   const billsQuery = supabase
     .from("proposals")
-    .select("id,title,type,status,regulations_gov_id,congress_gov_url,comment_period_end,summary_plain,summary_model,introduced_at,metadata")
+    .select("id,title,type,status,summary_plain,summary_model,introduced_at,metadata")
     .eq("type", "bill")
     .order("introduced_at", { ascending: false, nullsFirst: false })
     .limit(6);
@@ -147,7 +147,7 @@ export default async function ProposalsPage({
     topProposalIds.length > 0
       ? supabase
           .from("proposals")
-          .select("id,title,type,status,regulations_gov_id,congress_gov_url,comment_period_end,summary_plain,summary_model,introduced_at,metadata")
+          .select("id,title,type,status,summary_plain,summary_model,introduced_at,metadata")
           .in("id", topProposalIds)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       : Promise.resolve({ data: [] as any[], error: null });
@@ -172,7 +172,7 @@ export default async function ProposalsPage({
   const trendingQuery = trendingIds.length > 0
     ? supabase
         .from("proposals")
-        .select("id,title,type,status,regulations_gov_id,congress_gov_url,comment_period_end,summary_plain,summary_model,introduced_at,metadata")
+        .select("id,title,type,status,summary_plain,summary_model,introduced_at,metadata")
         .in("id", trendingIds)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     : Promise.resolve({ data: [] as any[], error: null });
@@ -180,29 +180,32 @@ export default async function ProposalsPage({
   const mostCommentedQuery = mostCommentedIds.length > 0
     ? supabase
         .from("proposals")
-        .select("id,title,type,status,regulations_gov_id,congress_gov_url,comment_period_end,summary_plain,summary_model,introduced_at,metadata")
+        .select("id,title,type,status,summary_plain,summary_model,introduced_at,metadata")
         .in("id", mostCommentedIds)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     : Promise.resolve({ data: [] as any[], error: null });
 
   const newestQuery = supabase
     .from("proposals")
-    .select("id,title,type,status,regulations_gov_id,congress_gov_url,comment_period_end,summary_plain,summary_model,introduced_at,metadata")
+    .select("id,title,type,status,summary_plain,summary_model,introduced_at,metadata")
     .order("introduced_at", { ascending: false, nullsFirst: false })
     .limit(6);
 
   // ─── Filtered main list ───────────────────────────────────────────────────
   let mainQuery = supabase
     .from("proposals")
-    .select("id,title,type,status,regulations_gov_id,congress_gov_url,comment_period_end,summary_plain,summary_model,introduced_at,metadata", {
-      count: "exact",
-    });
+    .select(
+      "id,title,type,status,summary_plain,summary_model,introduced_at,metadata",
+      { count: "exact" },
+    );
 
-  // Status filter
+  // Status filter — comment_period_end now lives in metadata JSONB.
   if (statusFilter === "open") {
-    mainQuery = mainQuery.eq("status", "open_comment").gt("comment_period_end", now);
+    mainQuery = mainQuery.eq("status", "open_comment").gt("metadata->>comment_period_end", now);
   } else if (statusFilter === "closed") {
-    mainQuery = mainQuery.or(`status.eq.comment_closed,and(status.eq.open_comment,comment_period_end.lt.${now})`);
+    mainQuery = mainQuery.or(
+      `status.eq.comment_closed,and(status.eq.open_comment,metadata->>comment_period_end.lt.${now})`
+    );
   }
   // "all" — no status filter
 
@@ -238,7 +241,7 @@ export default async function ProposalsPage({
     mainQuery = mainQuery.order("title", { ascending: true });
   } else {
     // Default: closing soonest first (but open periods still come before nulls)
-    mainQuery = mainQuery.order("comment_period_end", { ascending: true, nullsFirst: false });
+    mainQuery = mainQuery.order("metadata->>comment_period_end", { ascending: true, nullsFirst: false });
   }
   mainQuery = mainQuery.range(offset, offset + PAGE_SIZE - 1);
 
@@ -252,13 +255,42 @@ export default async function ProposalsPage({
     mainQuery,
   ]);
 
-  const rawOpenFeatured   = (openFeaturedRes.data  ?? []) as ProposalCardData[];
-  const rawBills          = (billsRes.data          ?? []) as ProposalCardData[];
-  const rawMostViewed     = (mostViewedRes.data     ?? []) as ProposalCardData[];
-  const rawTrending       = (trendingRes.data       ?? []) as ProposalCardData[];
-  const rawMostCommented  = (mostCommentedRes.data  ?? []) as ProposalCardData[];
-  const rawNewest         = (newestRes.data         ?? []) as ProposalCardData[];
-  const rawMainProposals  = (mainRes.data           ?? []) as ProposalCardData[];
+  // Post-promotion, regulations_gov_id / congress_gov_url / comment_period_end
+  // live in proposals.metadata — flatten back into the legacy ProposalCardData shape.
+  type ProposalRow = {
+    id: string;
+    title: string;
+    type: string;
+    status: string;
+    summary_plain: string | null;
+    summary_model: string | null;
+    introduced_at: string | null;
+    metadata: Record<string, string> | null;
+  };
+  function toCardShape(r: ProposalRow): ProposalCardData {
+    const meta = (r.metadata ?? {}) as Record<string, string>;
+    return {
+      id:                 r.id,
+      title:              r.title,
+      type:               r.type,
+      status:             r.status,
+      regulations_gov_id: meta.regulations_gov_id ?? null,
+      congress_gov_url:   meta.congress_gov_url   ?? null,
+      comment_period_end: meta.comment_period_end ?? null,
+      summary_plain:      r.summary_plain,
+      summary_model:      r.summary_model,
+      introduced_at:      r.introduced_at,
+      metadata:           meta,
+    };
+  }
+
+  const rawOpenFeatured   = ((openFeaturedRes.data  ?? []) as ProposalRow[]).map(toCardShape);
+  const rawBills          = ((billsRes.data          ?? []) as ProposalRow[]).map(toCardShape);
+  const rawMostViewed     = ((mostViewedRes.data     ?? []) as ProposalRow[]).map(toCardShape);
+  const rawTrending       = ((trendingRes.data       ?? []) as ProposalRow[]).map(toCardShape);
+  const rawMostCommented  = ((mostCommentedRes.data  ?? []) as ProposalRow[]).map(toCardShape);
+  const rawNewest         = ((newestRes.data         ?? []) as ProposalRow[]).map(toCardShape);
+  const rawMainProposals  = ((mainRes.data           ?? []) as ProposalRow[]).map(toCardShape);
   const totalCount = mainRes.count ?? 0;
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 

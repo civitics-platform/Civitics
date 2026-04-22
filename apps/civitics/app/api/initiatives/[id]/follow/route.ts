@@ -63,10 +63,10 @@ export async function POST(
 
     // Verify initiative exists
     const { data: initiative, error: initError } = await supabase
-      .from("civic_initiatives")
-      .select("id")
-      .eq("id", params.id)
-      .single();
+      .from("initiative_details")
+      .select("proposal_id")
+      .eq("proposal_id", params.id)
+      .maybeSingle();
 
     if (initError || !initiative) {
       return NextResponse.json({ error: "Initiative not found" }, { status: 404 });

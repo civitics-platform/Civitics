@@ -70,24 +70,71 @@ export async function GET(request: Request) {
 
   const supabase = createAdminClient();
 
-  // Use existing fuzzy-search RPC (trigram + ILIKE across all entity tables)
-  // QWEN-ADDED: Add generic type to withDbTimeout for RPC call
-  const { data, error } = await withDbTimeout<{
-    data: SearchRow[] | null;
-    error: { message: string } | null;
-  }>(
-    supabase.rpc("search_graph_entities", {
-      q,
-      lim: 20,
-    })
-  );
+  // search_graph_entities RPC was retired in the shadow→public promotion. We now
+  // do four parallel ILIKE queries and merge. Good enough for prefix/substring
+  // match; trigram fuzzy match can come back as a dedicated pg_trgm RPC later.
+  const like = `%${q}%`;
+  const [officialsRes, agenciesRes, financialRes, proposalsRes] = await Promise.all([
+    withDbTimeout(
+      supabase
+        .from("officials")
+        .select("id, full_name, role_title, party")
+        .ilike("full_name", like)
+        .limit(20),
+    ),
+    withDbTimeout(
+      supabase
+        .from("agencies")
+        .select("id, name, acronym, agency_type")
+        .or(`name.ilike.${like},acronym.ilike.${like}`)
+        .limit(20),
+    ),
+    withDbTimeout(
+      supabase
+        .from("financial_entities")
+        .select("id, display_name, entity_type, industry")
+        .ilike("display_name", like)
+        .limit(20),
+    ),
+    withDbTimeout(
+      supabase
+        .from("proposals")
+        .select("id, title, type")
+        .ilike("title", like)
+        .limit(20),
+    ),
+  ]);
 
-  if (error) {
-    console.error("[graph/entities]", error.message);
-    return Response.json({ results: [], total: 0 }, { status: 500 });
+  type OfficialRow = { id: string; full_name: string; role_title: string | null; party: string | null };
+  type AgencyRow = { id: string; name: string; acronym: string | null; agency_type: string | null };
+  type FinancialRow = { id: string; display_name: string; entity_type: string | null; industry: string | null };
+  type ProposalRow = { id: string; title: string; type: string | null };
+
+  let rows: SearchRow[] = [];
+  for (const o of ((officialsRes as { data: OfficialRow[] | null }).data ?? [])) {
+    rows.push({ id: o.id, label: o.full_name, entity_type: "official", subtitle: o.role_title, party: o.party });
   }
-
-  let rows = data ?? [];
+  for (const a of ((agenciesRes as { data: AgencyRow[] | null }).data ?? [])) {
+    rows.push({
+      id: a.id,
+      label: a.acronym ? `${a.acronym} — ${a.name}` : a.name,
+      entity_type: "agency",
+      subtitle: a.agency_type,
+      party: null,
+    });
+  }
+  for (const f of ((financialRes as { data: FinancialRow[] | null }).data ?? [])) {
+    rows.push({
+      id: f.id,
+      label: f.display_name,
+      entity_type: "financial",
+      subtitle: f.industry ?? f.entity_type,
+      party: null,
+    });
+  }
+  for (const p of ((proposalsRes as { data: ProposalRow[] | null }).data ?? [])) {
+    rows.push({ id: p.id, label: p.title, entity_type: "proposal", subtitle: p.type, party: null });
+  }
 
   // Optional type filter (post-RPC since the RPC mixes all types)
   if (typeFilter) {

@@ -60,45 +60,18 @@ function mapEdgeType(dbType: string): EdgeType {
 }
 
 /**
- * Remove connections to proposals whose vote_category = 'procedural'.
- * Procedural votes (cloture, passage motions, etc.) clutter the graph
- * without providing accountability insight. Hidden by default; researchers
- * can opt in with ?include_procedural=true.
- *
- * Non-proposal connections (donations, oversight, etc.) are always kept.
+ * Procedural/substantive distinction now lives on votes.vote_question (per-roll-call),
+ * not on proposals as a whole. entity_connections aggregates officials↔bill edges, so
+ * there is no longer a 1:1 way to filter "procedural" at the graph level. Kept as a
+ * no-op so the ?include_procedural=true flag still parses; revisit when the votes
+ * pipeline exposes aggregate procedural/substantive flags on connections.
  */
 async function filterProceduralConnections(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabase: any,
+  _supabase: any,
   connections: ConnectionRow[],
 ): Promise<ConnectionRow[]> {
-  const proposalIds = [
-    ...new Set(
-      connections
-        .filter((c) => c.to_type === "proposal")
-        .map((c) => c.to_id),
-    ),
-  ];
-
-  if (proposalIds.length === 0) return connections;
-
-  const { data } = await supabase
-    .from("proposals")
-    .select("id, vote_category")
-    .in("id", proposalIds);
-
-  const proceduralIds = new Set(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ((data ?? []) as unknown as { id: string; vote_category: string | null }[])
-      .filter((p) => p.vote_category === "procedural")
-      .map((p) => p.id),
-  );
-
-  if (proceduralIds.size === 0) return connections;
-
-  return connections.filter(
-    (c) => c.to_type !== "proposal" || !proceduralIds.has(c.to_id),
-  );
+  return connections;
 }
 
 export async function GET(request: Request) {
@@ -322,8 +295,8 @@ export async function GET(request: Request) {
         ? supabase.from("governing_bodies").select("id, name").in("id", gbIds)
         : Promise.resolve({ data: [] as { id: string; name: string }[] }),
       financialIds.length
-        ? supabase.from("financial_entities").select("id, name, entity_type").in("id", financialIds)
-        : Promise.resolve({ data: [] as { id: string; name: string; entity_type: string }[] }),
+        ? supabase.from("financial_entities").select("id, display_name, entity_type").in("id", financialIds)
+        : Promise.resolve({ data: [] as { id: string; display_name: string; entity_type: string }[] }),
     ]);
 
     // ── Build name lookup ───────────────────────────────────────────────────
@@ -332,7 +305,7 @@ export async function GET(request: Request) {
     for (const a of agenciesRes.data ?? []) nameMap.set(a.id, { label: a.acronym ?? a.name });
     for (const p of proposalsRes.data ?? []) nameMap.set(p.id, { label: p.title });
     for (const g of gbRes.data ?? []) nameMap.set(g.id, { label: g.name });
-    for (const f of financialRes.data ?? []) nameMap.set(f.id, { label: f.name, subType: f.entity_type });
+    for (const f of financialRes.data ?? []) nameMap.set(f.id, { label: f.display_name, subType: f.entity_type });
 
     // ── Build nodes ────────────────────────────────────────────────────────
     const nodes: GraphNode[] = [];

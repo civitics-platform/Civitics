@@ -1,5 +1,5 @@
 import { createAdminClient } from "@civitics/db";
-import { supabaseUnavailable, unavailableResponse, withDbTimeout } from "@/lib/supabase-check";
+import { supabaseUnavailable, unavailableResponse } from "@/lib/supabase-check";
 
 export const dynamic = "force-dynamic";
 
@@ -34,43 +34,55 @@ export async function GET(request: Request) {
   // ── Sector mode ──────────────────────────────────────────────────────────────
 
   if (groupBy === "sector") {
-    // QWEN-ADDED: Add generic type to withDbTimeout for financial_relationships sector query
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await withDbTimeout<any>(
-      supabase
-        .from("financial_relationships")
-        .select("donor_name, amount_cents, metadata")
-        .in("donor_type", ["pac", "party_committee"])
-        .not("metadata->>sector", "is", null)
-        .neq("metadata->>sector", "Other")
-    );
+    // Step 1: PAC/party committee entities with a sector.
+    const { data: pacEntities, error: pacErr } = await supabase
+      .from("financial_entities")
+      .select("id, display_name, industry, entity_type")
+      .in("entity_type", ["pac", "party_committee"])
+      .not("industry", "is", null)
+      .neq("industry", "Other");
 
-    if (error) {
-      console.error("[treemap-pac/sector] query error:", error.message);
-      return Response.json({ error: error.message }, { status: 500 });
+    if (pacErr) {
+      console.error("[treemap-pac/sector] query error:", pacErr.message);
+      return Response.json({ error: pacErr.message }, { status: 500 });
     }
 
-    // sector → donor → { totalUsd, count }
+    const pacInfo = new Map<string, { name: string; sector: string }>();
+    for (const p of pacEntities ?? []) {
+      if (!p.industry) continue;
+      pacInfo.set(p.id, { name: p.display_name, sector: p.industry });
+    }
+
+    // Step 2: their donations.
+    const pacIds = [...pacInfo.keys()];
     const bySector = new Map<string, Map<string, { totalUsd: number; count: number }>>();
+    if (pacIds.length > 0) {
+      const BATCH = 300;
+      for (let i = 0; i < pacIds.length; i += BATCH) {
+        const batch = pacIds.slice(i, i + BATCH);
+        const { data: donations } = await supabase
+          .from("financial_relationships")
+          .select("from_id, amount_cents")
+          .eq("relationship_type", "donation")
+          .eq("from_type", "financial_entity")
+          .in("from_id", batch);
 
-    for (const row of data ?? []) {
-      const meta   = row.metadata as Record<string, string> | null;
-      const sector = meta?.sector;
-      if (!sector || sector === "Other") continue;
-      const donor  = (row.donor_name as string) ?? "Unknown";
+        for (const row of donations ?? []) {
+          const info = pacInfo.get(row.from_id);
+          if (!info) continue;
+          const donorUpper = info.name.toUpperCase();
+          if (
+            donorUpper.includes("PAC/COMMITTEE") ||
+            donorUpper.includes("COMMITTEE CONTRIBUTIONS")
+          ) continue;
+          const usd = (row.amount_cents ?? 0) / 100;
 
-      // Skip FEC aggregate artifact entries
-      const donorUpper = donor.toUpperCase();
-      if (
-        donorUpper.includes("PAC/COMMITTEE") ||
-        donorUpper.includes("COMMITTEE CONTRIBUTIONS")
-      ) continue;
-      const usd    = (row.amount_cents as number) / 100;
-
-      if (!bySector.has(sector)) bySector.set(sector, new Map());
-      const donors = bySector.get(sector)!;
-      const prev   = donors.get(donor) ?? { totalUsd: 0, count: 0 };
-      donors.set(donor, { totalUsd: prev.totalUsd + usd, count: prev.count + 1 });
+          if (!bySector.has(info.sector)) bySector.set(info.sector, new Map());
+          const donors = bySector.get(info.sector)!;
+          const prev = donors.get(info.name) ?? { totalUsd: 0, count: 0 };
+          donors.set(info.name, { totalUsd: prev.totalUsd + usd, count: prev.count + 1 });
+        }
+      }
     }
 
     // Build hierarchy — top 15 sectors, top 20 donors each
@@ -97,44 +109,73 @@ export async function GET(request: Request) {
   }
 
   // ── Party mode ───────────────────────────────────────────────────────────────
+  // get_pac_donations_by_party RPC was retired in the shadow→public promotion.
+  // We reconstruct the aggregation app-side by joining PACs → donations → officials.
 
-  // donor_type filter is enforced inside the RPC function
-  // QWEN-ADDED: Add generic type to withDbTimeout for get_pac_donations_by_party RPC
-  const { data, error } = await withDbTimeout<{
-    data: Array<{ total_usd: number; donor_name: string; party: string; donation_count: number }> | null;
-    error: { message: string } | null;
-  }>(
-    supabase.rpc("get_pac_donations_by_party")
-  );
+  const { data: pacEntities2 } = await supabase
+    .from("financial_entities")
+    .select("id, display_name")
+    .in("entity_type", ["pac", "party_committee"]);
 
-  if (error) {
-    console.error("[treemap-pac/party] rpc error:", error.message);
-    return Response.json({ error: error.message }, { status: 500 });
+  const pacInfo2 = new Map<string, string>();
+  for (const p of pacEntities2 ?? []) pacInfo2.set(p.id, p.display_name);
+
+  type DonationRow = { from_id: string; to_id: string; amount_cents: number | null };
+  const donations: DonationRow[] = [];
+  const pacIds2 = [...pacInfo2.keys()];
+  if (pacIds2.length > 0) {
+    const BATCH = 300;
+    for (let i = 0; i < pacIds2.length; i += BATCH) {
+      const batch = pacIds2.slice(i, i + BATCH);
+      const { data } = await supabase
+        .from("financial_relationships")
+        .select("from_id, to_id, amount_cents")
+        .eq("relationship_type", "donation")
+        .eq("from_type", "financial_entity")
+        .eq("to_type", "official")
+        .in("from_id", batch);
+      if (data) donations.push(...data);
+    }
+  }
+
+  const officialIds = [...new Set(donations.map((d) => d.to_id))];
+  const officialParty = new Map<string, string>();
+  if (officialIds.length > 0) {
+    const BATCH = 300;
+    for (let i = 0; i < officialIds.length; i += BATCH) {
+      const batch = officialIds.slice(i, i + BATCH);
+      const { data: offs } = await supabase
+        .from("officials")
+        .select("id, party")
+        .in("id", batch);
+      for (const o of offs ?? []) officialParty.set(o.id, o.party ?? "Unknown");
+    }
   }
 
   // party → donor → { totalUsd, count }
   const byParty = new Map<string, Map<string, { totalUsd: number; count: number }>>();
+  const donorCombined = new Map<string, { party: string; totalUsd: number; count: number }>();
 
-  for (const row of data ?? []) {
-    const usd = Number(row.total_usd) ?? 0;
-    if (usd <= 10000) continue; // skip tiny donations
+  for (const row of donations) {
+    const donor = pacInfo2.get(row.from_id);
+    if (!donor) continue;
+    const party = officialParty.get(row.to_id) ?? "Unknown";
+    const usd = (row.amount_cents ?? 0) / 100;
+    const key = `${party}|${donor}`;
+    const prev = donorCombined.get(key) ?? { party, totalUsd: 0, count: 0 };
+    donorCombined.set(key, { party, totalUsd: prev.totalUsd + usd, count: prev.count + 1 });
+  }
 
-    const donor = (row.donor_name as string) ?? "Unknown";
-
-    // Skip FEC aggregate artifact entries
+  for (const [key, val] of donorCombined) {
+    if (val.totalUsd <= 10000) continue;
+    const donor = key.slice(val.party.length + 1);
     const donorUpper = donor.toUpperCase();
     if (
       donorUpper.includes("PAC/COMMITTEE") ||
       donorUpper.includes("COMMITTEE CONTRIBUTIONS")
     ) continue;
-
-    const party = (row.party as string) ?? "Unknown";
-    const count = Number(row.donation_count) ?? 0;
-
-    if (!byParty.has(party)) byParty.set(party, new Map());
-    const donors = byParty.get(party)!;
-    const prev   = donors.get(donor) ?? { totalUsd: 0, count: 0 };
-    donors.set(donor, { totalUsd: prev.totalUsd + usd, count: prev.count + count });
+    if (!byParty.has(val.party)) byParty.set(val.party, new Map());
+    byParty.get(val.party)!.set(donor, { totalUsd: val.totalUsd, count: val.count });
   }
 
   // Build hierarchy — top 3 parties, top 50 donors each

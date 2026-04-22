@@ -46,10 +46,10 @@ export async function POST(
 
     // Verify initiative exists and user is the primary author
     const { data: initiative, error: initError } = await supabase
-      .from("civic_initiatives")
-      .select("id, primary_author_id")
-      .eq("id", params.id)
-      .single();
+      .from("initiative_details")
+      .select("proposal_id, primary_author_id")
+      .eq("proposal_id", params.id)
+      .maybeSingle();
 
     if (initError || !initiative) {
       return NextResponse.json({ error: "Initiative not found" }, { status: 404 });
@@ -85,13 +85,16 @@ export async function POST(
     // Verify proposal exists
     const { data: proposal, error: propError } = await adminClient
       .from("proposals")
-      .select("id, title, bill_number")
+      .select("id, title, bill_details(bill_number)")
       .eq("id", proposal_id)
       .single();
 
     if (propError || !proposal) {
       return NextResponse.json({ error: "Proposal not found" }, { status: 404 });
     }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const bd = Array.isArray(proposal.bill_details) ? (proposal.bill_details[0] as any) : (proposal.bill_details as any);
 
     // Create link (idempotent — ignore if already linked)
     const { error: insertError } = await adminClient
@@ -113,7 +116,7 @@ export async function POST(
       linked:       true,
       proposal_id:  proposal.id,
       title:        proposal.title,
-      bill_number:  proposal.bill_number ?? null,
+      bill_number:  bd?.bill_number ?? null,
     });
   } catch {
     return NextResponse.json(
@@ -136,7 +139,7 @@ export async function GET(
 
     const { data, error } = await supabase
       .from("civic_initiative_proposal_links")
-      .select("proposal_id, proposals!proposal_id(id, title, bill_number, short_title, status, type)")
+      .select("proposal_id, proposals!proposal_id(id, title, short_title, status, type, bill_details(bill_number))")
       .eq("initiative_id", params.id)
       .order("created_at", { ascending: false });
 
@@ -148,7 +151,19 @@ export async function GET(
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const proposals = (data ?? []).map((row: any) => row.proposals).filter(Boolean);
+    const proposals = (data ?? []).map((row: any) => {
+      const p = row.proposals;
+      if (!p) return null;
+      const bd = Array.isArray(p.bill_details) ? p.bill_details[0] : p.bill_details;
+      return {
+        id:          p.id,
+        title:       p.title,
+        short_title: p.short_title,
+        status:      p.status,
+        type:        p.type,
+        bill_number: bd?.bill_number ?? null,
+      };
+    }).filter(Boolean);
     return NextResponse.json({ proposals });
   } catch {
     return NextResponse.json(

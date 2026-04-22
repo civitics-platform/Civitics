@@ -28,30 +28,38 @@ export async function POST(
       return NextResponse.json({ error: "Sign in to advance this initiative" }, { status: 401 });
     }
 
-    // Fetch initiative — must be author
-    const { data: initiative } = await supabase
-      .from("civic_initiatives")
-      .select("id,stage,primary_author_id,mobilise_started_at,jurisdiction_id,scope")
+    // Fetch initiative — core (proposals) + initiative-specific (initiative_details).
+    const { data: proposal } = await supabase
+      .from("proposals")
+      .select("id, jurisdiction_id, initiative_details(stage, primary_author_id, mobilise_started_at, scope)")
       .eq("id", params.id)
+      .eq("type", "initiative")
       .single();
 
-    if (!initiative) {
+    if (!proposal || !proposal.initiative_details) {
       return NextResponse.json({ error: "Initiative not found" }, { status: 404 });
     }
-    if (initiative.primary_author_id !== user.id) {
+
+    // Supabase returns a single related row as an object because proposal_id is unique on initiative_details.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const details = Array.isArray(proposal.initiative_details)
+      ? (proposal.initiative_details[0] as any)
+      : (proposal.initiative_details as any);
+
+    if (details.primary_author_id !== user.id) {
       return NextResponse.json({ error: "Only the author can advance this initiative" }, { status: 403 });
     }
 
-    const currentStage = initiative.stage;
+    const currentStage = details.stage;
 
     // ── draft → deliberate ────────────────────────────────────────────────────
     if (currentStage === "draft") {
       const admin = createAdminClient();
       const { data: updated, error } = await admin
-        .from("civic_initiatives")
+        .from("initiative_details")
         .update({ stage: "deliberate" })
-        .eq("id", params.id)
-        .select("id,stage,updated_at")
+        .eq("proposal_id", params.id)
+        .select("stage")
         .single();
 
       if (error) {
@@ -67,19 +75,19 @@ export async function POST(
     // ── deliberate → mobilise ─────────────────────────────────────────────────
     if (currentStage === "deliberate") {
       // Run quality gate (v2 — population-normalised)
-      const gate = await computeGate(supabase, params.id, initiative.mobilise_started_at, {
-        jurisdictionId: initiative.jurisdiction_id,
-        scope:          initiative.scope,
+      const gate = await computeGate(supabase, params.id, details.mobilise_started_at, {
+        jurisdictionId: proposal.jurisdiction_id,
+        scope:          details.scope,
       });
 
       const admin = createAdminClient();
 
       // Always persist the latest gate score
       await admin
-        .from("civic_initiatives")
+        .from("initiative_details")
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .update({ quality_gate_score: gate as any })
-        .eq("id", params.id);
+        .eq("proposal_id", params.id);
 
       if (!gate.can_advance) {
         return NextResponse.json(
@@ -91,17 +99,25 @@ export async function POST(
         );
       }
 
-      // Advance to mobilise
-      const { data: updated, error } = await admin
-        .from("civic_initiatives")
-        .update({
-          stage: "mobilise",
-          mobilise_started_at: new Date().toISOString(),
-          quality_gate_score: gate as any // eslint-disable-line @typescript-eslint/no-explicit-any,
-        })
-        .eq("id", params.id)
-        .select("id,stage,mobilise_started_at")
-        .single();
+      // Advance to mobilise — update initiative_details + proposal status in parallel.
+      const now = new Date().toISOString();
+      const [{ data: updated, error }] = await Promise.all([
+        admin
+          .from("initiative_details")
+          .update({
+            stage: "mobilise",
+            mobilise_started_at: now,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            quality_gate_score: gate as any,
+          })
+          .eq("proposal_id", params.id)
+          .select("stage, mobilise_started_at")
+          .single(),
+        admin
+          .from("proposals")
+          .update({ status: "in_committee" })
+          .eq("id", params.id),
+      ]);
 
       if (error) {
         return NextResponse.json({ error: "Failed to advance initiative" }, { status: 500 });

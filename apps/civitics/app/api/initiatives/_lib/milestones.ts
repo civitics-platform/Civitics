@@ -91,10 +91,10 @@ async function openResponseWindows(
   initiativeId: string,
 ): Promise<void> {
   const { data: initiative } = await adminClient
-    .from("civic_initiatives")
+    .from("initiative_details")
     .select("scope, target_district")
-    .eq("id", initiativeId)
-    .single();
+    .eq("proposal_id", initiativeId)
+    .maybeSingle();
 
   if (!initiative) return;
 

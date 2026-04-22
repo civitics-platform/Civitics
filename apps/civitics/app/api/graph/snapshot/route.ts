@@ -126,27 +126,71 @@ async function resolveEntityByName(
   supabase: AdminClient,
   name: string,
 ): Promise<{ entity: ResolvedEntity | null; queries: number }> {
-  const { data, error } = await withDbTimeout<{ data: SearchRow[] | null; error: unknown }>(supabase.rpc("search_graph_entities", {
-    q: name,
-    lim: 1,
-  }));
+  // search_graph_entities RPC was retired in the shadow→public promotion.
+  // Parallel ILIKE across the four entity tables; officials win ties.
+  const like = `%${name}%`;
+  const [officialsRes, agenciesRes, financialRes, proposalsRes] = await Promise.all([
+    supabase
+      .from("officials")
+      .select("id, full_name, role_title, party, metadata")
+      .ilike("full_name", like)
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("agencies")
+      .select("id, name, acronym, agency_type")
+      .or(`name.ilike.${like},acronym.ilike.${like}`)
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("financial_entities")
+      .select("id, display_name, entity_type, industry")
+      .ilike("display_name", like)
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("proposals")
+      .select("id, title, type")
+      .ilike("title", like)
+      .limit(1)
+      .maybeSingle(),
+  ]);
   let queries = 1;
-  if (error || !data?.length) return { entity: null, queries };
 
-  const row = (data as SearchRow[])[0]!;
+  let row: SearchRow | null = null;
+  let state: string | undefined;
+
+  if (officialsRes.data) {
+    const o = officialsRes.data;
+    row = { id: o.id, label: o.full_name, entity_type: "official", subtitle: o.role_title, party: o.party };
+    state = (o.metadata as Record<string, string> | null)?.["state"] ?? undefined;
+  } else if (agenciesRes.data) {
+    const a = agenciesRes.data;
+    row = {
+      id: a.id,
+      label: a.acronym ? `${a.acronym} — ${a.name}` : a.name,
+      entity_type: "agency",
+      subtitle: a.agency_type,
+      party: null,
+    };
+  } else if (financialRes.data) {
+    const f = financialRes.data;
+    row = {
+      id: f.id,
+      label: f.display_name,
+      entity_type: "financial",
+      subtitle: f.industry ?? f.entity_type,
+      party: null,
+    };
+  } else if (proposalsRes.data) {
+    const p = proposalsRes.data;
+    row = { id: p.id, label: p.title, entity_type: "proposal", subtitle: p.type, party: null };
+  }
+
+  if (!row) return { entity: null, queries };
+
   const tags = await fetchEntityTags(supabase, row.id);
   queries++;
-
-  let state: string | undefined;
-  if (row.entity_type === "official") {
-    const { data: off } = await supabase
-      .from("officials")
-      .select("metadata")
-      .eq("id", row.id)
-      .maybeSingle();
-    queries++;
-    state = (off?.metadata as Record<string, string> | null)?.["state"] ?? undefined;
-  }
 
   return {
     entity: {
@@ -198,7 +242,7 @@ async function resolveEntityById(
   const [feRes, propRes, gbRes] = await Promise.all([
     supabase
       .from("financial_entities")
-      .select("id, name, entity_type")
+      .select("id, display_name, entity_type")
       .eq("id", id)
       .maybeSingle(),
     supabase
@@ -216,7 +260,7 @@ async function resolveEntityById(
 
   if (feRes.data) {
     return {
-      entity: { id, name: feRes.data.name, type: "financial", tags: [] },
+      entity: { id, name: feRes.data.display_name, type: "financial", tags: [] },
       queries,
     };
   }

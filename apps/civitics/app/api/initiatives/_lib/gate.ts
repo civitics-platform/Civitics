@@ -110,13 +110,14 @@ export async function computeGate(
 
   // ── Signal 1: time minimum ─────────────────────────────────────────────────
 
-  const { data: initiative } = await supabase
-    .from("civic_initiatives")
-    .select("id,created_at,updated_at,stage")
+  const { data: proposal } = await supabase
+    .from("proposals")
+    .select("id,created_at,updated_at")
     .eq("id", initiativeId)
-    .single();
+    .eq("type", "initiative")
+    .maybeSingle();
 
-  const deliberateStarted = new Date(initiative?.updated_at ?? initiative?.created_at ?? now);
+  const deliberateStarted = new Date(proposal?.updated_at ?? proposal?.created_at ?? now);
   const hoursElapsed = (now.getTime() - deliberateStarted.getTime()) / (1000 * 60 * 60);
   const timePass = hoursElapsed >= GATE_CONFIG.TIME_MINIMUM_HOURS;
 

@@ -66,21 +66,35 @@ export async function GET(req: NextRequest) {
 
     // Batch the .in() query — PostgREST URL limits break with hundreds of UUIDs
     const BATCH_SIZE = 100;
-    const allDonationRows: Array<{ donor_name: string; amount_cents: number; metadata: unknown }> = [];
+    const allDonationRows: Array<{ from_id: string; amount_cents: number | null }> = [];
     for (let i = 0; i < memberIds.length; i += BATCH_SIZE) {
       const batch = memberIds.slice(i, i + BATCH_SIZE);
       const { data: batchData } = await supabase
         .from("financial_relationships")
-        .select("donor_name, amount_cents, metadata")
-        .in("official_id", batch)
-        .not("donor_name", "ilike", "%PAC/Committee%")
+        .select("from_id, amount_cents")
+        .eq("relationship_type", "donation")
+        .eq("to_type", "official")
+        .in("to_id", batch)
+        .eq("from_type", "financial_entity")
         .order("amount_cents", { ascending: false })
-        .limit(550); // 535 House + Senate members max
+        .limit(550);
       if (batchData) allDonationRows.push(...batchData);
     }
-    const donationData = allDonationRows;
 
-    // Aggregate by donor name across all group members
+    // Resolve donor entity names/sectors in one lookup
+    const donorIds = [...new Set(allDonationRows.map((r) => r.from_id))];
+    const donorInfo = new Map<string, { name: string; sector: string | null }>();
+    if (donorIds.length > 0) {
+      const { data: entities } = await supabase
+        .from("financial_entities")
+        .select("id, display_name, industry")
+        .in("id", donorIds);
+      for (const e of entities ?? []) {
+        donorInfo.set(e.id, { name: e.display_name, sector: e.industry ?? null });
+      }
+    }
+
+    // Aggregate by donor across all group members
     const donorMap = new Map<string, {
       donorName: string;
       totalUsd: number;
@@ -88,17 +102,21 @@ export async function GET(req: NextRequest) {
       sector: string | null;
     }>();
 
-    for (const row of donationData ?? []) {
-      const key    = row.donor_name as string;
-      const usd    = ((row.amount_cents as number) ?? 0) / 100;
-      const sector = ((row.metadata as Record<string, unknown> | null)?.sector as string) ?? null;
+    for (const row of allDonationRows) {
+      const info = donorInfo.get(row.from_id);
+      if (!info) continue;
+      // Skip generic "PAC/Committee" aggregate placeholder rows
+      if (/PAC\/Committee/i.test(info.name)) continue;
+
+      const key = info.name;
+      const usd = (row.amount_cents ?? 0) / 100;
 
       if (donorMap.has(key)) {
         const existing = donorMap.get(key)!;
         existing.totalUsd    += usd;
         existing.memberCount += 1;
       } else {
-        donorMap.set(key, { donorName: key, totalUsd: usd, memberCount: 1, sector });
+        donorMap.set(key, { donorName: key, totalUsd: usd, memberCount: 1, sector: info.sector });
       }
     }
 
@@ -167,19 +185,39 @@ export async function GET(req: NextRequest) {
   // Which officials received the most money from PACs in this industry?
 
   if (entityType === "pac") {
-    // QWEN-ADDED: Add generic type to withDbTimeout for PAC financial query
-    const { data: pacData } = await withDbTimeout<{
-      data: Array<{ official_id: string | null; amount_cents: number }> | null;
+    // Step 1: find the PAC financial_entities in this industry.
+    const { data: pacEntities } = await withDbTimeout<{
+      data: Array<{ id: string; display_name: string; industry: string | null }> | null;
       error: { message: string } | null;
     }>(
       supabase
-        .from("financial_relationships")
-        .select("official_id, amount_cents")
-        .eq("donor_type", "pac")
-        .filter("metadata->>sector", "eq", industry ?? "")
-        .not("donor_name", "ilike", "%PAC/Committee%")
-        .limit(5000)
+        .from("financial_entities")
+        .select("id, display_name, industry")
+        .eq("entity_type", "pac")
+        .eq("industry", industry ?? "")
+        .not("display_name", "ilike", "%PAC/Committee%")
+        .limit(2000),
     );
+
+    const pacIds = (pacEntities ?? []).map((p) => p.id);
+
+    // Step 2: pull their donations to officials.
+    const pacData: Array<{ to_id: string; amount_cents: number | null }> = [];
+    if (pacIds.length > 0) {
+      const BATCH = 200;
+      for (let i = 0; i < pacIds.length; i += BATCH) {
+        const batch = pacIds.slice(i, i + BATCH);
+        const { data } = await supabase
+          .from("financial_relationships")
+          .select("to_id, amount_cents")
+          .eq("relationship_type", "donation")
+          .eq("from_type", "financial_entity")
+          .in("from_id", batch)
+          .eq("to_type", "official")
+          .limit(5000);
+        if (data) pacData.push(...data);
+      }
+    }
 
     const officialMap = new Map<string, {
       officialId: string;
@@ -187,9 +225,9 @@ export async function GET(req: NextRequest) {
       pacCount: number;
     }>();
 
-    for (const row of pacData ?? []) {
-      const id  = row.official_id as string;
-      const usd = ((row.amount_cents as number) ?? 0) / 100;
+    for (const row of pacData) {
+      const id  = row.to_id;
+      const usd = (row.amount_cents ?? 0) / 100;
 
       if (officialMap.has(id)) {
         const ex = officialMap.get(id)!;

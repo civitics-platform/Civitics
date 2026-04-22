@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
         supabase.from("officials").select("id, full_name, party").in("id", allToIds),
         supabase.from("proposals").select("id, title").in("id", allToIds),
         supabase.from("agencies").select("id, name").in("id", allToIds),
-        supabase.from("financial_entities").select("id, name, entity_type").in("id", allToIds),
+        supabase.from("financial_entities").select("id, display_name, entity_type").in("id", allToIds),
       ]);
 
       for (const o of officialsRes.data ?? []) {
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
         nameMap.set(a.id, { name: a.name, entityType: "agency" });
       }
       for (const f of financialRes.data ?? []) {
-        nameMap.set(f.id, { name: f.name, entityType: f.entity_type ?? "financial" });
+        nameMap.set(f.id, { name: f.display_name, entityType: f.entity_type ?? "financial" });
       }
 
       return nameMap;

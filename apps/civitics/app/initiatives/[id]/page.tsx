@@ -27,23 +27,29 @@ export async function generateMetadata(
 ): Promise<Metadata> {
   const cookieStore = await cookies();
   const supabase = createServerClient(cookieStore);
-  const { data } = await supabase
-    .from("civic_initiatives")
-    .select("title, summary, stage, scope")
+  const { data: proposal } = await supabase
+    .from("proposals")
+    .select("title, summary_plain, initiative_details(stage, scope)")
     .eq("id", params.id)
-    .single();
+    .eq("type", "initiative")
+    .maybeSingle();
 
-  if (!data) return { title: "Initiative | Civitics" };
+  if (!proposal || !proposal.initiative_details) return { title: "Initiative | Civitics" };
 
-  const description = data.summary
-    ? data.summary.slice(0, 160)
-    : `${data.scope} · ${data.stage}`;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const details: any = Array.isArray(proposal.initiative_details)
+    ? proposal.initiative_details[0]
+    : proposal.initiative_details;
+
+  const description = proposal.summary_plain
+    ? proposal.summary_plain.slice(0, 160)
+    : `${details.scope} · ${details.stage}`;
 
   return {
-    title: data.title,
+    title: proposal.title,
     description,
     openGraph: {
-      title: `${data.title} | Civitics`,
+      title: `${proposal.title} | Civitics`,
       description,
     },
   };
@@ -125,9 +131,14 @@ export default async function InitiativeDetailPage({
   const supabase = createServerClient(cookieStore);
 
   // Fetch initiative + counts in parallel
-  const [initiativeRes, { data: { user } }, totalSigsRes, verifiedSigsRes, upvoteRes, followRes, linkedProposalsRes] =
+  const [proposalRes, { data: { user } }, totalSigsRes, verifiedSigsRes, upvoteRes, followRes, linkedProposalsRes] =
     await Promise.all([
-      supabase.from("civic_initiatives").select("*").eq("id", id).single(),
+      supabase
+        .from("proposals")
+        .select("*, initiative_details(*)")
+        .eq("id", id)
+        .eq("type", "initiative")
+        .maybeSingle(),
       supabase.auth.getUser(),
       supabase
         .from("civic_initiative_signatures")
@@ -148,16 +159,39 @@ export default async function InitiativeDetailPage({
         .eq("initiative_id", id),
       supabase
         .from("civic_initiative_proposal_links")
-        .select("proposal_id, proposals!proposal_id(id, title, bill_number, short_title, status, regulations_gov_id, congress_gov_url, comment_period_end)")
+        .select("proposal_id, proposals!proposal_id(id, title, short_title, status, metadata, bill_details(bill_number))")
         .eq("initiative_id", id)
         .limit(10),
     ]);
 
-  if (initiativeRes.error || !initiativeRes.data) {
+  if (proposalRes.error || !proposalRes.data || !proposalRes.data.initiative_details) {
     notFound();
   }
 
-  const initiative = initiativeRes.data as InitiativeDetail;
+  const proposal = proposalRes.data;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const details: any = Array.isArray(proposal.initiative_details)
+    ? proposal.initiative_details[0]
+    : proposal.initiative_details;
+
+  const initiative: InitiativeDetail = {
+    id:                   proposal.id,
+    title:                proposal.title,
+    summary:              proposal.summary_plain,
+    body_md:              details.body_md,
+    stage:                details.stage,
+    scope:                details.scope,
+    authorship_type:      details.authorship_type,
+    primary_author_id:    details.primary_author_id,
+    issue_area_tags:      details.issue_area_tags ?? [],
+    target_district:      details.target_district,
+    quality_gate_score:   details.quality_gate_score ?? {},
+    mobilise_started_at:  details.mobilise_started_at,
+    resolved_at:          proposal.resolved_at,
+    resolution_type:      details.resolution_type,
+    created_at:           proposal.created_at,
+    updated_at:           proposal.updated_at,
+  };
   const isAuthor = user?.id === initiative.primary_author_id;
   const canEdit = isAuthor && (initiative.stage === "draft" || initiative.stage === "deliberate" || initiative.stage === "problem");
   const stageStyle = (STAGE_STYLES[initiative.stage] ?? STAGE_STYLES.draft)!;
@@ -165,7 +199,22 @@ export default async function InitiativeDetailPage({
   const followCount   = followRes.count ?? 0;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const linkedProposals = ((linkedProposalsRes.data ?? []) as any[])
-    .map((row) => row.proposals)
+    .map((row) => {
+      const p = row.proposals;
+      if (!p) return null;
+      const bd = Array.isArray(p.bill_details) ? p.bill_details[0] : p.bill_details;
+      const meta = (p.metadata ?? {}) as Record<string, unknown>;
+      return {
+        id:                 p.id,
+        title:              p.title,
+        short_title:        p.short_title,
+        status:             p.status,
+        bill_number:        bd?.bill_number ?? null,
+        regulations_gov_id: meta.regulations_gov_id ?? null,
+        congress_gov_url:   meta.congress_gov_url ?? null,
+        comment_period_end: meta.comment_period_end ?? null,
+      };
+    })
     .filter(Boolean) as CommentableProposal[];
 
   // Fetch official responses

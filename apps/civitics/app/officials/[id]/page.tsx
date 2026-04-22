@@ -63,7 +63,7 @@ type VoteRow = {
   id: string;
   vote: string;
   voted_at: string | null;
-  roll_call_number: string | null;
+  roll_call_id: string | null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   proposals: any | null;
 };
@@ -255,7 +255,7 @@ export default async function OfficialProfilePage({
   const sb = supabase as any;
 
   // Fetch official + joins in parallel with votes, donor count, donor amounts, AI summary, career history, promises
-  const [officialRes, voteCountRes, votesRes, donorCountRes, donorAmtRes, aiSummaryRes, allVotesRes, careerHistoryRes, promisesRes, responsivenessRes] =
+  const [officialRes, voteCountRes, votesRes, donorCountRes, donorAmtRawRes, aiSummaryRes, allVotesRes, careerHistoryRes, promisesRes, responsivenessRes] =
     await Promise.all([
       supabase
         .from("officials")
@@ -271,7 +271,7 @@ export default async function OfficialProfilePage({
       supabase
         .from("votes")
         .select(
-          "id, vote, voted_at, roll_call_number, proposals!proposal_id(id, title, bill_number, short_title)"
+          "id, vote, voted_at, roll_call_id, proposals!bill_proposal_id(id, title, short_title, bill_details(bill_number))"
         )
         .eq("official_id", params.id)
         .order("voted_at", { ascending: false })
@@ -279,11 +279,16 @@ export default async function OfficialProfilePage({
       supabase
         .from("financial_relationships")
         .select("id", { count: "exact", head: true })
-        .eq("official_id", params.id),
+        .eq("relationship_type", "donation")
+        .eq("to_type", "official")
+        .eq("to_id", params.id),
       supabase
         .from("financial_relationships")
-        .select("donor_name, donor_type, industry, amount_cents, metadata")
-        .eq("official_id", params.id),
+        .select("from_id, amount_cents, metadata")
+        .eq("relationship_type", "donation")
+        .eq("to_type", "official")
+        .eq("to_id", params.id)
+        .eq("from_type", "financial_entity"),
       sb
         .from("ai_summary_cache")
         .select("summary_text")
@@ -293,7 +298,7 @@ export default async function OfficialProfilePage({
         .maybeSingle(),
       supabase
         .from("votes")
-        .select("vote, proposals!proposal_id(id, title, bill_number)")
+        .select("vote, proposals!bill_proposal_id(id, title, bill_details(bill_number))")
         .eq("official_id", params.id)
         .limit(500),
       supabase
@@ -310,11 +315,47 @@ export default async function OfficialProfilePage({
         .limit(10),
       supabase
         .from("civic_initiative_responses")
-        .select("id, initiative_id, response_type, responded_at, window_closes_at, window_opened_at, civic_initiatives!initiative_id(id, title, scope)")
+        .select("id, initiative_id, response_type, responded_at, window_closes_at, window_opened_at, proposals!initiative_id(id, title, type, initiative_details(scope))")
         .eq("official_id", params.id)
         .order("window_opened_at", { ascending: false })
         .limit(20),
     ]);
+
+  // Enrich donations with entity data (donor_name, industry, entity_type).
+  // After the shadow→public promotion, financial_relationships is polymorphic:
+  // donor info lives on financial_entities, not on the relationship row itself.
+  const donorAmtRaw = (donorAmtRawRes.data ?? []) as Array<{ from_id: string; amount_cents: number | null; metadata: Record<string, unknown> | null }>;
+  const donorIds = [...new Set(donorAmtRaw.map((d) => d.from_id))];
+  const entityInfo = new Map<string, { display_name: string; industry: string | null; entity_type: string | null }>();
+  if (donorIds.length > 0) {
+    const BATCH = 300;
+    for (let i = 0; i < donorIds.length; i += BATCH) {
+      const batch = donorIds.slice(i, i + BATCH);
+      const { data: entities } = await supabase
+        .from("financial_entities")
+        .select("id, display_name, industry, entity_type")
+        .in("id", batch);
+      for (const e of entities ?? []) {
+        entityInfo.set(e.id, {
+          display_name: e.display_name,
+          industry:     e.industry,
+          entity_type:  e.entity_type,
+        });
+      }
+    }
+  }
+  const donorAmtRes = {
+    data: donorAmtRaw.map((r) => {
+      const info = entityInfo.get(r.from_id);
+      return {
+        donor_name:   info?.display_name ?? "Unknown",
+        donor_type:   info?.entity_type ?? "other",
+        industry:     info?.industry ?? null,
+        amount_cents: r.amount_cents,
+        metadata:     r.metadata,
+      };
+    }),
+  };
 
   if (officialRes.error || !officialRes.data) {
     notFound();
@@ -409,12 +450,15 @@ export default async function OfficialProfilePage({
     substantive: substantiveVotesRaw.length,
   };
 
-  const taggedVotes = substantiveVotesRaw.map((v) => ({
-    vote: v.vote as string,
-    title: (v.proposals?.title ?? "") as string,
-    billNumber: (v.proposals?.bill_number ?? undefined) as string | undefined,
-    issues: tagIssues(v.proposals?.title ?? ""),
-  }));
+  const taggedVotes = substantiveVotesRaw.map((v) => {
+    const bd = Array.isArray(v.proposals?.bill_details) ? v.proposals.bill_details[0] : v.proposals?.bill_details;
+    return {
+      vote: v.vote as string,
+      title: (v.proposals?.title ?? "") as string,
+      billNumber: (bd?.bill_number ?? undefined) as string | undefined,
+      issues: tagIssues(v.proposals?.title ?? ""),
+    };
+  });
 
   const issueStats = Object.entries(ISSUE_KEYWORDS)
     .map(([issue, cfg]) => {
@@ -483,7 +527,9 @@ export default async function OfficialProfilePage({
     source_quote: string | null;
   }>;
 
-  // QWEN-ADDED: Fetch spending records (tied to official's jurisdiction)
+  // QWEN-ADDED: Fetch spending records — after shadow→public promotion these live
+  // in financial_relationships with relationship_type IN ('contract','grant').
+  // Donor = awarding_agency (from_type='agency'), recipient = financial_entity.
   let spendingRecords: Array<{
     id: string;
     recipient_name: string;
@@ -494,13 +540,36 @@ export default async function OfficialProfilePage({
     awarding_agency: string;
   }> = [];
   if (official.jurisdiction_id) {
-    const spendingRes = await supabase
-      .from("spending_records")
-      .select("id, recipient_name, award_type, amount_cents, award_date, description, awarding_agency")
-      .eq("jurisdiction_id", official.jurisdiction_id)
+    const { data: rows } = await supabase
+      .from("financial_relationships")
+      .select("id, from_id, to_id, amount_cents, occurred_at, relationship_type, metadata")
+      .in("relationship_type", ["contract", "grant"])
       .order("amount_cents", { ascending: false })
       .limit(10);
-    spendingRecords = (spendingRes.data ?? []) as typeof spendingRecords;
+    const spendRows = rows ?? [];
+    const agencyIds    = [...new Set(spendRows.map((r) => r.from_id))];
+    const recipientIds = [...new Set(spendRows.map((r) => r.to_id))];
+    const [agenciesRes, recipientsRes] = await Promise.all([
+      agencyIds.length > 0
+        ? supabase.from("agencies").select("id, name").in("id", agencyIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; name: string }> }),
+      recipientIds.length > 0
+        ? supabase.from("financial_entities").select("id, display_name").in("id", recipientIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; display_name: string }> }),
+    ]);
+    const agencyName = new Map<string, string>();
+    for (const a of agenciesRes.data ?? []) agencyName.set(a.id, a.name);
+    const recipientName = new Map<string, string>();
+    for (const r of recipientsRes.data ?? []) recipientName.set(r.id, r.display_name);
+    spendingRecords = spendRows.map((r) => ({
+      id:              r.id,
+      recipient_name:  recipientName.get(r.to_id) ?? "Unknown recipient",
+      award_type:      r.relationship_type,
+      amount_cents:    r.amount_cents ?? 0,
+      award_date:      r.occurred_at,
+      description:     ((r.metadata ?? {}) as Record<string, string>)?.description ?? null,
+      awarding_agency: agencyName.get(r.from_id) ?? "Unknown agency",
+    }));
   }
 
   // ── Responsiveness score ──────────────────────────────────────────────────────
@@ -528,15 +597,21 @@ export default async function OfficialProfilePage({
     total_closed:  civicTotalClosed,
     response_rate: civicResponseRate,
     grade:         civicGrade,
-    recent: responsivenessRows.slice(0, 10).map((r) => ({
-      initiative_id:    r.initiative_id as string,
-      initiative_title: (r.civic_initiatives?.title ?? "Unknown initiative") as string,
-      scope:            (r.civic_initiatives?.scope ?? "federal") as string,
-      response_type:    r.response_type as string,
-      responded_at:     r.responded_at as string | null,
-      window_closes_at: r.window_closes_at as string,
-      window_opened_at: r.window_opened_at as string,
-    })),
+    recent: responsivenessRows.slice(0, 10).map((r) => {
+      const p = Array.isArray(r.proposals) ? r.proposals[0] : r.proposals;
+      const details = p?.initiative_details
+        ? (Array.isArray(p.initiative_details) ? p.initiative_details[0] : p.initiative_details)
+        : null;
+      return {
+        initiative_id:    r.initiative_id as string,
+        initiative_title: (p?.title ?? "Unknown initiative") as string,
+        scope:            (details?.scope ?? "federal") as string,
+        response_type:    r.response_type as string,
+        responded_at:     r.responded_at as string | null,
+        window_closes_at: r.window_closes_at as string,
+        window_opened_at: r.window_opened_at as string,
+      };
+    }),
   };
 
   // Years in office

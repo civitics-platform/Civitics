@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createServerClient } from "@civitics/db";
-import type { Database } from "@civitics/db";
+import { createServerClient, createAdminClient } from "@civitics/db";
 
 export const dynamic = "force-dynamic";
 
-type InitiativeRow = Database["public"]["Tables"]["civic_initiatives"]["Row"];
-
-const VALID_STAGES = ["problem", "draft", "deliberate", "mobilise", "resolved"] as const;
+const VALID_STAGES = ["draft", "deliberate", "mobilise", "resolved", "problem"] as const;
 const VALID_SCOPES = ["federal", "state", "local"] as const;
 
 // ─── GET /api/initiatives ─────────────────────────────────────────────────────
 // Paginated list of initiatives, filterable by stage/scope/tag.
+// Reads from initiative_details joined to proposals.
 
 export async function GET(request: NextRequest) {
   try {
@@ -29,12 +27,14 @@ export async function GET(request: NextRequest) {
     );
     const offset = (page - 1) * limit;
 
+    // Query initiative_details and join the parent proposal for title/summary/created_at
     let query = supabase
-      .from("civic_initiatives")
+      .from("initiative_details")
       .select(
-        "id,title,summary,stage,scope,authorship_type,issue_area_tags,target_district,mobilise_started_at,created_at,resolved_at",
+        "proposal_id,stage,scope,authorship_type,issue_area_tags,target_district,mobilise_started_at,proposals!inner(id,title,summary_plain,created_at,resolved_at,type)",
         { count: "exact" }
-      );
+      )
+      .eq("proposals.type", "initiative");
 
     if (stage && VALID_STAGES.includes(stage as (typeof VALID_STAGES)[number])) {
       query = query.eq("stage", stage as (typeof VALID_STAGES)[number]);
@@ -48,7 +48,6 @@ export async function GET(request: NextRequest) {
 
     const { data, error, count } = await query
       .order("mobilise_started_at", { ascending: false, nullsFirst: false })
-      .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
 
     if (error) {
@@ -58,8 +57,27 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Flatten to the shape the frontend expects (legacy civic_initiatives shape)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const initiatives = (data ?? []).map((row: any) => {
+      const p = Array.isArray(row.proposals) ? row.proposals[0] : row.proposals;
+      return {
+        id:                  row.proposal_id,
+        title:               p?.title,
+        summary:             p?.summary_plain,
+        stage:               row.stage,
+        scope:               row.scope,
+        authorship_type:     row.authorship_type,
+        issue_area_tags:     row.issue_area_tags,
+        target_district:     row.target_district,
+        mobilise_started_at: row.mobilise_started_at,
+        created_at:          p?.created_at,
+        resolved_at:         p?.resolved_at,
+      };
+    });
+
     return NextResponse.json({
-      initiatives: (data ?? []) as InitiativeRow[],
+      initiatives,
       total: count ?? 0,
       page,
     });
@@ -73,6 +91,7 @@ export async function GET(request: NextRequest) {
 
 // ─── POST /api/initiatives ────────────────────────────────────────────────────
 // Create a new initiative. Auth required.
+// Writes to proposals (core) + initiative_details (initiative-specific fields).
 
 export async function POST(request: NextRequest) {
   try {
@@ -88,7 +107,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { title, summary, body_md, scope, issue_area_tags, linked_proposal_id, is_problem } = body;
+    const { title, summary, body_md, scope, issue_area_tags, jurisdiction_id, is_problem } = body;
 
     // Validation
     if (!title || typeof title !== "string") {
@@ -125,32 +144,72 @@ export async function POST(request: NextRequest) {
 
     const initiativeStage = is_problem ? "problem" : "draft";
 
-    // Use supabase (authenticated server client) — not createAdminClient.
-    // RLS civic_initiatives_insert_own enforces primary_author_id = auth.uid() at DB level.
-    const { data, error } = await supabase
-      .from("civic_initiatives")
+    const admin = createAdminClient();
+
+    // Resolve jurisdiction_id — use client-supplied value or fall back to country root.
+    let resolvedJurisdictionId: string | null = jurisdiction_id ?? null;
+    if (!resolvedJurisdictionId) {
+      const { data: root } = await admin
+        .from("jurisdictions")
+        .select("id")
+        .eq("type", "country")
+        .limit(1)
+        .maybeSingle();
+      resolvedJurisdictionId = root?.id ?? null;
+    }
+    if (!resolvedJurisdictionId) {
+      return NextResponse.json(
+        { error: "No jurisdiction available" },
+        { status: 500 }
+      );
+    }
+
+    // 1. Insert the proposal (core row)
+    const { data: proposal, error: propErr } = await admin
+      .from("proposals")
       .insert({
-        title: title.trim(),
-        summary: summary?.trim() ?? null,
-        body_md: body_md?.trim() ?? "",
-        scope,
-        issue_area_tags: Array.isArray(issue_area_tags) ? issue_area_tags : [],
-        linked_proposal_id: linked_proposal_id ?? null,
-        primary_author_id: user.id,
-        stage: initiativeStage,
-        authorship_type: "individual",
+        title:           title.trim(),
+        summary_plain:   summary?.trim() ?? null,
+        type:            "initiative",
+        status:          "introduced",
+        jurisdiction_id: resolvedJurisdictionId,
       })
-      .select("id,title,stage")
+      .select("id")
       .single();
 
-    if (error) {
+    if (propErr || !proposal) {
       return NextResponse.json(
         { error: "Failed to create initiative" },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ initiative: data }, { status: 201 });
+    // 2. Insert initiative_details (initiative-specific row)
+    const { error: detailErr } = await admin
+      .from("initiative_details")
+      .insert({
+        proposal_id:       proposal.id,
+        body_md:           body_md?.trim() ?? "",
+        scope,
+        issue_area_tags:   Array.isArray(issue_area_tags) ? issue_area_tags : [],
+        primary_author_id: user.id,
+        stage:             initiativeStage as (typeof VALID_STAGES)[number],
+        authorship_type:   "individual",
+      });
+
+    if (detailErr) {
+      // Roll back the proposal insert on detail failure
+      await admin.from("proposals").delete().eq("id", proposal.id);
+      return NextResponse.json(
+        { error: "Failed to create initiative" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json(
+      { initiative: { id: proposal.id, title: title.trim(), stage: initiativeStage } },
+      { status: 201 }
+    );
   } catch {
     return NextResponse.json(
       { error: "Failed to create initiative" },

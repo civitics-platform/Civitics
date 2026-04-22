@@ -62,10 +62,10 @@ export async function POST(
 
     // Fetch initiative to check stage
     const { data: initiative, error: initError } = await supabase
-      .from("civic_initiatives")
-      .select("id,stage")
-      .eq("id", params.id)
-      .single();
+      .from("initiative_details")
+      .select("proposal_id,stage")
+      .eq("proposal_id", params.id)
+      .maybeSingle();
 
     if (initError || !initiative) {
       return NextResponse.json(

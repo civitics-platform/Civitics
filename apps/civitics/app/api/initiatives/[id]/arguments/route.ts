@@ -33,10 +33,10 @@ export async function GET(
     const supabase = createServerClient(cookieStore);
 
     const { data: initiative } = await supabase
-      .from("civic_initiatives")
-      .select("id")
-      .eq("id", params.id)
-      .single();
+      .from("initiative_details")
+      .select("proposal_id")
+      .eq("proposal_id", params.id)
+      .maybeSingle();
 
     if (!initiative) {
       return NextResponse.json({ error: "Initiative not found" }, { status: 404 });
@@ -118,10 +118,10 @@ export async function POST(
 
     // Verify initiative exists and is in deliberate or mobilise stage
     const { data: initiative } = await supabase
-      .from("civic_initiatives")
-      .select("id,stage")
-      .eq("id", params.id)
-      .single();
+      .from("initiative_details")
+      .select("proposal_id,stage")
+      .eq("proposal_id", params.id)
+      .maybeSingle();
 
     if (!initiative) {
       return NextResponse.json({ error: "Initiative not found" }, { status: 404 });

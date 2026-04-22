@@ -54,13 +54,14 @@ export default async function InitiativesPage({
   const { data: { user } } = await supabase.auth.getUser();
   const isMine = mine && !!user;
 
-  // Build query
+  // Build query — join initiative_details with parent proposals for title/summary/created_at
   let query = supabase
-    .from("civic_initiatives")
+    .from("initiative_details")
     .select(
-      "id,title,summary,stage,scope,authorship_type,issue_area_tags,target_district,mobilise_started_at,created_at,resolved_at",
+      "proposal_id,stage,scope,authorship_type,issue_area_tags,target_district,mobilise_started_at,primary_author_id,proposals!inner(id,title,summary_plain,created_at,updated_at,resolved_at,type)",
       { count: "exact" }
-    );
+    )
+    .eq("proposals.type", "initiative");
 
   if (isMine) {
     // "My initiatives" view: author's own rows (includes drafts — RLS allows it)
@@ -79,17 +80,30 @@ export default async function InitiativesPage({
   // Sort
   if (sort === "active") {
     query = query
-      .order("mobilise_started_at", { ascending: false, nullsFirst: false })
-      .order("updated_at", { ascending: false });
-  } else {
-    // Default: newest first
-    query = query.order("created_at", { ascending: false });
+      .order("mobilise_started_at", { ascending: false, nullsFirst: false });
   }
 
   const { data, count } = await query
     .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
 
-  const initiatives = (data ?? []) as InitiativeRow[];
+  // Flatten to legacy civic_initiatives shape
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const initiatives: InitiativeRow[] = ((data ?? []) as any[]).map((row) => {
+    const p = Array.isArray(row.proposals) ? row.proposals[0] : row.proposals;
+    return {
+      id:                  row.proposal_id,
+      title:               p?.title,
+      summary:             p?.summary_plain,
+      stage:               row.stage,
+      scope:               row.scope,
+      authorship_type:     row.authorship_type,
+      issue_area_tags:     row.issue_area_tags ?? [],
+      target_district:     row.target_district,
+      mobilise_started_at: row.mobilise_started_at,
+      created_at:          p?.created_at,
+      resolved_at:         p?.resolved_at,
+    };
+  });
   const total = count ?? 0;
   const totalPages = Math.ceil(total / PAGE_SIZE);
 

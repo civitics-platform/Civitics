@@ -97,7 +97,7 @@ export default async function ProposalsPage({
   const cookieStore = await cookies();
   const supabase = createServerClient(cookieStore);
 
-  const statusFilter = searchParams.status ?? "open";
+  const statusFilter = searchParams.status ?? "all";
   const typeFilter   = searchParams.type   ?? "";
   const agencyFilter = searchParams.agency ?? "";
   const topicsFilter = searchParams.topics ?? "";

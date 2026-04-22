@@ -2,6 +2,71 @@
 
 ---
 
+## 2026-04-22 (Supabase Pro cutover + smoke-test fixes)
+
+**Done — Supabase Pro provisioning + shadow→public promotion:**
+
+- Provisioned Pro project `xsazcoxinpgttgquwvuf` ($25/mo). Linked CLI via `supabase link --project-ref xsazcoxinpgttgquwvuf`.
+- Wrote + applied `20260422000000_promote_shadow_to_public.sql`: dropped 11 legacy RPCs + `proposal_trending_24h` materialized view, truncated stale public child tables, `ALTER … SET SCHEMA` moved 17 shadow tables + helper functions to `public`, dropped the empty `shadow` schema, rebuilt RLS.
+- **Latent bug fix** (`20260422000001`): `ALTER FUNCTION … SET SCHEMA` moves function membership but **does not rewrite body text**. `bill_details_sync_denorm()` trigger body still read `FROM shadow.proposals` after the move, so every `bill_details` INSERT 500ed. Fixed via `CREATE OR REPLACE FUNCTION` with `public.proposals` in body. Documented in runbook as carry-forward lesson.
+
+**Done — Option C pipeline rewrites (scoped to minimum viable):**
+
+- `packages/data/src/pipelines/congress/bills.ts` — single-write to `public.proposals` + `public.bill_details` + `public.external_source_refs`. Dedup via `external_source_refs` (unique on source+external_id). Shadow mirror deleted.
+- `packages/data/src/pipelines/congress/votes.ts` — references `bill_details.proposal_id` via `bill_proposal_id`; synthesizes `roll_call_id` (House `${year}-house-${paddedRoll}`, Senate `senate-${congress}-${session}-${paddedRoll}`); populates `voted_at`, `vote_question`, `source_url`. Reactive-create fallback now uses bill number as title (prevents "On Passage" garbage).
+- All other pipelines (FEC, regulations, USASpending, OpenStates, CourtListener, Legistar, connections, tags, AI) left untouched — tracked for reimplementation as FIX-101.
+
+**Done — data backfill:**
+
+- Backfilled 243 of 550 orphan proposals (missing bill_details from early broken runs) via INSERT from `proposals.metadata`. Remaining 307 duplicates blocked by `(jurisdiction_id, session, bill_number)` unique — tracked as FIX-102.
+- Rewrote 786 procedural-title proposals (e.g. "On Passage", "On Cloture Motion") to use `metadata->>'legacy_bill_number'` as title.
+- Post-cutover Pro counts: **903 officials · 989 proposals · 682 bill_details · 217,548 votes**. Integrity audit shows 4 pre-existing data-scope errors (POTUS/VP not ingested, 3 House vacancies, 1 senator NULL state) — zero pipeline errors.
+
+**Done — branch + Vercel ops:**
+
+- Pushed cutover commit to `qwen/phase1`, user renamed `master` → `main` on GitHub, local `git branch -m master main && git branch -u origin/main main`, fast-forwarded, deleted `qwen/phase1` local + remote.
+- Fixed Vercel Hobby cron limit failure: changed `notify-followers` from `0 */6 * * *` to `0 3 * * *` (once/day max on Hobby). Commit `d8174f86`.
+- Locked git identity: `user.email = civitics.platform@gmail.com`, `user.name = Civitics Platform`. Machine's default `craig.a.denny@gmail.com` attributes to a separate personal GitHub account (`midnighttoker420`). Saved as persistent memory.
+- Deployed green. Prod URL: `https://civitics.com` (custom domain; Vercel default `civitics-civitics.vercel.app` still active).
+
+**Done — docs + post-cutover backlog:**
+
+- New: `docs/MIGRATION_RUNBOOK.md` (archives plan §4 as actuals + lessons).
+- Updated: `CLAUDE.md`, `docs/OPERATIONS.md`, `docs/REBUILD_STATUS.md` to reflect two-tier env (local Docker + Pro), `main` as prod, schema now `public.*`.
+- Filed POST-CUTOVER section in `docs/FIXES.md`: FIX-097 (chord/treemap RPCs), FIX-098 (officials-breakdown RPCs), FIX-099 (search_graph_entities), FIX-100 (rebuild_entity_connections derivation), FIX-101 (deferred pipeline re-runs), FIX-102 (307 orphan proposals cleanup), FIX-103 (officials_breakdown `.catch is not a function`), FIX-104 (recreate proposal_trending_24h + refresh fn).
+
+**Done — smoke-test fixes (same session):**
+
+- **FIX-105**: `/proposals` default filter changed from `"open"` to `"all"`. Root cause: `"open"` required `status='open_comment'` AND `metadata->>comment_period_end > now()`; all 989 congress-bill proposals have `status='introduced'` with no comment period, so landing was empty.
+- **FIX-106 (filed, not implemented)**: Add 6-digit OTP option alongside magic link in `SignInForm`. Not a regression — never actually existed in code; user misremembered.
+- **Auth magic link** was failing on Pro because Supabase project Auth → URL Configuration didn't allowlist the prod host. User added `https://civitics.com/**` + `https://civitics-civitics.vercel.app/**` + `http://localhost:3000/**` to Redirect URLs and set Site URL to `https://civitics.com`. `NEXT_PUBLIC_SITE_URL=https://civitics.com` set in `.env.local` and Vercel.
+
+**Smoke test results (user walk-through):**
+
+| # | Surface | Result |
+|---|---|---|
+| 1 | Homepage | ✅ |
+| 2 | Officials list + detail | ✅ |
+| 3 | /proposals | ❌ 0 rows → fixed via FIX-105 |
+| 4 | Graph page | ✅ |
+| 5 | Dashboard | ✅ (Transparency/Operations panels partially blank — FIX-097/098) |
+| 6 | Search | ✅ (basic) — graph-search broken (FIX-099) |
+| 7 | Auth | ❌ magic link + no OTP → fixed via Supabase URL config + FIX-106 filed |
+
+**⚠️ Action needed — none** (all work pushed to `main`; prod green).
+
+**Up next — POST-CUTOVER queue, in suggested order:**
+
+1. **FIX-103** (🟡 S) — Fix `.catch is not a function` in `/api/claude/status` officials_breakdown handler. 5 min.
+2. **FIX-104** (🟡 S) — Recreate `proposal_trending_24h` mat view + `refresh_proposal_trending()`. Restores homepage trending + /proposals Featured section.
+3. **FIX-100** (🟠 L) — Implement `rebuild_entity_connections()` derivation rules. Unblocks graph.
+4. **FIX-097 / FIX-098 / FIX-099** (🟠 M–L) — Rewrite the 10 dropped RPCs against polymorphic `financial_relationships`.
+5. **FIX-101** (🟠 L) — Re-run deferred pipelines against Pro (FEC, Regulations.gov, OpenStates, CourtListener, Legistar × 4, USASpending, tag-rules, ai-summaries, tag-ai).
+6. **FIX-102** (🟡 M) — Delete 307 orphan proposals (after confirming zero vote FKs).
+7. **FIX-106** (🟠 M) — 6-digit OTP option in SignInForm.
+
+---
+
 ## 2026-04-20 (Legistar city council pipeline — 4-metro load)
 
 **Done:**

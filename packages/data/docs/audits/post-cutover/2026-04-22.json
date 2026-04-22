@@ -1,0 +1,130 @@
+{
+  "ranAt": "2026-04-22T04:44:48.841Z",
+  "durationMs": 1917,
+  "dbHost": "db.xsazcoxinpgttgquwvuf.supabase.co:5432",
+  "results": [
+    {
+      "category": "officials.senator_count",
+      "severity": "info",
+      "expected": 100,
+      "actual": 100,
+      "sample": [],
+      "detail": "Active U.S. senators (2 per state × 50 states)."
+    },
+    {
+      "category": "officials.senators_per_state",
+      "severity": "error",
+      "expected": "every state = 2",
+      "actual": "1 states ≠ 2",
+      "sample": [
+        {
+          "state": null,
+          "count": "100"
+        }
+      ],
+      "detail": "States that don't have exactly two active senators."
+    },
+    {
+      "category": "officials.rep_count",
+      "severity": "error",
+      "expected": 441,
+      "actual": 438,
+      "sample": [],
+      "detail": "Active U.S. House: 435 voting + 6 non-voting delegates."
+    },
+    {
+      "category": "officials.president_count",
+      "severity": "error",
+      "expected": 1,
+      "actual": 0,
+      "sample": [],
+      "detail": "Sitting U.S. President."
+    },
+    {
+      "category": "officials.vp_count",
+      "severity": "error",
+      "expected": 1,
+      "actual": 0,
+      "sample": [],
+      "detail": "Sitting U.S. Vice President."
+    },
+    {
+      "category": "officials.duplicate_congress_gov",
+      "severity": "info",
+      "expected": 0,
+      "actual": 0,
+      "sample": [],
+      "detail": "Distinct officials sharing the same source_ids->>'congress_gov' (federal congressional ID)."
+    },
+    {
+      "category": "officials.missing_party",
+      "severity": "info",
+      "expected": 0,
+      "actual": 0,
+      "sample": [],
+      "detail": "Active senators/reps with NULL party. Independents should be 'independent', not NULL."
+    },
+    {
+      "category": "proposals.procedural_contamination",
+      "severity": "info",
+      "expected": 0,
+      "actual": 0,
+      "sample": [],
+      "detail": "Proposals whose title looks like a procedural-vote subject ('On Passage', 'On the Cloture Motion') or a court case name ('Smith v. Jones'). FIX-A regression test."
+    },
+    {
+      "category": "proposals.orphaned_agency_id",
+      "severity": "info",
+      "expected": 0,
+      "actual": 0,
+      "sample": [],
+      "detail": "proposals.metadata->>'agency_id' values that don't resolve to any row in agencies.acronym."
+    },
+    {
+      "category": "votes.orphan_official_id",
+      "severity": "info",
+      "expected": 0,
+      "actual": 0,
+      "sample": [],
+      "detail": "votes.official_id values not present in officials.id."
+    },
+    {
+      "category": "votes.invalid_vote_value",
+      "severity": "info",
+      "expected": 0,
+      "actual": 0,
+      "sample": [],
+      "detail": "votes.vote values outside schema CHECK enum {yes, no, abstain, present, not_voting, paired_yes, paired_no}."
+    },
+    {
+      "category": "referential.orphan_entity_tags",
+      "severity": "info",
+      "expected": 0,
+      "actual": 0,
+      "sample": [],
+      "detail": "entity_tags rows whose (entity_type, entity_id) does not resolve to a row in proposals/officials/agencies."
+    },
+    {
+      "category": "referential.orphan_ai_summary_cache",
+      "severity": "info",
+      "expected": 0,
+      "actual": 0,
+      "sample": [],
+      "detail": "ai_summary_cache rows whose (entity_type, entity_id) does not resolve."
+    },
+    {
+      "category": "referential.orphan_enrichment_queue",
+      "severity": "info",
+      "expected": 0,
+      "actual": 0,
+      "sample": [],
+      "detail": "enrichment_queue rows whose (entity_type, entity_id) does not resolve. Note: entity_id is TEXT in this table."
+    }
+  ],
+  "summary": {
+    "total": 14,
+    "errors": 4,
+    "warnings": 0,
+    "infos": 10
+  }
+}

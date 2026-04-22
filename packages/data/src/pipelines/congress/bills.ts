@@ -1,26 +1,16 @@
 /**
- * Congress bills writer — dual-write pipeline.
+ * Congress bills writer — post-cutover, single-write against public.
  *
- * Stage 1B (dual-write window): every insert lands in BOTH public.proposals
- * (legacy, canonical through cutover) and shadow.proposals + shadow.bill_details
- * + shadow.external_source_refs (new, authoritative after cutover). The public
- * write is strict; shadow failures are logged but do not surface to the caller.
- * This keeps the live pipeline resilient to shadow-schema bugs during Stage 1B.
+ * After the shadow→public promotion (migration 20260422000000), the shadow
+ * schema is gone and its tables were renamed into public. This module now
+ * writes exclusively to:
+ *   - public.proposals          (core row)
+ *   - public.bill_details       (proposal_id + bill-specific columns)
+ *   - public.external_source_refs (source='congress_gov', entity_type='proposal')
  *
- * Stage 1 schema notes:
- *   - shadow.proposals.id === public.proposals.id (same UUID is reused, so
- *     existing FKs — cosponsorships, committee_assignments, etc. — migrate
- *     without any id translation layer).
- *   - shadow.bill_details.jurisdiction_id is populated by a BEFORE INSERT
- *     trigger on the shadow side (reads from shadow.proposals). We don't
- *     send it; the trigger fills it.
- *   - shadow.external_source_refs is keyed (source, external_id); we upsert
- *     on conflict so re-runs are safe.
- *
- * Lookup precedence for dedup:
- *   1) shadow.external_source_refs(source='congress_gov', external_id=billKey)
- *   2) fallback: public.proposals source_ids->>congress_gov_bill
- *      (kept during dual-write window; dropped at cutover)
+ * Lookup for dedup uses external_source_refs (unique on source+external_id).
+ * The legacy public.proposals.source_ids JSONB path is gone — the source_ids
+ * column was dropped as part of the promotion.
  */
 
 import type { createAdminClient } from "@civitics/db";
@@ -31,24 +21,6 @@ type ProposalType = Database["public"]["Enums"]["proposal_type"];
 type ProposalStatus = Database["public"]["Enums"]["proposal_status"];
 
 type Db = ReturnType<typeof createAdminClient>;
-
-// ---------------------------------------------------------------------------
-// Shadow-schema client helper
-//
-// The generated Database type (packages/db/src/types/database.ts) currently
-// only covers `public`. Until `supabase gen types --schema public,shadow` is
-// wired up, we cast the shadow-schema client to `any` in one place so the
-// rest of this module stays readable. Runtime behavior is unchanged:
-// supabase-js supports cross-schema calls via .schema(name).
-// ---------------------------------------------------------------------------
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ShadowDb = any;
-
-function shadowDb(db: Db): ShadowDb {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (db as any).schema("shadow");
-}
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -83,7 +55,7 @@ export interface BillProposalArgs {
   latestActionText?: string;
   /** Congress number (e.g. 119). */
   congressNumber: number;
-  /** Session identifier as stored on bill_details/proposals, usually String(congressNumber). */
+  /** Session identifier as stored on bill_details, usually String(congressNumber). */
   session: string;
 }
 
@@ -91,69 +63,30 @@ export interface BillProposalArgs {
 // Lookup — find existing proposal by congress_gov bill key
 // ---------------------------------------------------------------------------
 
-/**
- * Looks up an existing proposal for a given Congress.gov bill key.
- *
- * Checks shadow.external_source_refs first (post-backfill, this is the
- * authoritative source). Falls back to the legacy public.proposals
- * source_ids JSONB path — needed during the dual-write window because we
- * cannot guarantee every legacy row had its shadow ref backfilled
- * (new bills created between schema migration and backfill run, for
- * example).
- */
 async function findExistingProposalId(db: Db, billKey: string): Promise<string | null> {
-  // Primary: shadow.external_source_refs
-  {
-    const { data, error } = await shadowDb(db)
-      .from("external_source_refs")
-      .select("entity_id")
-      .eq("source", "congress_gov")
-      .eq("external_id", billKey)
-      .eq("entity_type", "proposal")
-      .maybeSingle();
-
-    if (error) {
-      console.error(
-        `    bills.ts: shadow.external_source_refs lookup error for ${billKey}: ${error.message}`
-      );
-    } else if (data?.entity_id) {
-      return data.entity_id as string;
-    }
-  }
-
-  // Fallback: legacy source_ids JSON path
   const { data, error } = await db
-    .from("proposals")
-    .select("id")
-    .filter("source_ids->>congress_gov_bill", "eq", billKey)
+    .from("external_source_refs")
+    .select("entity_id")
+    .eq("source", "congress_gov")
+    .eq("external_id", billKey)
+    .eq("entity_type", "proposal")
     .maybeSingle();
 
   if (error) {
     console.error(
-      `    bills.ts: legacy source_ids lookup error for ${billKey}: ${error.message}`
+      `    bills.ts: external_source_refs lookup error for ${billKey}: ${error.message}`
     );
     return null;
   }
 
-  return (data?.id as string) ?? null;
+  return (data?.entity_id as string | undefined) ?? null;
 }
 
 // ---------------------------------------------------------------------------
-// Dual-write: public.proposals is canonical; shadow is best-effort
+// Insert — single write to public (proposals + bill_details + source_refs)
 // ---------------------------------------------------------------------------
 
-/**
- * Writes a new bill proposal to public + shadow.
- *
- * - Public insert is strict: a failure returns null and no shadow writes happen.
- * - Shadow inserts are best-effort: errors are logged but the function still
- *   returns the public UUID so the caller can continue processing votes.
- *
- * Why best-effort on shadow: during Stage 1B we cannot let a shadow-side bug
- * (trigger failure, FK mismatch, enum drift) break the live pipeline. Public
- * is canonical until cutover.
- */
-async function insertBillDualWrite(db: Db, args: BillProposalArgs): Promise<string | null> {
+async function insertBill(db: Db, args: BillProposalArgs): Promise<string | null> {
   const {
     billKey,
     title,
@@ -173,99 +106,66 @@ async function insertBillDualWrite(db: Db, args: BillProposalArgs): Promise<stri
 
   const truncatedTitle = title.slice(0, 500);
 
-  // --- Public insert (canonical) -------------------------------------------
-  const publicRecord: ProposalInsert = {
+  const proposalRecord: ProposalInsert = {
     title: truncatedTitle,
-    bill_number: billNumber,
     type,
-    jurisdiction_id: jurisdictionId,
-    congress_number: congressNumber,
-    session,
     status,
+    jurisdiction_id: jurisdictionId,
     governing_body_id: governingBodyId,
-    source_ids: { congress_gov_bill: billKey },
-    congress_gov_url: congressGovUrl,
+    external_url: congressGovUrl,
     introduced_at: introducedAt,
     last_action_at: lastActionAt,
-    metadata: latestActionText ? { latest_action: latestActionText } : {},
+    metadata: {
+      legacy_bill_number: billNumber,
+      legacy_congress_num: congressNumber,
+      legacy_session: session,
+      ...(latestActionText ? { latest_action: latestActionText } : {}),
+    },
   };
 
-  const { data: inserted, error: publicErr } = await db
+  const { data: inserted, error: propErr } = await db
     .from("proposals")
-    .insert(publicRecord)
+    .insert(proposalRecord)
     .select("id")
     .single();
 
-  if (publicErr || !inserted) {
-    console.error(`    bills.ts: public insert failed for ${billKey}: ${publicErr?.message}`);
+  if (propErr || !inserted) {
+    console.error(`    bills.ts: proposals insert failed for ${billKey}: ${propErr?.message}`);
     return null;
   }
 
   const proposalId = inserted.id as string;
 
-  // --- Shadow writes (best-effort) -----------------------------------------
-  // Run sequentially because each depends on the previous (FK chain:
-  // proposals → bill_details + external_source_refs).
+  // bill_details — trigger bill_details_sync_denorm fills jurisdiction_id
+  // from the parent proposals row, but supabase-js requires the column be
+  // present in the INSERT; pass the value explicitly so PostgREST accepts it.
+  const { error: bdErr } = await db.from("bill_details").insert({
+    proposal_id: proposalId,
+    bill_number: billNumber,
+    chamber,
+    session,
+    congress_number: congressNumber,
+    congress_gov_url: congressGovUrl,
+    jurisdiction_id: jurisdictionId,
+  });
 
-  try {
-    const { error: sProposalErr } = await shadowDb(db)
-      .from("proposals")
-      .insert({
-        id: proposalId,
-        type,
-        status,
-        jurisdiction_id: jurisdictionId,
-        governing_body_id: governingBodyId,
-        title: truncatedTitle,
-        introduced_at: introducedAt,
-        last_action_at: lastActionAt,
-        external_url: congressGovUrl,
-        metadata: {
-          legacy_bill_number: billNumber,
-          legacy_congress_num: congressNumber,
-          legacy_session: session,
-          ...(latestActionText ? { latest_action: latestActionText } : {}),
-        },
-      });
+  if (bdErr && bdErr.code !== "23505") {
+    console.error(`    bills.ts: bill_details insert failed for ${billKey}: ${bdErr.message}`);
+  }
 
-    if (sProposalErr && sProposalErr.code !== "23505") {
-      // 23505 = already present (backfill race); fine.
-      console.error(`    bills.ts: shadow.proposals insert failed for ${billKey}: ${sProposalErr.message}`);
-      return proposalId; // bail on shadow; public is still good
-    }
+  const { error: refErr } = await db.from("external_source_refs").insert({
+    source: "congress_gov",
+    external_id: billKey,
+    entity_type: "proposal",
+    entity_id: proposalId,
+    source_url: congressGovUrl,
+    metadata: {},
+  });
 
-    const { error: sBillErr } = await shadowDb(db)
-      .from("bill_details")
-      .insert({
-        proposal_id: proposalId,
-        bill_number: billNumber,
-        chamber,
-        session,
-        congress_number: congressNumber,
-        congress_gov_url: congressGovUrl,
-        // jurisdiction_id is filled by the shadow trigger
-      });
-
-    if (sBillErr && sBillErr.code !== "23505") {
-      console.error(`    bills.ts: shadow.bill_details insert failed for ${billKey}: ${sBillErr.message}`);
-    }
-
-    const { error: sRefErr } = await shadowDb(db)
-      .from("external_source_refs")
-      .insert({
-        source: "congress_gov",
-        external_id: billKey,
-        entity_type: "proposal",
-        entity_id: proposalId,
-        source_url: congressGovUrl,
-        metadata: {},
-      });
-
-    if (sRefErr && sRefErr.code !== "23505") {
-      console.error(`    bills.ts: shadow.external_source_refs insert failed for ${billKey}: ${sRefErr.message}`);
-    }
-  } catch (err) {
-    console.error(`    bills.ts: unexpected shadow error for ${billKey}:`, err);
+  if (refErr && refErr.code !== "23505") {
+    console.error(
+      `    bills.ts: external_source_refs insert failed for ${billKey}: ${refErr.message}`
+    );
   }
 
   return proposalId;
@@ -277,7 +177,7 @@ async function insertBillDualWrite(db: Db, args: BillProposalArgs): Promise<stri
 
 /**
  * Reactive create: called from the vote-ingestion path. If the bill already
- * exists (by billKey), returns its ID. Otherwise inserts it via dual-write.
+ * exists (by billKey), returns its ID. Otherwise inserts it.
  */
 export async function findOrCreateBillProposal(
   db: Db,
@@ -285,15 +185,12 @@ export async function findOrCreateBillProposal(
 ): Promise<string | null> {
   const existing = await findExistingProposalId(db, args.billKey);
   if (existing) return existing;
-  return insertBillDualWrite(db, args);
+  return insertBill(db, args);
 }
 
 /**
  * Proactive upsert: called from the recent-bills sync. If the bill exists,
- * updates its status + last_action_at on both public and shadow. Otherwise
- * inserts via dual-write.
- *
- * Returns the proposal UUID on success, null on public-side failure.
+ * updates its status + last_action_at. Otherwise inserts.
  */
 export async function upsertBillProposal(
   db: Db,
@@ -302,48 +199,24 @@ export async function upsertBillProposal(
   const existing = await findExistingProposalId(db, args.billKey);
 
   if (existing) {
-    const now = new Date().toISOString();
-
-    // Public update
-    const { error: pubErr } = await db
+    const { error } = await db
       .from("proposals")
       .update({
         title: args.title.slice(0, 500),
         status: args.status,
         last_action_at: args.lastActionAt,
-        updated_at: now,
       })
       .eq("id", existing);
 
-    if (pubErr) {
-      console.error(`    bills.ts: public update failed for ${args.billKey}: ${pubErr.message}`);
+    if (error) {
+      console.error(`    bills.ts: proposals update failed for ${args.billKey}: ${error.message}`);
       return null;
-    }
-
-    // Shadow update (best-effort)
-    try {
-      const { error: shdErr } = await db
-        .schema("shadow")
-        .from("proposals")
-        .update({
-          title: args.title.slice(0, 500),
-          status: args.status,
-          last_action_at: args.lastActionAt,
-          updated_at: now,
-        })
-        .eq("id", existing);
-
-      if (shdErr) {
-        console.error(`    bills.ts: shadow.proposals update failed for ${args.billKey}: ${shdErr.message}`);
-      }
-    } catch (err) {
-      console.error(`    bills.ts: unexpected shadow update error for ${args.billKey}:`, err);
     }
 
     return existing;
   }
 
-  return insertBillDualWrite(db, args);
+  return insertBill(db, args);
 }
 
 /**

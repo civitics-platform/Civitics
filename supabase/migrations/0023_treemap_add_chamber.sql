@@ -5,6 +5,10 @@
 --   'H' → house   (U.S. House of Representatives)
 --   else → unknown
 
+-- DROP first because RETURNS TABLE gains a new column (chamber);
+-- CREATE OR REPLACE cannot change return signature.
+DROP FUNCTION IF EXISTS treemap_officials_by_donations(integer) CASCADE;
+
 CREATE OR REPLACE FUNCTION treemap_officials_by_donations(lim INT DEFAULT 200)
 RETURNS TABLE(
   official_id         UUID,

@@ -2,6 +2,23 @@
 -- This is the most recognizable entity in U.S. governance and deserves a
 -- prominent featured card at the top of /agencies.
 
+-- Seed the United States jurisdiction row if not present. This matches the
+-- UUID used in production and by the jurisdictions seeder, so inserting it
+-- here is a no-op on dbs where jurisdictions have already been seeded and a
+-- safe prereq on clean dbs (e.g., Pro cutover).
+INSERT INTO jurisdictions (
+  id, type, name, short_name, country_code, is_active, metadata
+) VALUES (
+  'a5a601af-7c12-4f3f-98ec-cca2f88add59',
+  'country',
+  'United States',
+  'US',
+  'US',
+  true,
+  '{}'::jsonb
+)
+ON CONFLICT (id) DO NOTHING;
+
 INSERT INTO agencies (
   id,
   name,

@@ -165,7 +165,7 @@ export async function runAllPipelines(): Promise<void> {
   // -------------------------------------------------------------------------
   {
     try {
-      const r = await runUsaSpendingPipeline(federalId);
+      const r = await runUsaSpendingPipeline();
       results.push({ name: "usaspending", ...r });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -401,7 +401,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
     {
       const t0 = Date.now();
       try {
-        const r = await runUsaSpendingPipeline(federalId);
+        const r = await runUsaSpendingPipeline();
         results.pipelines.usaspending = { status: "complete", rows_added: r.inserted, duration_ms: Date.now() - t0 };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

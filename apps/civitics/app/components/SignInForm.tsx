@@ -10,13 +10,14 @@ interface SignInFormProps {
   onSent?: (email: string) => void;
 }
 
-type FormState = "idle" | "loading" | "sent" | "error";
+type FormState = "idle" | "loading" | "sent" | "verifying" | "error";
 
 export function SignInForm({ next = "/", onSent }: SignInFormProps) {
   const [email, setEmail] = useState("");
   const [state, setState] = useState<FormState>("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [sentEmail, setSentEmail] = useState("");
+  const [otpCode, setOtpCode] = useState("");
 
   function getCallbackUrl() {
     const origin =
@@ -42,7 +43,32 @@ export function SignInForm({ next = "/", onSent }: SignInFormProps) {
     } else {
       setSentEmail(email.trim());
       setState("sent");
+      setOtpCode("");
       onSent?.(email.trim());
+    }
+  }
+
+  async function handleVerifyOtp(e: React.FormEvent) {
+    e.preventDefault();
+    const code = otpCode.trim();
+    if (code.length !== 6) return;
+    setState("verifying");
+    setErrorMsg("");
+
+    const supabase = createBrowserClient();
+    const { error } = await supabase.auth.verifyOtp({
+      email: sentEmail,
+      token: code,
+      type: "email",
+    });
+
+    if (error) {
+      setState("sent");
+      setErrorMsg(error.message);
+    } else {
+      // Session cookie is now set; reload at the target so server components
+      // pick up the new auth state on first paint.
+      window.location.assign(next);
     }
   }
 
@@ -57,22 +83,53 @@ export function SignInForm({ next = "/", onSent }: SignInFormProps) {
   function reset() {
     setState("idle");
     setEmail("");
+    setOtpCode("");
     setErrorMsg("");
   }
 
-  if (state === "sent") {
+  if (state === "sent" || state === "verifying") {
     return (
       <div className="py-2 text-center">
         <p className="mb-3 text-3xl">✓</p>
         <p className="text-base font-semibold text-gray-900">Check your email</p>
-        <p className="mt-2 text-sm text-gray-500">We sent a sign-in link to</p>
+        <p className="mt-2 text-sm text-gray-500">We sent a sign-in link and a 6-digit code to</p>
         <p className="mt-1 text-sm font-medium text-gray-900">{sentEmail}</p>
-        <p className="mt-3 text-sm text-gray-500 leading-relaxed">
-          Click the link in your email to sign in. It expires in 1 hour.
+
+        <form onSubmit={handleVerifyOtp} className="mt-5 space-y-3 text-left">
+          <label htmlFor="otp" className="block text-sm font-medium text-gray-700">
+            Enter the 6-digit code
+          </label>
+          <input
+            id="otp"
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]{6}"
+            maxLength={6}
+            autoComplete="one-time-code"
+            value={otpCode}
+            onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            placeholder="123456"
+            autoFocus
+            className="w-full rounded-lg border border-gray-300 px-4 py-3 text-center text-lg font-mono tracking-widest text-gray-900 placeholder-gray-300 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+          <button
+            type="submit"
+            disabled={state === "verifying" || otpCode.length !== 6}
+            className="w-full rounded-lg bg-indigo-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {state === "verifying" ? "Verifying…" : "Verify and sign in"}
+          </button>
+          {errorMsg && (
+            <p className="text-sm text-red-600">{errorMsg}</p>
+          )}
+        </form>
+
+        <p className="mt-4 text-xs text-gray-500">
+          Or click the magic link in your email instead. Both expire in 1 hour.
         </p>
         <button
           onClick={reset}
-          className="mt-4 text-sm text-indigo-600 underline hover:text-indigo-700"
+          className="mt-3 text-sm text-indigo-600 underline hover:text-indigo-700"
         >
           Wrong email? Start over
         </button>

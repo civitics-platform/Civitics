@@ -2,6 +2,72 @@
 
 ---
 
+## 2026-04-23 (FIX-101 closed — all 6 deferred pipelines landed + AI queue seeded)
+
+**Done — FIX-101 bundle, 10 commits:**
+
+- **FEC bulk** (`3274609d`) — writer.ts batched, dropped partial unique on `canonical_name`/`entity_type`, added full unique on `(relationship_type, from_id, to_id, cycle_year)`. Pro: **1,960 PACs + 22,659 donations** in 1m5s (was estimated ~55 min pre-batching).
+- **Quick wins** (`06a049a8`) — `congress/bills.ts` proactive sync batched via new `upsertBillProposalsBatch()`; `tags/rules.ts` `upsertTags()` chunked.
+- **USASpending** (`e3a02108`) — `writer.ts` with batched recipient resolution via `external_source_refs` (source='usaspending_recipient'). Converted `financial_relationships_usaspending_unique` from partial to full. Deleted `spending-shadow/` (two-pass migration obsolete). Pro: **679 corps + 1,480 contracts** in 16s.
+- **Followups filed** (`ebcc3c88`) — FIX-107 through FIX-115 (missing agencies, RPC chamber/state inference, industry tagging, contract-flow RPCs, shadow-pipeline cleanup, tags/rules stale refs, FEC bulk officials pagination, USASpending grants, reactive bills batching).
+- **Regulations.gov** (`3d49dd49`) — dropped writes to the removed `regulations_gov_id` / `comment_period_{start,end}` / `source_ids` columns; all regulations-specific fields ride in `proposals.metadata` + dedup via `external_source_refs`. Added `UNIQUE(acronym)` on agencies. Added 5 missing agency names (RHS, ONCD, FSOC, FAS, OFAC) + backfilled names on Pro. Pro: **+1,000 regulation proposals** in 16.6s.
+- **OpenStates** (`8043c29a`) — writer.ts with batched `resolveGoverningBodies()` + `upsertLegislatorsBatch()` + `upsertStateBillsBatch()`. Backfill migration for officials with `source_ids->>'openstates_id'`. Pro: **1,161 legislators + 440 state bills** across 11 states; daily quota paused at GA. Idempotent re-run picks up remaining 39 states.
+- **Legistar × 3 metros** (`2004ae97`) — writer.ts with six batched helpers. 67,155 matters + 1,620 persons + 255 bodies landed on Pro in under 4 minutes (was ~7h as per-row SELECT+INSERT; **~100x speedup**). SF events phase hits the same HTTP 400 documented 2026-04-20 — bodies/persons/matters land, meetings skipped.
+- **CourtListener** (`4eb90ec6`) — writer.ts with `resolveJudicialGovBodies()` + `upsertJudgesBatch()` + `upsertOpinionsBatch()`. Backfill migration for courtlistener judges' source_refs. Pro: **365 judges updated + 280 opinions + 280 case_details** in 46s.
+- **AI enrichment queue seed** (`645c51ae`) — `data:enrich-seed` ran against Pro, **125,480 items staged** (60k proposal tags + 60k summaries + 3k official tags + 3k official summaries). Zero Anthropic calls — worker drains out-of-band via `claim_enrichment_batch()` in a separate session. Tuned `UPSERT_CHUNK` 500 → 100 and `PAGE` 1000 → 500 after hitting Pro's ~8s statement timeout on bigger batches. **Closes FIX-101 via trailer.**
+- **fixes:sync status** (`72db20c7`) — flipped FIX-101 to `[x]`, appended to `docs/done.log`.
+
+**Final Pro state:**
+
+| Table | Count |
+|---|---|
+| `officials` | 3,684 (903 federal + 1,161 state + 1,620 city) |
+| `proposals` | 69,557 (congress + regulations + state + city + opinions) |
+| `bill_details` | 68,276 |
+| `case_details` | 280 |
+| `meetings` | 130 (SF events blocked by sfgov HTTP 400) |
+| `financial_entities` | 2,639 |
+| `financial_relationships` | 24,139 (22,659 donation + 1,480 contract) |
+| `external_source_refs` | ~71,000 |
+| `enrichment_queue` | 125,480 pending |
+
+**Architectural pattern established across all 6 writers:**
+
+1. Collect records into an array
+2. Batch-lookup existing via `external_source_refs.in("external_id", chunk)` with chunk ≤ 200
+3. Partition into `toUpdate` (known id) and `toInsert` (new)
+4. Batched `upsert(records, { onConflict: "id" })` for updates — always pass **full-row records**, not partial, because `ON CONFLICT DO UPDATE` still validates the INSERT clause against NOT NULL
+5. Batched `insert(records).select("id")` for new — Postgres preserves input order so zip back to the source array
+6. Batched insert of `external_source_refs` and child tables (bill_details / case_details) after IDs are known
+7. `onConflict` column lists must target a **full unique index**, not partial — PostgREST's column-list inference doesn't reliably match partials; converted 3 partials to full during the session
+
+**Followups filed this session (FIX-107 through FIX-117):**
+
+- FIX-107 — 6 missing top-20 federal agencies (DOD, TREAS, DOS, DOL, GSA, SSA); USASpending silently skips these
+- FIX-108 — `treemap_officials_by_donations` chamber/state inference mis-classifies House reps whose FEC id starts with 'S'
+- FIX-109 — tag `financial_entities` with industry (chord viz is stuck at "Untagged" without it)
+- FIX-110 — new RPCs to surface contract/grant flows (`chord_contract_flows()`, `treemap_recipients_by_contracts()`)
+- FIX-111 — delete obsolete shadow-era pipelines (`fec/index.ts`, `pac-classify/`, `financial-entities/`, `connections/shadow.ts`, `connections/delta.ts`, `initiatives/shadow-backfill.ts`, `shadowClient` helper)
+- FIX-112 — `tags/rules.ts` references dropped columns (`proposals.comment_period_end`, `financial_relationships.official_id`)
+- FIX-113 — FEC bulk `loadOfficials()` silently truncated at PostgREST max_rows=1000
+- FIX-114 — USASpending grants fetch (contracts-only today)
+- FIX-115 — batch reactive `findOrCreateBillProposal` path in `congress/votes.ts`
+- FIX-116 — tighten OpenStates people-endpoint rate limiting (100ms → 1000ms to avoid 429 retry stalls)
+- FIX-117 — index `enrichment_queue(entity_type, task_type)` so seed snapshot reads don't hit statement timeout; closes the remaining ~17k gap on next seed run
+
+**⚠️ Action needed — none** (all migrations applied on both local + Pro; all commits pushed to `main`; prod deploys triggered).
+
+**Up next — everything post-FIX-101:**
+
+1. **FIX-109 (🟠 L)** — industry tagger for `financial_entities`. Single highest-signal unlock: the chord viz has all the financial data it needs, it's just one JOIN away from visible. Could be rules-based (CONNECTED_ORG_NM / NAICS keyword match) or a one-shot AI classify pass.
+2. **Drain the enrichment queue** — run a worker session to call `claim_enrichment_batch()` + process tags/summaries. 125k items, can run over multiple sessions.
+3. **FIX-110 (🟡 L)** — surface contract/grant flows in graph.
+4. **FIX-108 (🟡 M)** — fix treemap chamber/state inference.
+5. **FIX-111 (🟡 M)** — delete dead shadow-era pipeline code. Cleanup commit.
+6. Smaller items: FIX-107 agency seed, FIX-112 rules.ts fixes, FIX-113/114/115/116/117.
+
+---
+
 ## 2026-04-22 (FIX-101 pt 1 — FEC bulk rewritten, batched, landed on Pro)
 
 **Done:**

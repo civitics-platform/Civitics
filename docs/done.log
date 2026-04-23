@@ -114,3 +114,4 @@
 2026-04-21 | FIX-071 | 3a49254e | feat(cutover): promote shadow schema to public + rewrite app reads
 2026-04-21 | FIX-072 | 3a49254e | feat(cutover): promote shadow schema to public + rewrite app reads
 2026-04-21 | FIX-105 | 12ce7992 | fix(proposals): default landing filter to "all" instead of "open"
+2026-04-22 | FIX-103 | 8cce42bb | fix(api/status): replace broken .catch on rpc with try/await

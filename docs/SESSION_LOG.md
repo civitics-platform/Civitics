@@ -2,6 +2,50 @@
 
 ---
 
+## 2026-04-22 (FIX-101 pt 1 — FEC bulk rewritten, batched, landed on Pro)
+
+**Done:**
+
+- **FEC bulk pipeline — shadow → public rewrite.** New `packages/data/src/pipelines/fec-bulk/writer.ts` replaces the deleted `shadow-writer.ts`. Writes directly to `public.financial_entities` + `public.financial_relationships` (post-promotion schema). Old per-row `SELECT → INSERT/UPDATE` pattern replaced with chunked `upsert({ onConflict })`. Entities chunk on `fec_committee_id`; donations chunk on the new `(relationship_type, from_id, to_id, cycle_year)` tuple.
+- **Migration `20260423000000`** — adds `financial_relationships_relcycle_unique` (full unique, not partial — PostgREST's upsert can't target a partial unique index via column-list `ON CONFLICT`), drops legacy `UNIQUE(canonical_name, entity_type)` on `financial_entities` that forced false merges between distinct FEC committees whose normalised names collide. Replaces with a non-unique lookup index of the same shape. Applied to local + Pro (`supabase db push --linked`).
+- **`supabase/config.toml`** — dropped `shadow` from PostgREST exposed schemas (was causing schema-cache failures on local since the shadow schema no longer exists).
+- **Client-side relationship dedup** — officials with multiple FEC IDs (e.g. old House `fec_candidate_id` + newer Senate `fec_id`) cause the same PAC → same-official aggregate to appear twice under different committee-candidate keys. Batched upsert rejects internal conflict-target collisions; the writer now merges these client-side before the upsert (sum amounts, sum tx_count, keep latest `occurred_at`).
+- **`spending-shadow/index.ts`** — stopgap import redirect from deleted `../fec-bulk/shadow-writer` to `../fec-bulk/writer` (spending-shadow is scheduled for deletion as part of the broader FIX-101 backlog).
+
+**Pro counts (post-run):**
+- `financial_entities`: **1,960** (was 0 pre-cutover)
+- `financial_relationships`: **22,656** donation rows for cycle 2024 (was 0)
+- FEC match rate: 479 by direct `fec_id` + 383 by name fallback = 862 of 903 officials
+- Top donors: AIPAC $3.2M, American Crystal Sugar $2.3M, Realtors $2.1M, Machinists $2.0M
+
+**Perf:**
+- Local: **8.5s** end-to-end (was ~90s with per-row round-trips)
+- Pro: **1m 5s** (estimated ~55 min pre-batching — first attempt was killed at 40% after 30 min of silent per-row progress)
+
+**RPCs verified against Pro:**
+- `chord_industry_flows()` → returns rows ($61.7M Rep House, $57.9M Dem House, etc.). All `industry='untagged'` for now — `entity_tags` industry tagging still pending as a separate enrichment task.
+- `treemap_officials_by_donations(3)` → returns top-raising officials with real `total_donated_cents`.
+
+**⚠️ Action needed — none** (migration applied, data loaded, RPCs green).
+
+**FIX-101 progress** — 1 of 8 pipelines done:
+- ✅ **FEC bulk** (this session)
+- ⬜ USASpending
+- ⬜ Regulations.gov
+- ⬜ OpenStates
+- ⬜ CourtListener
+- ⬜ Legistar × 4 metros
+- ⬜ tag-rules / ai-summaries / tag-ai (via `CIVITICS_ENRICHMENT_MODE=queue` when run)
+
+**Up next (FIX-101 continuation):**
+
+1. **USASpending** (264 lines, writes `financial_relationships` with `relationship_type='contract'/'grant'`) — expands chord/treemap with government spending flows.
+2. **Regulations.gov** (300 lines, writes `proposals` for active rulemakings).
+3. **Legistar × 4** (1,106 lines, writes metro officials + proposals).
+4. **OpenStates** → **CourtListener** → deletion pass for `spending-shadow/`, `connections/shadow.ts`, `initiatives/shadow-backfill.ts`, `shadowClient` helper.
+
+---
+
 ## 2026-04-22 (Supabase Pro cutover + smoke-test fixes)
 
 **Done — Supabase Pro provisioning + shadow→public promotion:**

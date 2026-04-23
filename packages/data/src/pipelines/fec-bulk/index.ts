@@ -1,35 +1,28 @@
 /**
- * FEC bulk data pipeline — Stage 1B shadow-native rewrite.
+ * FEC bulk data pipeline — post-cutover, writes directly to public.
  *
- * Per Decision #4 ("FEC donations rebuild from scratch") and L7 (polymorphic
- * financial_relationships with a relationship_type enum), the new shape bears
- * no resemblance to public.financial_*. There is no dual-write: this pipeline
- * writes ONLY to shadow. Existing public.financial_* rows freeze wherever
- * they are until Stage 1B read-cutover flips the app to shadow. See also
- * shadow-writer.ts for the upsert helpers.
- *
- * What's written
- *   shadow.financial_entities            one row per FEC committee
+ * After the shadow→public promotion (migration 20260422000000), financial_*
+ * tables live in public. This pipeline writes PAC committees and their
+ * (committee × candidate × cycle) donation aggregates to:
+ *   public.financial_entities         one row per FEC committee
  *     - fec_committee_id UNIQUE — primary dedup key
  *     - entity_type derived from FEC CMTE_TP (N/Q/V/W → pac, O → super_pac,
  *                                             X/Y/Z → party_committee)
  *     - total_donated_cents refreshed each run
  *
- *   shadow.financial_relationships       one row per (PAC, candidate, cycle)
+ *   public.financial_relationships    one row per (PAC, candidate, cycle)
  *     - relationship_type='donation', from=financial_entity, to=official
  *     - amount_cents aggregated across all 24K/24Z txns in the cycle
  *     - occurred_at = latest txn date in the aggregation
  *
- * What's NOT written
+ * Not written here:
  *   - No weball synthetic-donor rows ("Individual Contributors" etc.). Those
  *     were rollups forced to fit the old narrow schema; in the new shape they
  *     belong in a nightly aggregate view / official_financials rollup.
- *   - No entity_connections. Per L5 that table is derivation-only; a separate
- *     nightly job rebuilds shadow.entity_connections from the raw
- *     financial_relationships facts this pipeline writes.
- *   - No call to the generic connections pipeline.
+ *   - No entity_connections. Per L5 that table is derivation-only; the
+ *     rebuild_entity_connections() SQL function handles donation edges.
  *
- * Data flow (unchanged from the legacy pipeline — only the writers differ):
+ * Data flow:
  *   1. Download bulk zips (weball, cm24, pas2)
  *   2. Parse weball → filter to known candidate FEC IDs
  *   3. Load public.officials + build fuzzy-match index
@@ -37,8 +30,8 @@
  *   5. Stream pas224 line-by-line, aggregating 24K/24Z $5k+ txns by
  *      (CMTE_ID × CAND_ID)
  *   6. For each aggregate:
- *        - upsert shadow.financial_entities  (one-per-committee cache)
- *        - upsert shadow.financial_relationships
+ *        - upsert public.financial_entities  (one-per-committee cache)
+ *        - upsert public.financial_relationships
  *
  * Files downloaded to /tmp and deleted after processing.
  * No API key, no rate limits. FEC refreshes bulk files weekly.
@@ -60,11 +53,10 @@ import {
   failSync,
   type PipelineResult,
 } from "../sync-log";
-import { shadowClient } from "../utils";
 import {
-  upsertPacEntityShadow,
-  upsertDonationRelationshipShadow,
-} from "./shadow-writer";
+  upsertPacEntitiesBatch,
+  upsertDonationRelationshipsBatch,
+} from "./writer";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -151,8 +143,6 @@ const PAS_COL = {
   TRANSACTION_AMT: 14,
   CAND_ID:         16,
 } as const;
-
-const BATCH_SIZE = 1000;
 
 // ---------------------------------------------------------------------------
 // Download + extract helpers
@@ -536,13 +526,13 @@ async function streamPas224(
 // ---------------------------------------------------------------------------
 
 export async function runFecBulkPipeline(): Promise<PipelineResult> {
-  console.log("\n=== FEC bulk data pipeline (Stage 1B — shadow-native) ===");
+  console.log("\n=== FEC bulk data pipeline (public) ===");
   const logId = await startSync("fec_bulk");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = createAdminClient() as any;
 
-  let pacEntitiesInserted = 0, pacEntitiesUpdated = 0, pacEntitiesFailed = 0;
-  let pacRelsInserted = 0, pacRelsUpdated = 0, pacRelsFailed = 0;
+  let pacEntitiesUpserted = 0, pacEntitiesFailed = 0;
+  let pacRelsUpserted = 0, pacRelsFailed = 0;
   let matchedByFecId = 0, matchedByName = 0, notMatched = 0;
   let totalFileMb = "0";
   let tempFreedMb = "0";
@@ -707,18 +697,20 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
     const pacAggs = await streamPas224(pasZip, candidateSet);
     console.log(`    PAC pairs matched (committee × candidate): ${pacAggs.size.toLocaleString()}`);
 
-    // ── Step 5: Upsert shadow.financial_entities + financial_relationships ───
+    // ── Step 5: Upsert financial_entities + financial_relationships ──────────
     //
-    // Two-pass:
-    //   pass A  unique-committees → upsert shadow.financial_entities once per
-    //           CMTE_ID with the committee's cycle total
-    //   pass B  each (committee × candidate) aggregate → upsert
-    //           shadow.financial_relationships
+    // Two-pass, both batched:
+    //   pass A  unique-committees → chunked upsert of financial_entities,
+    //           dedup on fec_committee_id UNIQUE. Returns cmte → UUID map.
+    //   pass B  (committee × candidate × cycle) aggregates → chunked upsert
+    //           of financial_relationships, dedup on the partial unique
+    //           index financial_relationships_donation_unique (added in
+    //           migration 20260423000000).
     //
-    // Split cleanly so an entity failure in pass A short-circuits only the
-    // relationships for that one committee, not the entire run.
+    // Chunk size 500 rows per call = ~4 round-trips for entities, ~33 for
+    // relationships — orders of magnitude faster than per-row round-trips.
     // ---------------------------------------------------------------------------
-    console.log("\n  [5/6] Upserting shadow.financial_entities and financial_relationships...");
+    console.log("\n  [5/6] Upserting financial_entities and financial_relationships...");
 
     // Per-committee totals (for total_donated_cents)
     const cmteTotals = new Map<string, number>();
@@ -726,68 +718,55 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
       cmteTotals.set(agg.cmteId, (cmteTotals.get(agg.cmteId) ?? 0) + agg.totalCents);
     }
 
-    // Pass A — upsert unique committees
-    const entityIdByCmte = new Map<string, string>();
-
+    // Pass A — batched entity upsert
+    const entityInputs = [];
     for (const [cmteId, totalCents] of cmteTotals.entries()) {
       const info = cmLookup.get(cmteId);
       if (!info) continue; // not in cm24 — skip silently
-
-      const { outcome, id } = await upsertPacEntityShadow(db, {
+      entityInputs.push({
         cmteId,
         name:              info.name,
         cmteType:          info.type,
         connectedOrg:      info.connectedOrg,
         totalDonatedCents: totalCents,
       });
-
-      if (outcome === "inserted") pacEntitiesInserted++;
-      else if (outcome === "updated") pacEntitiesUpdated++;
-      else pacEntitiesFailed++;
-
-      if (id) entityIdByCmte.set(cmteId, id);
     }
 
+    const entityResult = await upsertPacEntitiesBatch(db, entityInputs);
+    pacEntitiesUpserted = entityResult.upserted;
+    pacEntitiesFailed   = entityResult.failed;
+    const entityIdByCmte = entityResult.entityIdByCmte;
+
     console.log(
-      `    Entities — inserted: ${pacEntitiesInserted}  updated: ${pacEntitiesUpdated}  failed: ${pacEntitiesFailed}`
+      `    Entities — upserted: ${pacEntitiesUpserted}  failed: ${pacEntitiesFailed}`
     );
 
-    // Pass B — upsert relationships in batches for progress visibility
-    const aggEntries = [...pacAggs.values()];
-    for (let batchStart = 0; batchStart < aggEntries.length; batchStart += BATCH_SIZE) {
-      const batch = aggEntries.slice(batchStart, batchStart + BATCH_SIZE);
+    // Pass B — batched relationship upsert
+    const relInputs = [];
+    for (const agg of pacAggs.values()) {
+      const entityId = entityIdByCmte.get(agg.cmteId);
+      if (!entityId) continue; // entity upsert failed / missing from cm24
 
-      for (const agg of batch) {
-        const entityId = entityIdByCmte.get(agg.cmteId);
-        if (!entityId) continue; // entity upsert failed / missing from cm24
+      const officialId = index.byFecId.get(agg.candId);
+      if (!officialId) continue; // should never happen — candidateSet was derived from this index
 
-        const officialId = index.byFecId.get(agg.candId);
-        if (!officialId) continue; // should never happen — candidateSet was derived from this index
-
-        const outcome = await upsertDonationRelationshipShadow(db, {
-          fromEntityId: entityId,
-          toOfficialId: officialId,
-          cycleYear:    parseInt(CYCLE, 10),
-          amountCents:  agg.totalCents,
-          occurredAt:   agg.latestDate ? parseFecDate(agg.latestDate) : null,
-          cmteId:       agg.cmteId,
-          txCount:      agg.txCount,
-        });
-
-        if (outcome === "inserted") pacRelsInserted++;
-        else if (outcome === "updated") pacRelsUpdated++;
-        else pacRelsFailed++;
-      }
-
-      const processed = Math.min(batchStart + BATCH_SIZE, aggEntries.length);
-      if (processed < aggEntries.length) {
-        process.stdout.write(`\r    Batch progress: ${processed} / ${aggEntries.length}`);
-      }
+      relInputs.push({
+        fromEntityId: entityId,
+        toOfficialId: officialId,
+        cycleYear:    parseInt(CYCLE, 10),
+        amountCents:  agg.totalCents,
+        occurredAt:   agg.latestDate ? parseFecDate(agg.latestDate) : null,
+        cmteId:       agg.cmteId,
+        txCount:      agg.txCount,
+      });
     }
-    if (aggEntries.length > BATCH_SIZE) process.stdout.write("\n");
+
+    const relResult = await upsertDonationRelationshipsBatch(db, relInputs);
+    pacRelsUpserted = relResult.upserted;
+    pacRelsFailed   = relResult.failed;
 
     console.log(
-      `    Relationships — inserted: ${pacRelsInserted}  updated: ${pacRelsUpdated}  failed: ${pacRelsFailed}`
+      `    Relationships — upserted: ${pacRelsUpserted}  failed: ${pacRelsFailed}`
     );
 
     // ── Step 6: Cleanup + report ─────────────────────────────────────────────
@@ -800,28 +779,24 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
     deleteTmpDir();
     console.log(`    Freed ~${tempFreedMb} MB ✓`);
 
-    const totalInserted = pacEntitiesInserted + pacRelsInserted;
-    const totalUpdated  = pacEntitiesUpdated  + pacRelsUpdated;
+    const totalUpserted = pacEntitiesUpserted + pacRelsUpserted;
     const totalFailed   = pacEntitiesFailed   + pacRelsFailed;
 
     console.log("\n  ──────────────────────────────────────────────────");
-    console.log("  FEC Bulk Pipeline Report (shadow-native)");
+    console.log("  FEC Bulk Pipeline Report");
     console.log("  ──────────────────────────────────────────────────");
     console.log(`  ${"Officials matched by fec_id:".padEnd(38)} ${matchedByFecId}`);
     console.log(`  ${"Officials matched by name:".padEnd(38)} ${matchedByName}`);
     console.log(`  ${"Officials not matched:".padEnd(38)} ${notMatched}`);
-    console.log(`  ${"shadow entities inserted:".padEnd(38)} ${pacEntitiesInserted}`);
-    console.log(`  ${"shadow entities updated:".padEnd(38)} ${pacEntitiesUpdated}`);
-    console.log(`  ${"shadow entities failed:".padEnd(38)} ${pacEntitiesFailed}`);
-    console.log(`  ${"shadow relationships inserted:".padEnd(38)} ${pacRelsInserted}`);
-    console.log(`  ${"shadow relationships updated:".padEnd(38)} ${pacRelsUpdated}`);
-    console.log(`  ${"shadow relationships failed:".padEnd(38)} ${pacRelsFailed}`);
+    console.log(`  ${"entities upserted:".padEnd(38)} ${pacEntitiesUpserted}`);
+    console.log(`  ${"entities failed:".padEnd(38)} ${pacEntitiesFailed}`);
+    console.log(`  ${"relationships upserted:".padEnd(38)} ${pacRelsUpserted}`);
+    console.log(`  ${"relationships failed:".padEnd(38)} ${pacRelsFailed}`);
     console.log(`  ${"Financial data processed:".padEnd(38)} ~${totalFileMb} MB`);
     console.log(`  ${"Temp files deleted:".padEnd(38)} ✓`);
 
     // Sanity check — top 10 PAC donors by total contributed
-    const shd = shadowClient(db);
-    const { data: top10pacs } = await shd
+    const { data: top10pacs } = await db
       .from("financial_entities")
       .select("display_name, total_donated_cents")
       .order("total_donated_cents", { ascending: false })
@@ -838,7 +813,7 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
     }
 
     // Sanity check — top 5 officials by total PAC contributions received
-    const { data: top5 } = await shd
+    const { data: top5 } = await db
       .from("financial_relationships")
       .select("to_id, amount_cents")
       .eq("relationship_type", "donation")
@@ -869,8 +844,8 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
     }
 
     const result: PipelineResult = {
-      inserted: totalInserted,
-      updated:  totalUpdated,
+      inserted: totalUpserted,
+      updated:  0,
       failed:   totalFailed,
       estimatedMb: parseFloat(totalFileMb),
     };
@@ -883,8 +858,8 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
     deleteTmpDir(); // best-effort cleanup even on error
     await failSync(logId, msg);
     return {
-      inserted: pacEntitiesInserted + pacRelsInserted,
-      updated:  pacEntitiesUpdated  + pacRelsUpdated,
+      inserted: pacEntitiesUpserted + pacRelsUpserted,
+      updated:  0,
       failed:   pacEntitiesFailed   + pacRelsFailed,
       estimatedMb: 0,
     };

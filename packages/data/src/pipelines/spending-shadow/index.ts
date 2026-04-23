@@ -20,7 +20,7 @@
 import { createAdminClient } from "@civitics/db";
 import { shadowClient, sleep } from "../utils";
 import { startSync, completeSync, failSync, type PipelineResult } from "../sync-log";
-import { canonicalizeEntityName } from "../fec-bulk/shadow-writer";
+import { canonicalizeEntityName } from "../fec-bulk/writer";
 
 type Db = ReturnType<typeof createAdminClient>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

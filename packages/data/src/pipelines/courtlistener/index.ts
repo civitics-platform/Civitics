@@ -1,36 +1,36 @@
 /**
- * CourtListener pipeline — Stage 1B dual-write.
+ * CourtListener pipeline — post-cutover, batched writes to public.
  *
  * Part 1: Federal judges → public.officials
- *   Fix for Stage 0 finding #6: judges get court-specific governing_body_id
- *   (type='judicial') instead of senateId. seedJudicialGoverningBodies() seeds
- *   one governing_body row per federal court and caches the map for the run.
- *   Existing judge rows are also updated to the correct governing_body_id.
+ *   Dedup via external_source_refs (source='courtlistener', entity_type='official').
+ *   Existing judges from the pre-cutover run are backfilled into source_refs
+ *   by migration 20260425000200.
  *
- * Part 2: Court opinions → public.proposals (legacy) + shadow dual-write
- *   Shadow writes: shadow.proposals + shadow.case_details +
- *                  shadow.external_source_refs
- *   Dedup key: shadow.external_source_refs(source='courtlistener',
- *              external_id=cluster_id, entity_type='proposal')
+ * Part 2: Court opinions → public.proposals + public.case_details
+ *   Dedup via external_source_refs (source='courtlistener', entity_type='proposal').
+ *   Fetches top ~200 recent clusters per federal court (14 courts).
+ *
+ * Pre-cutover this wrote through shadowClient to shadow.*, which was dropped
+ * at promotion. All writes are now direct to public via chunked upsert.
  *
  * Run standalone:
  *   pnpm --filter @civitics/data data:courts
  */
 
 import { createAdminClient } from "@civitics/db";
-import type { Database } from "@civitics/db";
-import { shadowClient, sleep, fetchJson, QuotaExhaustedError } from "../utils";
+import { sleep, fetchJson, QuotaExhaustedError } from "../utils";
 import { startSync, completeSync, failSync, type PipelineResult } from "../sync-log";
+import {
+  resolveJudicialGovBodies,
+  upsertJudgesBatch,
+  upsertOpinionsBatch,
+  type JudgeInput,
+  type OpinionInput,
+} from "./writer";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-type OfficialInsert = Database["public"]["Tables"]["officials"]["Insert"];
-type ProposalInsert = Database["public"]["Tables"]["proposals"]["Insert"];
-type Db = ReturnType<typeof createAdminClient>;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ShadowDb = any;
 
 interface CLPosition {
   id:               number;
@@ -81,23 +81,6 @@ const FEDERAL_COURTS = [
   "ca6", "ca7", "ca8", "ca9", "ca10", "ca11", "cadc", "cafc",
 ];
 
-const COURT_FULL_NAMES: Record<string, string> = {
-  scotus: "Supreme Court of the United States",
-  ca1:    "U.S. Court of Appeals for the First Circuit",
-  ca2:    "U.S. Court of Appeals for the Second Circuit",
-  ca3:    "U.S. Court of Appeals for the Third Circuit",
-  ca4:    "U.S. Court of Appeals for the Fourth Circuit",
-  ca5:    "U.S. Court of Appeals for the Fifth Circuit",
-  ca6:    "U.S. Court of Appeals for the Sixth Circuit",
-  ca7:    "U.S. Court of Appeals for the Seventh Circuit",
-  ca8:    "U.S. Court of Appeals for the Eighth Circuit",
-  ca9:    "U.S. Court of Appeals for the Ninth Circuit",
-  ca10:   "U.S. Court of Appeals for the Tenth Circuit",
-  ca11:   "U.S. Court of Appeals for the Eleventh Circuit",
-  cadc:   "U.S. Court of Appeals for the D.C. Circuit",
-  cafc:   "U.S. Court of Appeals for the Federal Circuit",
-};
-
 // ---------------------------------------------------------------------------
 // API helpers
 // ---------------------------------------------------------------------------
@@ -112,152 +95,6 @@ async function clGet<T>(path: string, apiKey: string, params: Record<string, str
 }
 
 // ---------------------------------------------------------------------------
-// Seed judicial governing bodies — one per federal court
-//
-// Returns a map of CL court slug → governing_body UUID.
-// Uses find-or-create so re-runs are safe.
-// ---------------------------------------------------------------------------
-
-async function seedJudicialGoverningBodies(
-  db: Db,
-  federalId: string,
-): Promise<Map<string, string>> {
-  const courtMap = new Map<string, string>();
-
-  for (const courtId of FEDERAL_COURTS) {
-    const name = COURT_FULL_NAMES[courtId] ?? `Federal Court (${courtId})`;
-
-    const { data: existing } = await db
-      .from("governing_bodies")
-      .select("id")
-      .eq("name", name)
-      .eq("jurisdiction_id", federalId)
-      .maybeSingle();
-
-    if (existing?.id) {
-      courtMap.set(courtId, existing.id as string);
-      continue;
-    }
-
-    const { data: inserted, error } = await db
-      .from("governing_bodies")
-      .insert({
-        name,
-        short_name: courtId.toUpperCase(),
-        type: "judicial",
-        jurisdiction_id: federalId,
-        is_active: true,
-        metadata: { courtlistener_court_id: courtId },
-      })
-      .select("id")
-      .single();
-
-    if (error || !inserted) {
-      // 23505 = name collision on concurrent run; retry select
-      if (error?.code === "23505") {
-        const { data: retry } = await db
-          .from("governing_bodies")
-          .select("id")
-          .eq("name", name)
-          .eq("jurisdiction_id", federalId)
-          .maybeSingle();
-        if (retry?.id) { courtMap.set(courtId, retry.id as string); continue; }
-      }
-      console.error(`    seedJudicialGoverningBodies: failed for ${courtId}: ${error?.message}`);
-      continue;
-    }
-
-    courtMap.set(courtId, inserted.id as string);
-  }
-
-  console.log(`  Seeded ${courtMap.size} judicial governing bodies`);
-  return courtMap;
-}
-
-// ---------------------------------------------------------------------------
-// Shadow opinion writer
-// ---------------------------------------------------------------------------
-
-async function writeShadowOpinion(
-  sdb: ShadowDb,
-  proposalId: string,
-  cluster: CLCluster,
-  courtId: string,         // reliable loop variable — cluster.court_id may be undefined in v4 API
-  federalId: string,
-  opinionUrl: string,
-): Promise<void> {
-  const clId = String(cluster.id);
-
-  // Check if already in shadow via external_source_refs
-  const { data: existing } = await sdb
-    .from("external_source_refs")
-    .select("entity_id")
-    .eq("source", "courtlistener")
-    .eq("external_id", clId)
-    .eq("entity_type", "proposal")
-    .maybeSingle();
-
-  if (existing?.entity_id) return; // already written
-
-  // shadow.proposals
-  const { error: sProposalErr } = await sdb
-    .from("proposals")
-    .insert({
-      id: proposalId,
-      type: "other",
-      status: "enacted",
-      jurisdiction_id: federalId,
-      title: (cluster.case_name || `Opinion ${clId}`).slice(0, 500),
-      introduced_at: cluster.date_filed ?? null,
-      last_action_at: cluster.date_filed ?? null,
-      external_url: opinionUrl,
-      metadata: {
-        court: courtId,
-        source: "courtlistener",
-        syllabus: (cluster.syllabus ?? "").slice(0, 300),
-        ...(cluster.scdb_id ? { scdb_id: cluster.scdb_id } : {}),
-      },
-    });
-
-  if (sProposalErr && sProposalErr.code !== "23505") {
-    console.error(`    shadow.proposals insert failed for cluster ${clId}: ${sProposalErr.message}`);
-    return;
-  }
-
-  // shadow.case_details
-  const { error: sCaseErr } = await sdb
-    .from("case_details")
-    .insert({
-      proposal_id: proposalId,
-      docket_number: `CL-${clId}`,  // placeholder; enriched when full docket API is integrated
-      court_name: COURT_FULL_NAMES[courtId] ?? courtId,
-      case_name: (cluster.case_name || null),
-      filed_at: cluster.date_filed ?? null,
-      courtlistener_id: clId,
-    });
-
-  if (sCaseErr && sCaseErr.code !== "23505") {
-    console.error(`    shadow.case_details insert failed for cluster ${clId}: ${sCaseErr.message}`);
-  }
-
-  // shadow.external_source_refs
-  const { error: sRefErr } = await sdb
-    .from("external_source_refs")
-    .insert({
-      source: "courtlistener",
-      external_id: clId,
-      entity_type: "proposal",
-      entity_id: proposalId,
-      source_url: opinionUrl,
-      metadata: { court_id: courtId },
-    });
-
-  if (sRefErr && sRefErr.code !== "23505") {
-    console.error(`    shadow.external_source_refs insert failed for cluster ${clId}: ${sRefErr.message}`);
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Main pipeline
 // ---------------------------------------------------------------------------
 
@@ -265,25 +102,22 @@ export async function runCourtListenerPipeline(
   apiKey: string,
   federalId: string,
 ): Promise<PipelineResult> {
-  console.log("\n=== CourtListener pipeline ===");
+  console.log("\n=== CourtListener pipeline (public) ===");
   const logId = await startSync("courtlistener");
   const db = createAdminClient();
-  const sdb: ShadowDb = shadowClient(db);
-  let inserted = 0, updated = 0, failed = 0;
 
   try {
-    // Seed / fetch judicial governing bodies (fixes Stage 0 finding #6)
-    const courtGovBodyMap = await seedJudicialGoverningBodies(db, federalId);
+    const courtGovBodyMap = await resolveJudicialGovBodies(db, federalId, FEDERAL_COURTS);
+    console.log(`  Seeded/resolved ${courtGovBodyMap.size} judicial governing bodies`);
 
-    // -----------------------------------------------------------------------
-    // Part 1: Federal judges → public.officials
-    // -----------------------------------------------------------------------
+    // ── Part 1: Judges ───────────────────────────────────────────────────────
+    console.log("\n  Fetching active federal judges...");
+    const judgeInputs: JudgeInput[] = [];
+    const judgesSeen = new Set<number>();
+    let judgesQuotaHit = false;
 
-    console.log("  Fetching active federal judges...");
     let nextUrl: string | null = null;
     let page = 1;
-    const judgesProcessed = new Set<number>();
-
     do {
       let positions: CLPositionList;
       try {
@@ -302,7 +136,8 @@ export async function runCourtListenerPipeline(
         }
       } catch (err) {
         if (err instanceof QuotaExhaustedError) {
-          console.warn(`  CourtListener daily quota exhausted — stopping pipeline. Re-run tomorrow.`);
+          console.warn(`  CourtListener daily quota exhausted on judges — stopping. Re-run tomorrow.`);
+          judgesQuotaHit = true;
           break;
         }
         console.error(`  Judges page ${page}: fetch error —`, err instanceof Error ? err.message : err);
@@ -311,13 +146,13 @@ export async function runCourtListenerPipeline(
 
       for (const pos of positions.results ?? []) {
         const personId = pos.person?.id;
-        if (!personId || judgesProcessed.has(personId)) continue;
-        judgesProcessed.add(personId);
+        if (!personId || judgesSeen.has(personId)) continue;
+        judgesSeen.add(personId);
 
         const person = pos.person;
-        const clId = String(personId);
 
-        // In CL API v4, pos.court may be a URL string or nested object — extract slug
+        // CL v4 returns pos.court sometimes as a URL, sometimes as a nested
+        // object — normalise to the final slug.
         const courtStr = String(typeof pos.court === "object" && pos.court !== null
           ? (pos.court as Record<string, unknown>)["id"] ?? ""
           : pos.court ?? "");
@@ -325,45 +160,22 @@ export async function runCourtListenerPipeline(
         const governingBodyId = courtGovBodyMap.get(courtSlug)
           ?? [...courtGovBodyMap.values()][0]!;
 
-        const record: OfficialInsert = {
-          full_name:         person.name_full || `${person.name_first} ${person.name_last}`.trim(),
-          first_name:        person.name_first || null,
-          last_name:         person.name_last || null,
-          role_title:        "Federal Judge",
-          governing_body_id: governingBodyId,
-          jurisdiction_id:   federalId,
-          is_active:         !pos.date_termination,
-          is_verified:       false,
-          term_start:        pos.date_start ?? null,
-          term_end:          pos.date_termination ?? null,
-          source_ids:        { courtlistener_person_id: clId },
-          metadata:          {
-            court:            pos.court,
-            court_full_name:  pos.court_full_name,
-            position_type:    pos.position_type,
+        judgeInputs.push({
+          courtlistenerPersonId: String(personId),
+          fullName: person.name_full || `${person.name_first} ${person.name_last}`.trim(),
+          firstName: person.name_first || null,
+          lastName: person.name_last || null,
+          governingBodyId,
+          jurisdictionId: federalId,
+          isActive: !pos.date_termination,
+          termStart: pos.date_start ?? null,
+          termEnd: pos.date_termination ?? null,
+          metadata: {
+            court: pos.court,
+            court_full_name: pos.court_full_name,
+            position_type: pos.position_type,
           },
-        };
-
-        try {
-          const { data: existing } = await db
-            .from("officials")
-            .select("id")
-            .filter("source_ids->>courtlistener_person_id", "eq", clId)
-            .maybeSingle();
-
-          if (existing) {
-            const { error } = await db.from("officials")
-              .update({ ...record, updated_at: new Date().toISOString() })
-              .eq("id", existing.id);
-            if (error) { failed++; } else { updated++; }
-          } else {
-            const { error } = await db.from("officials").insert(record);
-            if (error) { failed++; } else { inserted++; }
-          }
-        } catch (err) {
-          console.error(`    Judge ${person.name_full}: error —`, err);
-          failed++;
-        }
+        });
       }
 
       nextUrl = positions.next ?? null;
@@ -371,19 +183,17 @@ export async function runCourtListenerPipeline(
       if (page > 20) break;
     } while (nextUrl);
 
-    console.log(`  Judges — inserted: ${inserted}, updated: ${updated}`);
-    const judgesInserted = inserted, judgesUpdated = updated;
-    inserted = 0; updated = 0;
+    console.log(`  Judges: ${judgeInputs.length} fetched, batched upsert...`);
+    const judgeRes = await upsertJudgesBatch(db, judgeInputs);
+    console.log(`  Judges — inserted: ${judgeRes.inserted}, updated: ${judgeRes.updated}, failed: ${judgeRes.failed}`);
 
-    // -----------------------------------------------------------------------
-    // Part 2: Recent opinions → public.proposals + shadow dual-write
-    // -----------------------------------------------------------------------
+    // ── Part 2: Opinions (per-court, collected into one batch) ───────────────
+    console.log("\n  Fetching recent court opinions...");
+    const opinionInputs: OpinionInput[] = [];
+    let opinionsQuotaHit = judgesQuotaHit;
 
-    console.log("  Fetching recent court opinions...");
-
-    let opinionQuotaHit = false;
     for (const courtId of FEDERAL_COURTS) {
-      if (opinionQuotaHit) break;
+      if (opinionsQuotaHit) break;
       console.log(`    Court: ${courtId}`);
       let nextClusters: string | null = null;
 
@@ -403,8 +213,8 @@ export async function runCourtListenerPipeline(
           }
         } catch (err) {
           if (err instanceof QuotaExhaustedError) {
-            console.warn(`    CourtListener daily quota exhausted — stopping opinions phase. Re-run tomorrow.`);
-            opinionQuotaHit = true;
+            console.warn(`    CourtListener quota exhausted on clusters — stopping opinions phase.`);
+            opinionsQuotaHit = true;
             break;
           }
           console.error(`    ${courtId} page ${p}: error —`, err instanceof Error ? err.message : err);
@@ -413,76 +223,48 @@ export async function runCourtListenerPipeline(
         nextClusters = clusters.next ?? null;
 
         for (const cluster of clusters.results ?? []) {
-          const clId = String(cluster.id);
-          const opinionUrl = `https://www.courtlistener.com${cluster.absolute_url}`;
-
-          const record: ProposalInsert = {
-            title:           (cluster.case_name || `Opinion ${clId}`).slice(0, 500),
-            type:            "other",
-            status:          "enacted",
-            jurisdiction_id: federalId,
-            introduced_at:   cluster.date_filed ?? null,
-            last_action_at:  cluster.date_filed ?? null,
-            full_text_url:   opinionUrl,
-            source_ids:      {
-              courtlistener_cluster_id: clId,
-              court_id:  courtId,
-              scdb_id:   cluster.scdb_id ?? "",
-            },
-            metadata:        {
-              court:    courtId,
-              source:   "courtlistener",
-              syllabus: (cluster.syllabus ?? "").slice(0, 300),
-            },
-          };
-
-          try {
-            const { data: existing } = await db
-              .from("proposals")
-              .select("id")
-              .filter("source_ids->>courtlistener_cluster_id", "eq", clId)
-              .maybeSingle();
-
-            if (existing) {
-              await db.from("proposals")
-                .update({ updated_at: new Date().toISOString() })
-                .eq("id", existing.id);
-              updated++;
-
-              // Shadow write for already-inserted public row
-              await writeShadowOpinion(sdb, existing.id as string, cluster, courtId, federalId, opinionUrl);
-            } else {
-              const { data: newRow, error } = await db
-                .from("proposals")
-                .insert(record)
-                .select("id")
-                .single();
-
-              if (error || !newRow) {
-                failed++;
-              } else {
-                inserted++;
-                await writeShadowOpinion(sdb, newRow.id as string, cluster, courtId, federalId, opinionUrl);
-              }
-            }
-          } catch (err) {
-            console.error(`    Cluster ${clId}: error —`, err);
-            failed++;
-          }
+          opinionInputs.push({
+            clusterId: String(cluster.id),
+            caseName: cluster.case_name,
+            dateFiled: cluster.date_filed,
+            courtId,
+            opinionUrl: `https://www.courtlistener.com${cluster.absolute_url}`,
+            syllabus: cluster.syllabus ?? "",
+            scdbId: cluster.scdb_id ?? null,
+            jurisdictionId: federalId,
+          });
         }
 
         if ((clusters.results ?? []).length < 100 || !nextClusters) break;
       }
     }
 
-    inserted += judgesInserted;
-    updated  += judgesUpdated;
+    console.log(`\n  Opinions: ${opinionInputs.length} fetched, batched upsert...`);
+    const opinionRes = await upsertOpinionsBatch(db, opinionInputs);
+    console.log(`  Opinions — inserted: ${opinionRes.inserted}, updated: ${opinionRes.updated}, failed: ${opinionRes.failed}`);
 
-    const estimatedMb = +((inserted + updated) * 517 / 1024 / 1024).toFixed(2);
-    const result: PipelineResult = { inserted, updated, failed, estimatedMb };
+    const totalInserted = judgeRes.inserted + opinionRes.inserted;
+    const totalUpdated = judgeRes.updated + opinionRes.updated;
+    const totalFailed = judgeRes.failed + opinionRes.failed;
+    const estimatedMb = +(((totalInserted + totalUpdated) * 517) / 1024 / 1024).toFixed(2);
+    const result: PipelineResult = {
+      inserted: totalInserted,
+      updated: totalUpdated,
+      failed: totalFailed,
+      estimatedMb,
+    };
 
-    console.log(`  Done — inserted: ${inserted}, updated: ${updated}, failed: ${failed}`);
-    console.log(`  Estimated storage: ~${estimatedMb} MB`);
+    console.log("\n  ──────────────────────────────────────────────────");
+    console.log("  CourtListener pipeline report");
+    console.log("  ──────────────────────────────────────────────────");
+    console.log(`  ${"Judges inserted:".padEnd(32)} ${judgeRes.inserted}`);
+    console.log(`  ${"Judges updated:".padEnd(32)} ${judgeRes.updated}`);
+    console.log(`  ${"Judges failed:".padEnd(32)} ${judgeRes.failed}`);
+    console.log(`  ${"Opinions inserted:".padEnd(32)} ${opinionRes.inserted}`);
+    console.log(`  ${"Opinions updated:".padEnd(32)} ${opinionRes.updated}`);
+    console.log(`  ${"Opinions failed:".padEnd(32)} ${opinionRes.failed}`);
+    console.log(`  ${"Estimated storage:".padEnd(32)} ~${estimatedMb} MB`);
+    if (opinionsQuotaHit) console.log(`  ${"Run ended on quota.".padEnd(32)}`);
 
     await completeSync(logId, result);
     return result;
@@ -491,7 +273,7 @@ export async function runCourtListenerPipeline(
     const msg = err instanceof Error ? err.message : String(err);
     console.error("  CourtListener pipeline fatal error:", msg);
     await failSync(logId, msg);
-    return { inserted, updated, failed, estimatedMb: 0 };
+    return { inserted: 0, updated: 0, failed: 1, estimatedMb: 0 };
   }
 }
 
@@ -503,6 +285,7 @@ if (require.main === module) {
   const apiKey = process.env["COURTLISTENER_API_KEY"];
   if (!apiKey) { console.error("COURTLISTENER_API_KEY not set"); process.exit(1); }
 
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { seedJurisdictions } = require("../../jurisdictions/us-states");
   const db = createAdminClient();
 

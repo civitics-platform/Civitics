@@ -494,6 +494,33 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
     results.errors.push(`Trending refresh: ${msg}`);
   }
 
+  // 3c. Rebuild entity_connections via SQL derivation (FIX-100)
+  // Full rebuild from financial_relationships, votes, proposal_cosponsors,
+  // career_history, agencies. ~15s today (votes only); will grow as FIX-101
+  // pipelines populate the other source tables.
+  {
+    const t0 = Date.now();
+    try {
+      const { createAdminClient } = await import("@civitics/db");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const admin = createAdminClient() as any;
+      const { data, error } = await admin.rpc("rebuild_entity_connections");
+      if (error) throw error;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const total = (data ?? []).reduce((a: number, r: any) => a + Number(r.edges_upserted ?? 0), 0);
+      results.pipelines.entity_connections_rebuild = {
+        status: "complete",
+        rows_added: total,
+        duration_ms: Date.now() - t0,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[nightly] rebuild_entity_connections failed:", msg);
+      results.pipelines.entity_connections_rebuild = { status: "failed", error: msg };
+      results.errors.push(`Rebuild entity_connections: ${msg}`);
+    }
+  }
+
   // 4. Rule-based tags (all new/updated entities)
   try {
     await runRuleBasedTagger();

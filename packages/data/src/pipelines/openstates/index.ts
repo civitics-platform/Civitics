@@ -1,14 +1,15 @@
 /**
- * OpenStates pipeline — Stage 1B dual-write.
+ * OpenStates pipeline — post-cutover, batched writes to public.
  *
- * Phase A: State legislators → public.officials (existing)
- *   + shadow.external_source_refs (new — normalizes dedup off JSON path filter)
+ * Phase A: state legislators → public.officials (+ external_source_refs)
+ * Phase B: state bills       → public.proposals + public.bill_details
+ *                              (+ external_source_refs)
  *
- * Phase B: State bills → shadow.proposals + shadow.bill_details +
- *          shadow.external_source_refs (new — state legislation in shadow)
- *
- * Storage target: ~30 MB
- * Rate limit:     100ms between API calls
+ * The OpenStates API rate limit (10 req/min on the bills endpoint) dominates
+ * runtime; batching the DB side keeps the process idle-waiting on the API
+ * rather than on round-trips. One page of legislators (up to 50 people) now
+ * collapses to ~5 DB round-trips instead of ~150, and one page of bills
+ * (up to 20) to ~5 instead of ~80.
  *
  * Run standalone:
  *   pnpm --filter @civitics/data data:states
@@ -16,22 +17,26 @@
 
 import { createAdminClient } from "@civitics/db";
 import type { Database } from "@civitics/db";
-import { shadowClient, sleep, fetchJson, QuotaExhaustedError } from "../utils";
+import { sleep, fetchJson, QuotaExhaustedError } from "../utils";
 import { startSync, completeSync, failSync, type PipelineResult } from "../sync-log";
 import { STATE_DATA } from "../../jurisdictions/us-states";
+import {
+  resolveGoverningBodies,
+  upsertLegislatorsBatch,
+  upsertStateBillsBatch,
+  type GovBodyKey,
+  type LegislatorInput,
+  type StateBillInput,
+} from "./writer";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type OfficialInsert = Database["public"]["Tables"]["officials"]["Insert"];
-type GovBodyInsert  = Database["public"]["Tables"]["governing_bodies"]["Insert"];
-type GovBodyType    = Database["public"]["Enums"]["governing_body_type"];
-type ProposalType   = Database["public"]["Enums"]["proposal_type"];
+type PartyValue = Database["public"]["Tables"]["officials"]["Row"]["party"];
+type GovBodyType = Database["public"]["Enums"]["governing_body_type"];
+type ProposalType = Database["public"]["Enums"]["proposal_type"];
 type ProposalStatus = Database["public"]["Enums"]["proposal_status"];
-type Db = ReturnType<typeof createAdminClient>;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ShadowDb = any;
 
 interface OSPerson {
   id:             string;
@@ -81,14 +86,13 @@ interface OSBillList {
 
 const OS_BASE = "https://v3.openstates.org";
 
-// Bills endpoint: max per_page=20, rate limit 10 req/min → 7s between calls
+// Bills endpoint: 10 req/min → 7s between calls. Page size 20.
 const BILLS_PER_PAGE = 20;
 const BILLS_SLEEP_MS = 7000;
-// Max bill pages per state (20 per page → up to 60 bills per state)
 const MAX_BILL_PAGES = 3;
 
 // ---------------------------------------------------------------------------
-// Helpers
+// API
 // ---------------------------------------------------------------------------
 
 async function fetchLegislators(
@@ -124,7 +128,11 @@ async function fetchBills(
   });
 }
 
-function mapParty(party: string): OfficialInsert["party"] {
+// ---------------------------------------------------------------------------
+// Field mapping
+// ---------------------------------------------------------------------------
+
+function mapParty(party: string): PartyValue {
   const p = party.toLowerCase();
   if (p.includes("democrat"))    return "democrat";
   if (p.includes("republican"))  return "republican";
@@ -142,11 +150,11 @@ function mapChamberType(orgClass: string): GovBodyType {
 
 function mapBillType(classification: string[]): ProposalType {
   const c = classification.map((s) => s.toLowerCase());
-  if (c.some((s) => s === "bill"))                           return "bill";
-  if (c.some((s) => s.includes("resolution")))              return "resolution";
-  if (c.some((s) => s.includes("amendment")))               return "amendment";
+  if (c.some((s) => s === "bill"))                                    return "bill";
+  if (c.some((s) => s.includes("resolution")))                        return "resolution";
+  if (c.some((s) => s.includes("amendment")))                         return "amendment";
   if (c.some((s) => s.includes("budget") || s.includes("appropriat"))) return "budget";
-  if (c.some((s) => s.includes("ordinance")))               return "ordinance";
+  if (c.some((s) => s.includes("ordinance")))                         return "ordinance";
   return "other";
 }
 
@@ -176,187 +184,118 @@ export async function runOpenStatesPipeline(
   apiKey: string,
   stateIds: Map<string, string>,   // state name → jurisdiction UUID
 ): Promise<PipelineResult> {
-  console.log("\n=== OpenStates pipeline ===");
+  console.log("\n=== OpenStates pipeline (public) ===");
   const logId = await startSync("openstates");
   const db = createAdminClient();
-  const sdb: ShadowDb = shadowClient(db);
-  let inserted = 0, updated = 0, failed = 0;
 
-  // Cache: "stateAbbr:chamberType" → governing_body UUID
-  const govBodyCache = new Map<string, string>();
-
-  async function findOrCreateGovBody(
-    stateAbbr: string,
-    stateName: string,
-    jurisdictionId: string,
-    orgClass: string,
-  ): Promise<string | null> {
-    const cacheKey = `${stateAbbr}:${orgClass}`;
-    if (govBodyCache.has(cacheKey)) return govBodyCache.get(cacheKey)!;
-
-    const bodyType     = mapChamberType(orgClass);
-    const chamberLabel = orgClass === "upper" ? "Senate" : orgClass === "lower" ? "House" : "Legislature";
-    const bodyName     = `${stateName} State ${chamberLabel}`;
-
-    try {
-      const { data: existing } = await db
-        .from("governing_bodies")
-        .select("id")
-        .eq("jurisdiction_id", jurisdictionId)
-        .eq("type", bodyType)
-        .maybeSingle();
-
-      if (existing) {
-        govBodyCache.set(cacheKey, existing.id as string);
-        return existing.id as string;
-      }
-
-      const row: GovBodyInsert = {
-        jurisdiction_id: jurisdictionId,
-        type:            bodyType,
-        name:            bodyName,
-        short_name:      `${stateAbbr} ${chamberLabel}`,
-        is_active:       true,
-      };
-      const { data: created, error } = await db
-        .from("governing_bodies").insert(row).select("id").single();
-      if (error) {
-        console.error(`    GovBody ${bodyName}: insert error — ${error.message}`);
-        return null;
-      }
-      govBodyCache.set(cacheKey, created.id as string);
-      return created.id as string;
-    } catch (err) {
-      console.error(`    GovBody ${bodyName}: unexpected error —`, err);
-      return null;
-    }
-  }
-
-  // ── Phase A: Legislators ───────────────────────────────────────────────────
-
+  let officialsInserted = 0, officialsUpdated = 0, officialsFailed = 0;
   let billsInserted = 0, billsUpdated = 0, billsFailed = 0;
   let quotaHit = false;
 
   try {
+    // ── Phase 0: pre-resolve governing_bodies for every (state × chamber) ───
+    const govBodyKeys: GovBodyKey[] = [];
+    for (const state of STATE_DATA) {
+      const jurisdictionId = stateIds.get(state.name);
+      if (!jurisdictionId) continue;
+      for (const orgClass of ["upper", "lower"] as const) {
+        govBodyKeys.push({
+          jurisdictionId,
+          stateAbbr: state.abbr,
+          stateName: state.name,
+          type: mapChamberType(orgClass),
+        });
+      }
+    }
+    const govBodyMap = await resolveGoverningBodies(db, govBodyKeys);
+    console.log(`  Resolved ${govBodyMap.size} state legislative bodies`);
+
+    const govBodyFor = (jurisdictionId: string, orgClass: "upper" | "lower") =>
+      govBodyMap.get(`${jurisdictionId}|${mapChamberType(orgClass)}`) ?? null;
+
+    // ── Phase A: Legislators (per-state, page-by-page, batch per page) ──────
     for (const state of STATE_DATA) {
       if (quotaHit) break;
       const jurisdictionId = stateIds.get(state.name);
       if (!jurisdictionId) {
-        console.warn(`    No jurisdiction ID for ${state.name}, skipping`);
+        console.warn(`  ${state.abbr}: no jurisdiction id, skipping`);
         continue;
       }
 
       const ocdId = `ocd-jurisdiction/country:us/state:${state.abbr.toLowerCase()}/government`;
-      console.log(`  ${state.abbr} — legislators...`);
+      let totalLegislators = 0;
 
-      let totalFetched = 0;
+      for (const orgClass of ["upper", "lower"] as const) {
+        const govBodyId = govBodyFor(jurisdictionId, orgClass);
+        if (!govBodyId) {
+          console.warn(`    ${state.abbr}: no governing_body for ${orgClass}, skipping`);
+          continue;
+        }
 
-      for (const chamberClass of ["upper", "lower"] as const) {
         let page = 1;
-
         while (true) {
           if (quotaHit) break;
           let list: OSPersonList;
           try {
-            list = await fetchLegislators(apiKey, ocdId, chamberClass, page);
+            list = await fetchLegislators(apiKey, ocdId, orgClass, page);
           } catch (err) {
             if (err instanceof QuotaExhaustedError) {
-              console.warn(`    OpenStates daily quota exhausted — stopping pipeline. Re-run tomorrow; upserts are idempotent.`);
+              console.warn(`  OpenStates daily quota exhausted — pausing. Re-run tomorrow; upserts are idempotent.`);
               quotaHit = true;
               break;
             }
-            console.error(`    ${state.abbr} ${chamberClass} page ${page}: fetch error —`, err instanceof Error ? err.message : err);
+            console.error(`    ${state.abbr} ${orgClass} page ${page}: fetch error —`, err instanceof Error ? err.message : err);
             break;
           }
 
+          const pageInputs: LegislatorInput[] = [];
           for (const person of list.results ?? []) {
             const role = person.current_role;
             if (!role) continue;
-
-            const govBodyId = await findOrCreateGovBody(state.abbr, state.name, jurisdictionId, chamberClass);
-            const osId      = person.id;
-
-            if (!govBodyId) { failed++; continue; }
-
-            const record: OfficialInsert = {
-              full_name:         person.name,
-              role_title:        role.title || (chamberClass === "upper" ? "State Senator" : "State Representative"),
-              governing_body_id: govBodyId,
-              jurisdiction_id:   jurisdictionId,
-              party:             mapParty(person.party),
-              district_name:     role.district || null,
-              term_start:        role.start_date ?? null,
-              term_end:          role.end_date   ?? null,
-              is_active:         true,
-              is_verified:       false,
-              website_url:       person.openstates_url || null,
-              source_ids:        { openstates_id: osId },
-              metadata:          { org_classification: chamberClass },
-            };
-
-            try {
-              const { data: existing } = await db
-                .from("officials")
-                .select("id")
-                .filter("source_ids->>openstates_id", "eq", osId)
-                .maybeSingle();
-
-              let officialId: string | null = null;
-
-              if (existing) {
-                const { error } = await db.from("officials")
-                  .update({ ...record, updated_at: new Date().toISOString() })
-                  .eq("id", existing.id);
-                if (error) { failed++; continue; }
-                updated++;
-                officialId = existing.id as string;
-              } else {
-                const { data: newRow, error } = await db
-                  .from("officials").insert(record).select("id").single();
-                if (error || !newRow) { failed++; continue; }
-                inserted++;
-                officialId = newRow.id as string;
-              }
-
-              // Shadow: normalize dedup off JSON filter → external_source_refs
-              if (officialId) {
-                await sdb.from("external_source_refs").upsert({
-                  source:      "openstates",
-                  external_id: osId,
-                  entity_type: "official",
-                  entity_id:   officialId,
-                  metadata:    { state: state.abbr, chamber: chamberClass },
-                }, { onConflict: "source,external_id,entity_type" });
-              }
-            } catch (err) {
-              console.error(`    ${person.name}: error —`, err);
-              failed++;
-            }
+            pageInputs.push({
+              openstatesId: person.id,
+              fullName: person.name,
+              roleTitle: role.title || (orgClass === "upper" ? "State Senator" : "State Representative"),
+              governingBodyId: govBodyId,
+              jurisdictionId,
+              party: mapParty(person.party),
+              districtName: role.district || null,
+              termStart: role.start_date ?? null,
+              termEnd: role.end_date ?? null,
+              websiteUrl: person.openstates_url || null,
+              metadata: { org_classification: orgClass, state: state.abbr },
+            });
           }
 
-          totalFetched += (list.results ?? []).length;
+          if (pageInputs.length > 0) {
+            const res = await upsertLegislatorsBatch(db, pageInputs);
+            officialsInserted += res.inserted;
+            officialsUpdated += res.updated;
+            officialsFailed += res.failed;
+            totalLegislators += res.inserted + res.updated;
+          }
+
           if (page >= list.pagination.max_page) break;
           page++;
         }
       }
 
-      console.log(`    ${state.abbr}: ${totalFetched} legislators`);
+      console.log(`  ${state.abbr} legislators: ${totalLegislators} upserted`);
 
       if (quotaHit) break;
 
-      // ── Phase B: Bills for this state ──────────────────────────────────────
-
-      console.log(`  ${state.abbr} — bills...`);
+      // ── Phase B: Bills (per-state, page-by-page, batch per page) ──────────
       let billPage = 1;
       let stateBillsFetched = 0;
-
+      let stateBillsInserted = 0;
+      let stateBillsUpdated = 0;
       while (billPage <= MAX_BILL_PAGES) {
         let list: OSBillList;
         try {
           list = await fetchBills(apiKey, ocdId, billPage);
         } catch (err) {
           if (err instanceof QuotaExhaustedError) {
-            console.warn(`    OpenStates daily quota exhausted — stopping pipeline. Re-run tomorrow; upserts are idempotent.`);
+            console.warn(`  OpenStates daily quota exhausted — pausing. Re-run tomorrow; upserts are idempotent.`);
             quotaHit = true;
             break;
           }
@@ -364,89 +303,40 @@ export async function runOpenStatesPipeline(
           break;
         }
 
+        const pageInputs: StateBillInput[] = [];
         for (const bill of list.results ?? []) {
-          const osId       = bill.id;
           const billNumber = bill.identifier.slice(0, 100);
-          const title      = (bill.title || billNumber).slice(0, 500);
-          const session    = bill.session || "current";
-          const orgClass   = bill.from_organization?.classification ?? "";
-          const chamber    = mapBillChamber(orgClass);
-          const billType   = mapBillType(bill.classification ?? []);
-          const status     = mapBillStatus(bill.latest_action_description);
-
-          // Dedup via external_source_refs
-          const { data: existingRef } = await sdb
-            .from("external_source_refs")
-            .select("entity_id")
-            .eq("source", "openstates")
-            .eq("external_id", osId)
-            .eq("entity_type", "proposal")
-            .maybeSingle();
-
-          if (existingRef?.entity_id) {
-            // Update status on shadow.proposals if changed
-            await sdb.from("proposals")
-              .update({ status, last_action_at: bill.latest_action_date ?? null, updated_at: new Date().toISOString() })
-              .eq("id", existingRef.entity_id);
-            billsUpdated++;
-            continue;
-          }
-
-          // Insert shadow.proposals
-          const { data: newProposal, error: pErr } = await sdb
-            .from("proposals")
-            .insert({
-              type:            billType,
-              status,
-              jurisdiction_id: jurisdictionId,
-              title,
-              introduced_at:   bill.first_action_date ?? null,
-              last_action_at:  bill.latest_action_date ?? null,
-              external_url:    `https://openstates.org/bills/${osId.replace("ocd-bill/", "")}/`,
-              metadata: {
-                source:               "openstates",
-                openstates_id:        osId,
-                latest_action:        (bill.latest_action_description ?? "").slice(0, 200),
-              },
-            })
-            .select("id")
-            .single();
-
-          if (pErr || !newProposal) {
-            if (pErr?.code !== "23505") {
-              console.error(`    ${state.abbr} bill ${billNumber}: shadow.proposals error — ${pErr?.message}`);
-            }
-            billsFailed++;
-            continue;
-          }
-
-          const proposalId = newProposal.id as string;
-
-          // shadow.bill_details
-          const { error: bdErr } = await sdb
-            .from("bill_details")
-            .insert({
-              proposal_id: proposalId,
-              bill_number:  billNumber,
-              chamber:      chamber ?? undefined,
-              session,
-              // jurisdiction_id filled by trigger
-            });
-
-          if (bdErr && bdErr.code !== "23505") {
-            console.error(`    ${state.abbr} bill ${billNumber}: shadow.bill_details error — ${bdErr.message}`);
-          }
-
-          // shadow.external_source_refs
-          await sdb.from("external_source_refs").insert({
-            source:      "openstates",
-            external_id: osId,
-            entity_type: "proposal",
-            entity_id:   proposalId,
-            metadata:    { state: state.abbr, session },
+          const title = (bill.title || billNumber).slice(0, 500);
+          const session = bill.session || "current";
+          const orgClass = bill.from_organization?.classification ?? "";
+          pageInputs.push({
+            openstatesId: bill.id,
+            title,
+            billNumber,
+            session,
+            chamber: mapBillChamber(orgClass),
+            type: mapBillType(bill.classification ?? []),
+            status: mapBillStatus(bill.latest_action_description),
+            jurisdictionId,
+            introducedAt: bill.first_action_date ?? null,
+            lastActionAt: bill.latest_action_date ?? null,
+            externalUrl: `https://openstates.org/bills/${bill.id.replace("ocd-bill/", "")}/`,
+            metadata: {
+              source: "openstates",
+              openstates_id: bill.id,
+              state: state.abbr,
+              latest_action: (bill.latest_action_description ?? "").slice(0, 200),
+            },
           });
+        }
 
-          billsInserted++;
+        if (pageInputs.length > 0) {
+          const res = await upsertStateBillsBatch(db, pageInputs);
+          billsInserted += res.inserted;
+          billsUpdated += res.updated;
+          billsFailed += res.failed;
+          stateBillsInserted += res.inserted;
+          stateBillsUpdated += res.updated;
         }
 
         stateBillsFetched += (list.results ?? []).length;
@@ -454,20 +344,31 @@ export async function runOpenStatesPipeline(
         billPage++;
       }
 
-      console.log(`    ${state.abbr}: ${stateBillsFetched} bills fetched (${billsInserted} inserted so far)`);
+      console.log(`  ${state.abbr} bills: ${stateBillsFetched} fetched · ${stateBillsInserted} inserted · ${stateBillsUpdated} updated`);
     }
 
-    const totalInserted = inserted + billsInserted;
-    const totalUpdated  = updated  + billsUpdated;
-    const totalFailed   = failed   + billsFailed;
+    const totalInserted = officialsInserted + billsInserted;
+    const totalUpdated = officialsUpdated + billsUpdated;
+    const totalFailed = officialsFailed + billsFailed;
 
-    const estimatedMb = +((totalInserted + totalUpdated) * 1000 / 1024 / 1024).toFixed(2);
-    const result: PipelineResult = { inserted: totalInserted, updated: totalUpdated, failed: totalFailed, estimatedMb };
+    const estimatedMb = +(((totalInserted + totalUpdated) * 1000) / 1024 / 1024).toFixed(2);
+    const result: PipelineResult = {
+      inserted: totalInserted,
+      updated: totalUpdated,
+      failed: totalFailed,
+      estimatedMb,
+    };
 
-    console.log(`\n  Done`);
-    console.log(`  Legislators — inserted: ${inserted}, updated: ${updated}, failed: ${failed}`);
-    console.log(`  Bills       — inserted: ${billsInserted}, updated: ${billsUpdated}, failed: ${billsFailed}`);
-    console.log(`  Estimated storage: ~${estimatedMb} MB`);
+    console.log("\n  ──────────────────────────────────────────────────");
+    console.log("  OpenStates pipeline report");
+    console.log("  ──────────────────────────────────────────────────");
+    console.log(`  ${"Legislators inserted:".padEnd(32)} ${officialsInserted}`);
+    console.log(`  ${"Legislators updated:".padEnd(32)} ${officialsUpdated}`);
+    console.log(`  ${"Legislators failed:".padEnd(32)} ${officialsFailed}`);
+    console.log(`  ${"Bills inserted:".padEnd(32)} ${billsInserted}`);
+    console.log(`  ${"Bills updated:".padEnd(32)} ${billsUpdated}`);
+    console.log(`  ${"Bills failed:".padEnd(32)} ${billsFailed}`);
+    if (quotaHit) console.log(`  ${"Run ended with quota exhausted.".padEnd(32)}`);
 
     await completeSync(logId, result);
     return result;
@@ -476,7 +377,12 @@ export async function runOpenStatesPipeline(
     const msg = err instanceof Error ? err.message : String(err);
     console.error("  OpenStates pipeline fatal error:", msg);
     await failSync(logId, msg);
-    return { inserted, updated, failed, estimatedMb: 0 };
+    return {
+      inserted: officialsInserted + billsInserted,
+      updated: officialsUpdated + billsUpdated,
+      failed: officialsFailed + billsFailed,
+      estimatedMb: 0,
+    };
   }
 }
 
@@ -488,6 +394,7 @@ if (require.main === module) {
   const apiKey = process.env["OPENSTATES_API_KEY"];
   if (!apiKey) { console.error("OPENSTATES_API_KEY not set"); process.exit(1); }
 
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { seedJurisdictions } = require("../../jurisdictions/us-states");
   const db = createAdminClient();
 

@@ -1,0 +1,451 @@
+/**
+ * OpenStates writer — post-cutover, batched writes against public.
+ *
+ * Tables written:
+ *   public.governing_bodies          one per (state × chamber); small volume,
+ *                                    resolved in one batched SELECT + per-miss INSERT
+ *   public.officials                 state legislators; dedup via external_source_refs
+ *                                    (source='openstates', entity_type='official')
+ *   public.proposals                 state bills (type from mapBillType)
+ *   public.bill_details              chamber + session + bill_number per proposal
+ *   public.external_source_refs      (source='openstates', entity_type='proposal'|'official')
+ *
+ * All phases write through chunked upserts; no per-row SELECT → INSERT/UPDATE.
+ * The pipeline is rate-limited by OpenStates (10 req/min for bills → 7s sleep
+ * per page), so the DB side rarely matters — but batching keeps the runtime
+ * free to wait on the API rather than on round-trips.
+ *
+ * Pre-cutover this wrote to shadow.* through `shadowClient()`; the shadow
+ * schema was dropped at promotion. Dedup for officials used to go through
+ * `officials.source_ids->>'openstates_id'` which works but can't be backed
+ * by a unique index. Migration 20260425000100 backfills external_source_refs
+ * for any existing state legislators so the new writer's lookup is
+ * authoritative.
+ */
+
+import type { createAdminClient } from "@civitics/db";
+import type { Database } from "@civitics/db";
+
+type Db = ReturnType<typeof createAdminClient>;
+type OfficialInsert = Database["public"]["Tables"]["officials"]["Insert"];
+type GovBodyInsert = Database["public"]["Tables"]["governing_bodies"]["Insert"];
+type GovBodyType = Database["public"]["Enums"]["governing_body_type"];
+type ProposalInsert = Database["public"]["Tables"]["proposals"]["Insert"];
+type ProposalType = Database["public"]["Enums"]["proposal_type"];
+type ProposalStatus = Database["public"]["Enums"]["proposal_status"];
+type PartyValue = Database["public"]["Tables"]["officials"]["Row"]["party"];
+
+const CHUNK_SIZE = 500;
+const LOOKUP_CHUNK_SIZE = 200;
+
+// ---------------------------------------------------------------------------
+// Governing bodies
+// ---------------------------------------------------------------------------
+
+export interface GovBodyKey {
+  jurisdictionId: string;
+  stateAbbr: string;
+  stateName: string;
+  type: GovBodyType;
+}
+
+/**
+ * Resolve the governing_body for each (jurisdiction × legislative chamber).
+ * Volume is tiny (50 states × up to 3 chamber types), so we batch the SELECT
+ * once then insert any misses individually — no schema change needed.
+ */
+export async function resolveGoverningBodies(
+  db: Db,
+  keys: GovBodyKey[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (keys.length === 0) return out;
+
+  const mapKey = (jurisdictionId: string, type: GovBodyType) =>
+    `${jurisdictionId}|${type}`;
+
+  // Batch lookup existing bodies across the requested jurisdictions
+  const jurisdictionIds = [...new Set(keys.map((k) => k.jurisdictionId))];
+  for (let i = 0; i < jurisdictionIds.length; i += LOOKUP_CHUNK_SIZE) {
+    const chunk = jurisdictionIds.slice(i, i + LOOKUP_CHUNK_SIZE);
+    const { data, error } = await db
+      .from("governing_bodies")
+      .select("id, jurisdiction_id, type")
+      .in("jurisdiction_id", chunk);
+    if (error) {
+      console.error(`    openstates writer: governing_bodies lookup ${i}-${i + chunk.length}: ${error.message}`);
+      continue;
+    }
+    for (const row of (data ?? []) as Array<{ id: string; jurisdiction_id: string; type: GovBodyType }>) {
+      out.set(mapKey(row.jurisdiction_id, row.type), row.id);
+    }
+  }
+
+  // Per-miss insert for any legislative body we haven't seen yet.
+  const missing = keys.filter((k) => !out.has(mapKey(k.jurisdictionId, k.type)));
+  for (const key of missing) {
+    const chamberLabel =
+      key.type === "legislature_upper" ? "Senate" :
+      key.type === "legislature_lower" ? "House" :
+      "Legislature";
+    const row: GovBodyInsert = {
+      jurisdiction_id: key.jurisdictionId,
+      type: key.type,
+      name: `${key.stateName} State ${chamberLabel}`,
+      short_name: `${key.stateAbbr} ${chamberLabel}`,
+      is_active: true,
+    };
+    const { data, error } = await db
+      .from("governing_bodies")
+      .insert(row)
+      .select("id")
+      .single();
+    if (error || !data) {
+      console.error(`    openstates writer: governing_body insert ${key.stateAbbr}/${key.type}: ${error?.message}`);
+      continue;
+    }
+    out.set(mapKey(key.jurisdictionId, key.type), data.id);
+  }
+
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Legislators
+// ---------------------------------------------------------------------------
+
+export interface LegislatorInput {
+  openstatesId: string;
+  fullName: string;
+  roleTitle: string;
+  governingBodyId: string;
+  jurisdictionId: string;
+  party: PartyValue;
+  districtName: string | null;
+  termStart: string | null;
+  termEnd: string | null;
+  websiteUrl: string | null;
+  metadata: { org_classification: string; state: string };
+}
+
+export interface LegislatorBatchResult {
+  inserted: number;
+  updated: number;
+  failed: number;
+}
+
+function buildOfficialInsert(input: LegislatorInput): OfficialInsert {
+  return {
+    full_name: input.fullName,
+    role_title: input.roleTitle,
+    governing_body_id: input.governingBodyId,
+    jurisdiction_id: input.jurisdictionId,
+    party: input.party,
+    district_name: input.districtName,
+    term_start: input.termStart,
+    term_end: input.termEnd,
+    is_active: true,
+    is_verified: false,
+    website_url: input.websiteUrl,
+    source_ids: { openstates_id: input.openstatesId },
+    metadata: input.metadata,
+  };
+}
+
+export async function upsertLegislatorsBatch(
+  db: Db,
+  items: LegislatorInput[],
+): Promise<LegislatorBatchResult> {
+  const out: LegislatorBatchResult = { inserted: 0, updated: 0, failed: 0 };
+  if (items.length === 0) return out;
+
+  // Client-side dedupe by openstates_id
+  const byKey = new Map<string, LegislatorInput>();
+  for (const item of items) byKey.set(item.openstatesId, item);
+  const deduped = [...byKey.values()];
+  const ids = deduped.map((i) => i.openstatesId);
+
+  // Lookup existing via external_source_refs
+  const existingMap = new Map<string, string>();
+  for (let i = 0; i < ids.length; i += LOOKUP_CHUNK_SIZE) {
+    const chunk = ids.slice(i, i + LOOKUP_CHUNK_SIZE);
+    const { data, error } = await db
+      .from("external_source_refs")
+      .select("entity_id, external_id")
+      .eq("source", "openstates")
+      .eq("entity_type", "official")
+      .in("external_id", chunk);
+    if (error) {
+      console.error(`    openstates writer: official lookup ${i}-${i + chunk.length}: ${error.message}`);
+      continue;
+    }
+    for (const r of (data ?? []) as Array<{ entity_id: string; external_id: string }>) {
+      existingMap.set(r.external_id, r.entity_id);
+    }
+  }
+
+  const toUpdate: Array<{ id: string; item: LegislatorInput }> = [];
+  const toInsert: LegislatorInput[] = [];
+  for (const item of deduped) {
+    const existingId = existingMap.get(item.openstatesId);
+    if (existingId) toUpdate.push({ id: existingId, item });
+    else toInsert.push(item);
+  }
+
+  // Batched update
+  if (toUpdate.length > 0) {
+    for (let i = 0; i < toUpdate.length; i += CHUNK_SIZE) {
+      const chunk = toUpdate.slice(i, i + CHUNK_SIZE);
+      const records = chunk.map(({ id, item }) => ({
+        id,
+        ...buildOfficialInsert(item),
+      }));
+      const { error } = await db
+        .from("officials")
+        .upsert(records, { onConflict: "id" });
+      if (error) {
+        console.error(`    openstates writer: official update ${i}-${i + chunk.length}: ${error.message}`);
+        out.failed += chunk.length;
+      } else {
+        out.updated += chunk.length;
+      }
+    }
+  }
+
+  // Batched insert + external_source_refs
+  if (toInsert.length > 0) {
+    const insertedIds: Array<string | null> = [];
+    for (let i = 0; i < toInsert.length; i += CHUNK_SIZE) {
+      const chunk = toInsert.slice(i, i + CHUNK_SIZE);
+      const records = chunk.map(buildOfficialInsert);
+      const { data, error } = await db
+        .from("officials")
+        .insert(records)
+        .select("id");
+      if (error || !data) {
+        console.error(`    openstates writer: official insert ${i}-${i + chunk.length}: ${error?.message}`);
+        out.failed += chunk.length;
+        for (let k = 0; k < chunk.length; k++) insertedIds.push(null);
+        continue;
+      }
+      for (const row of data as Array<{ id: string }>) insertedIds.push(row.id);
+      out.inserted += data.length;
+    }
+
+    const refRecords = toInsert
+      .map((item, idx) => {
+        const entityId = insertedIds[idx];
+        if (!entityId) return null;
+        return {
+          source: "openstates",
+          external_id: item.openstatesId,
+          entity_type: "official",
+          entity_id: entityId,
+          metadata: {
+            state: item.metadata.state,
+            chamber: item.metadata.org_classification,
+          },
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null);
+
+    for (let i = 0; i < refRecords.length; i += CHUNK_SIZE) {
+      const chunk = refRecords.slice(i, i + CHUNK_SIZE);
+      const { error } = await db
+        .from("external_source_refs")
+        .upsert(chunk, {
+          onConflict: "source,external_id",
+          ignoreDuplicates: true,
+        });
+      if (error) {
+        console.error(`    openstates writer: source_refs (official) ${i}-${i + chunk.length}: ${error.message}`);
+      }
+    }
+  }
+
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// State bills
+// ---------------------------------------------------------------------------
+
+export interface StateBillInput {
+  openstatesId: string;
+  title: string;
+  billNumber: string;
+  session: string;
+  chamber: "house" | "senate" | null;
+  type: ProposalType;
+  status: ProposalStatus;
+  jurisdictionId: string;
+  introducedAt: string | null;
+  lastActionAt: string | null;
+  externalUrl: string;
+  metadata: {
+    source: "openstates";
+    openstates_id: string;
+    state: string;
+    latest_action: string;
+  };
+}
+
+export interface StateBillBatchResult {
+  inserted: number;
+  updated: number;
+  failed: number;
+}
+
+function buildBillProposalInsert(input: StateBillInput): ProposalInsert {
+  return {
+    title: input.title.slice(0, 500),
+    type: input.type,
+    status: input.status,
+    jurisdiction_id: input.jurisdictionId,
+    external_url: input.externalUrl,
+    introduced_at: input.introducedAt,
+    last_action_at: input.lastActionAt,
+    metadata: input.metadata,
+  };
+}
+
+export async function upsertStateBillsBatch(
+  db: Db,
+  items: StateBillInput[],
+): Promise<StateBillBatchResult> {
+  const out: StateBillBatchResult = { inserted: 0, updated: 0, failed: 0 };
+  if (items.length === 0) return out;
+
+  // Client-side dedupe
+  const byKey = new Map<string, StateBillInput>();
+  for (const item of items) byKey.set(item.openstatesId, item);
+  const deduped = [...byKey.values()];
+  const ids = deduped.map((i) => i.openstatesId);
+
+  // Lookup existing via external_source_refs
+  const existingMap = new Map<string, string>();
+  for (let i = 0; i < ids.length; i += LOOKUP_CHUNK_SIZE) {
+    const chunk = ids.slice(i, i + LOOKUP_CHUNK_SIZE);
+    const { data, error } = await db
+      .from("external_source_refs")
+      .select("entity_id, external_id")
+      .eq("source", "openstates")
+      .eq("entity_type", "proposal")
+      .in("external_id", chunk);
+    if (error) {
+      console.error(`    openstates writer: bill lookup ${i}-${i + chunk.length}: ${error.message}`);
+      continue;
+    }
+    for (const r of (data ?? []) as Array<{ entity_id: string; external_id: string }>) {
+      existingMap.set(r.external_id, r.entity_id);
+    }
+  }
+
+  const toUpdate: Array<{ id: string; item: StateBillInput }> = [];
+  const toInsert: StateBillInput[] = [];
+  for (const item of deduped) {
+    const existingId = existingMap.get(item.openstatesId);
+    if (existingId) toUpdate.push({ id: existingId, item });
+    else toInsert.push(item);
+  }
+
+  // Updates
+  if (toUpdate.length > 0) {
+    for (let i = 0; i < toUpdate.length; i += CHUNK_SIZE) {
+      const chunk = toUpdate.slice(i, i + CHUNK_SIZE);
+      const records = chunk.map(({ id, item }) => ({
+        id,
+        ...buildBillProposalInsert(item),
+      }));
+      const { error } = await db
+        .from("proposals")
+        .upsert(records, { onConflict: "id" });
+      if (error) {
+        console.error(`    openstates writer: bill update ${i}-${i + chunk.length}: ${error.message}`);
+        out.failed += chunk.length;
+      } else {
+        out.updated += chunk.length;
+      }
+    }
+  }
+
+  // Inserts (proposals → bill_details → external_source_refs)
+  if (toInsert.length > 0) {
+    const insertedIds: Array<string | null> = [];
+    for (let i = 0; i < toInsert.length; i += CHUNK_SIZE) {
+      const chunk = toInsert.slice(i, i + CHUNK_SIZE);
+      const records = chunk.map(buildBillProposalInsert);
+      const { data, error } = await db
+        .from("proposals")
+        .insert(records)
+        .select("id");
+      if (error || !data) {
+        console.error(`    openstates writer: proposal insert ${i}-${i + chunk.length}: ${error?.message}`);
+        out.failed += chunk.length;
+        for (let k = 0; k < chunk.length; k++) insertedIds.push(null);
+        continue;
+      }
+      for (const row of data as Array<{ id: string }>) insertedIds.push(row.id);
+      out.inserted += data.length;
+    }
+
+    // bill_details (ignore duplicates — states reuse bill_number across sessions)
+    const billDetailRecords = toInsert
+      .map((item, idx) => {
+        const proposalId = insertedIds[idx];
+        if (!proposalId) return null;
+        return {
+          proposal_id: proposalId,
+          bill_number: item.billNumber.slice(0, 100),
+          chamber: item.chamber ?? undefined,
+          session: item.session,
+          jurisdiction_id: item.jurisdictionId,
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null);
+
+    for (let i = 0; i < billDetailRecords.length; i += CHUNK_SIZE) {
+      const chunk = billDetailRecords.slice(i, i + CHUNK_SIZE);
+      const { error } = await db
+        .from("bill_details")
+        .upsert(chunk, {
+          onConflict: "jurisdiction_id,session,bill_number",
+          ignoreDuplicates: true,
+        });
+      if (error) {
+        console.error(`    openstates writer: bill_details ${i}-${i + chunk.length}: ${error.message}`);
+      }
+    }
+
+    // external_source_refs
+    const refRecords = toInsert
+      .map((item, idx) => {
+        const proposalId = insertedIds[idx];
+        if (!proposalId) return null;
+        return {
+          source: "openstates",
+          external_id: item.openstatesId,
+          entity_type: "proposal",
+          entity_id: proposalId,
+          source_url: item.externalUrl,
+          metadata: { state: item.metadata.state, session: item.session },
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null);
+
+    for (let i = 0; i < refRecords.length; i += CHUNK_SIZE) {
+      const chunk = refRecords.slice(i, i + CHUNK_SIZE);
+      const { error } = await db
+        .from("external_source_refs")
+        .upsert(chunk, {
+          onConflict: "source,external_id",
+          ignoreDuplicates: true,
+        });
+      if (error) {
+        console.error(`    openstates writer: source_refs (bill) ${i}-${i + chunk.length}: ${error.message}`);
+      }
+    }
+  }
+
+  return out;
+}

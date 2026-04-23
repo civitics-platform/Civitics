@@ -27,6 +27,7 @@ import {
 import {
   findOrCreateBillProposal,
   upsertBillProposal,
+  upsertBillProposalsBatch,
   chamberForBillType,
 } from "./bills";
 import { XMLParser } from "fast-xml-parser";
@@ -376,44 +377,41 @@ export async function runVotesPipeline(
       continue;
     }
 
-    for (const bill of bills) {
+    const batchArgs = bills.map((bill) => {
       const billKey = `${bill.congress}-${bill.type}-${bill.number}`;
       const billNumber = `${bill.type} ${bill.number}`;
       const title = (bill.title ?? billNumber).slice(0, 500);
-      const proposalType = mapLegislationType(bill.type) as ProposalType;
-      const status = mapBillStatus(bill.latestAction?.text) as ProposalStatus;
-      const govBodyId = chamberGovBodyId(bill.type, senateGovBodyId, houseGovBodyId);
-      const congressGovUrl = congressGovBillUrl(bill.congress, bill.type, bill.number);
+      return {
+        billKey,
+        title,
+        billNumber,
+        billType: bill.type,
+        chamber: chamberForBillType(bill.type),
+        type: mapLegislationType(bill.type) as ProposalType,
+        status: mapBillStatus(bill.latestAction?.text) as ProposalStatus,
+        jurisdictionId: federalId,
+        governingBodyId: chamberGovBodyId(bill.type, senateGovBodyId, houseGovBodyId),
+        congressGovUrl: congressGovBillUrl(bill.congress, bill.type, bill.number),
+        introducedAt: bill.introducedDate
+          ? new Date(bill.introducedDate).toISOString()
+          : null,
+        lastActionAt: bill.latestAction?.actionDate
+          ? new Date(bill.latestAction.actionDate).toISOString()
+          : null,
+        latestActionText: bill.latestAction?.text,
+        congressNumber: CURRENT_CONGRESS,
+        session: String(CURRENT_CONGRESS),
+      };
+    });
 
-      try {
-        const proposalId = await upsertBillProposal(db, {
-          billKey,
-          title,
-          billNumber,
-          billType: bill.type,
-          chamber: chamberForBillType(bill.type),
-          type: proposalType,
-          status,
-          jurisdictionId: federalId,
-          governingBodyId: govBodyId,
-          congressGovUrl,
-          introducedAt: bill.introducedDate
-            ? new Date(bill.introducedDate).toISOString()
-            : null,
-          lastActionAt: bill.latestAction?.actionDate
-            ? new Date(bill.latestAction.actionDate).toISOString()
-            : null,
-          latestActionText: bill.latestAction?.text,
-          congressNumber: CURRENT_CONGRESS,
-          session: String(CURRENT_CONGRESS),
-        });
-
-        if (proposalId) proposalsUpserted++;
-      } catch (err) {
-        console.error(`  Unexpected error processing bill ${billKey}:`, err);
+    try {
+      const batchResult = await upsertBillProposalsBatch(db, batchArgs);
+      proposalsUpserted += batchResult.upserted;
+      if (batchResult.failed > 0) {
+        console.warn(`  ${batchResult.failed} ${label} failed in batch`);
       }
-
-      await sleep(50);
+    } catch (err) {
+      console.error(`  Unexpected error processing ${label} batch:`, err);
     }
 
     console.log(`  Proposals upserted so far: ${proposalsUpserted}`);

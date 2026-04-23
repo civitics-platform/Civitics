@@ -209,10 +209,12 @@ function yearsBetween(a: Date, b: Date): number {
   return (b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
 }
 
+const TAG_CHUNK_SIZE = 500;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function upsertWithRetry(db: any, tag: TagInsert, maxRetries = 3): Promise<boolean> {
+async function upsertTagChunkWithRetry(db: any, chunk: TagInsert[], maxRetries = 3): Promise<boolean> {
   for (let i = 0; i < maxRetries; i++) {
-    const { error } = await db.from("entity_tags").upsert(tag, {
+    const { error } = await db.from("entity_tags").upsert(chunk, {
       onConflict: "entity_type,entity_id,tag,tag_category",
     });
     if (!error) return true;
@@ -229,12 +231,13 @@ async function upsertWithRetry(db: any, tag: TagInsert, maxRetries = 3): Promise
 async function upsertTags(db: any, tags: TagInsert[]): Promise<number> {
   if (tags.length === 0) return 0;
   let upserted = 0;
-  for (const tag of tags) {
-    const ok = await upsertWithRetry(db, tag);
+  for (let i = 0; i < tags.length; i += TAG_CHUNK_SIZE) {
+    const chunk = tags.slice(i, i + TAG_CHUNK_SIZE);
+    const ok = await upsertTagChunkWithRetry(db, chunk);
     if (ok) {
-      upserted++;
+      upserted += chunk.length;
     } else {
-      console.error(`    Tag upsert failed after retries [${tag.entity_type}/${tag.tag}]`);
+      console.error(`    Tag upsert chunk ${i}-${i + chunk.length} failed after retries`);
     }
   }
   return upserted;

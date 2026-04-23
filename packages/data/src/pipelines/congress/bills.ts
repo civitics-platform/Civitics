@@ -228,3 +228,191 @@ export function chamberForBillType(billType: string): "house" | "senate" {
   if (lt.startsWith("h")) return "house";
   return "senate";
 }
+
+// ---------------------------------------------------------------------------
+// Batched upsert — used by the proactive recent-bills sync so a single run
+// collapses to a handful of chunked round-trips instead of one SELECT+INSERT
+// per bill. Volume is typically a few hundred bills per sync; the per-row
+// path above was ~5 min on Pro, this drops it under 10 seconds.
+// ---------------------------------------------------------------------------
+
+const BILL_CHUNK_SIZE = 500;
+
+export interface BillBatchResult {
+  /** Successfully inserted or updated proposals. */
+  upserted: number;
+  /** Rows that failed at the proposals write (bill_details/refs errors are logged but not counted). */
+  failed: number;
+}
+
+function buildProposalInsert(args: BillProposalArgs): ProposalInsert {
+  return {
+    title: args.title.slice(0, 500),
+    type: args.type,
+    status: args.status,
+    jurisdiction_id: args.jurisdictionId,
+    governing_body_id: args.governingBodyId,
+    external_url: args.congressGovUrl,
+    introduced_at: args.introducedAt,
+    last_action_at: args.lastActionAt,
+    metadata: {
+      legacy_bill_number: args.billNumber,
+      legacy_congress_num: args.congressNumber,
+      legacy_session: args.session,
+      ...(args.latestActionText ? { latest_action: args.latestActionText } : {}),
+    },
+  };
+}
+
+export async function upsertBillProposalsBatch(
+  db: Db,
+  items: BillProposalArgs[]
+): Promise<BillBatchResult> {
+  if (items.length === 0) return { upserted: 0, failed: 0 };
+
+  // Client-side dedupe by billKey — duplicate keys in the same batch would
+  // trip ON CONFLICT "cannot affect row a second time". Later wins.
+  const byKey = new Map<string, BillProposalArgs>();
+  for (const item of items) byKey.set(item.billKey, item);
+  const deduped = [...byKey.values()];
+  const billKeys = deduped.map((i) => i.billKey);
+
+  // Step 1: batch lookup of existing proposals via external_source_refs
+  const { data: existing, error: lookupErr } = await db
+    .from("external_source_refs")
+    .select("entity_id, external_id")
+    .eq("source", "congress_gov")
+    .eq("entity_type", "proposal")
+    .in("external_id", billKeys);
+
+  if (lookupErr) {
+    console.error(`    bills.ts batch: lookup error: ${lookupErr.message}`);
+    return { upserted: 0, failed: deduped.length };
+  }
+
+  const existingMap = new Map<string, string>();
+  for (const r of (existing ?? []) as Array<{ entity_id: string; external_id: string }>) {
+    existingMap.set(r.external_id, r.entity_id);
+  }
+
+  // Step 2: partition into update vs insert
+  const toUpdate: Array<{ id: string; args: BillProposalArgs }> = [];
+  const toInsert: BillProposalArgs[] = [];
+  for (const item of deduped) {
+    const existingId = existingMap.get(item.billKey);
+    if (existingId) toUpdate.push({ id: existingId, args: item });
+    else toInsert.push(item);
+  }
+
+  let upserted = 0;
+  let failed = 0;
+
+  // Step 3: batched UPDATE via upsert(onConflict='id'). Every row has a
+  // known-existing id, so the ON CONFLICT path runs for all of them.
+  if (toUpdate.length > 0) {
+    for (let i = 0; i < toUpdate.length; i += BILL_CHUNK_SIZE) {
+      const chunk = toUpdate.slice(i, i + BILL_CHUNK_SIZE);
+      const records = chunk.map(({ id, args }) => ({
+        id,
+        ...buildProposalInsert(args),
+      }));
+      const { error } = await db
+        .from("proposals")
+        .upsert(records, { onConflict: "id" });
+      if (error) {
+        console.error(`    bills.ts batch: update chunk ${i}-${i + chunk.length}: ${error.message}`);
+        failed += chunk.length;
+      } else {
+        upserted += chunk.length;
+      }
+    }
+  }
+
+  // Step 4: batched INSERT of new bills — proposals, then bill_details + refs
+  if (toInsert.length > 0) {
+    // Track the returned IDs in the same order as toInsert. Postgres
+    // INSERT ... RETURNING preserves input order within a chunk, so we can
+    // zip back to the args by position.
+    const insertedIds: Array<string | null> = [];
+
+    for (let i = 0; i < toInsert.length; i += BILL_CHUNK_SIZE) {
+      const chunk = toInsert.slice(i, i + BILL_CHUNK_SIZE);
+      const records = chunk.map(buildProposalInsert);
+      const { data, error } = await db
+        .from("proposals")
+        .insert(records)
+        .select("id");
+      if (error || !data) {
+        console.error(`    bills.ts batch: proposal insert chunk ${i}-${i + chunk.length}: ${error?.message}`);
+        failed += chunk.length;
+        for (let k = 0; k < chunk.length; k++) insertedIds.push(null);
+        continue;
+      }
+      for (const row of data as Array<{ id: string }>) insertedIds.push(row.id);
+      upserted += data.length;
+    }
+
+    // 4b: bill_details — batched upsert ignoring duplicates on the compound
+    // unique (some bills already have bill_details from a prior run that's
+    // missing an external_source_refs row).
+    const billDetailRecords = toInsert
+      .map((args, idx) => {
+        const proposalId = insertedIds[idx];
+        if (!proposalId) return null;
+        return {
+          proposal_id: proposalId,
+          bill_number: args.billNumber,
+          chamber: args.chamber,
+          session: args.session,
+          congress_number: args.congressNumber,
+          congress_gov_url: args.congressGovUrl,
+          jurisdiction_id: args.jurisdictionId,
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null);
+
+    for (let i = 0; i < billDetailRecords.length; i += BILL_CHUNK_SIZE) {
+      const chunk = billDetailRecords.slice(i, i + BILL_CHUNK_SIZE);
+      const { error } = await db
+        .from("bill_details")
+        .upsert(chunk, {
+          onConflict: "jurisdiction_id,session,bill_number",
+          ignoreDuplicates: true,
+        });
+      if (error) {
+        console.error(`    bills.ts batch: bill_details chunk ${i}-${i + chunk.length}: ${error.message}`);
+      }
+    }
+
+    // 4c: external_source_refs — batched upsert, dedup on (source, external_id)
+    const refRecords = toInsert
+      .map((args, idx) => {
+        const proposalId = insertedIds[idx];
+        if (!proposalId) return null;
+        return {
+          source: "congress_gov",
+          external_id: args.billKey,
+          entity_type: "proposal",
+          entity_id: proposalId,
+          source_url: args.congressGovUrl,
+          metadata: {},
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null);
+
+    for (let i = 0; i < refRecords.length; i += BILL_CHUNK_SIZE) {
+      const chunk = refRecords.slice(i, i + BILL_CHUNK_SIZE);
+      const { error } = await db
+        .from("external_source_refs")
+        .upsert(chunk, {
+          onConflict: "source,external_id",
+          ignoreDuplicates: true,
+        });
+      if (error) {
+        console.error(`    bills.ts batch: source_refs chunk ${i}-${i + chunk.length}: ${error.message}`);
+      }
+    }
+  }
+
+  return { upserted, failed };
+}

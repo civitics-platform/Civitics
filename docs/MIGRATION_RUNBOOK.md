@@ -34,8 +34,8 @@
 
 The canonical "cutover" — a single SQL migration that:
 
-1. Dropped 11 RPCs that referenced the legacy `financial_relationships.donor_name/.official_id/.donor_id` shape (see FIX-097 through FIX-099, FIX-104 for rewrites).
-2. Dropped `proposal_trending_24h` materialized view + `refresh_proposal_trending()` function.
+1. Dropped 11 RPCs that referenced the legacy `financial_relationships.donor_name/.official_id/.donor_id` shape (see FIX-097 through FIX-099 for rewrites).
+2. Dropped + recreated `proposal_trending_24h` materialized view + `refresh_proposal_trending()` function (against the new `public.proposals` columns). See §3 for the post-cutover refresh gotcha.
 3. Truncated public child tables that referenced pre-shadow proposal UUIDs (civic_comments, official_comment_submissions, proposal_cosponsors, promises).
 4. Dropped the old public-schema `proposals`, `votes`, `financial_entities`, `financial_relationships`, `entity_connections` tables.
 5. `ALTER TABLE shadow.<name> SET SCHEMA public` for every shadow table, preserving FKs + constraints + indexes.
@@ -50,6 +50,14 @@ The canonical "cutover" — a single SQL migration that:
 Fixed by `CREATE OR REPLACE FUNCTION public.bill_details_sync_denorm()` with `FROM public.proposals`. Registered in `supabase_migrations.schema_migrations` after applying via direct psql.
 
 **Carry-forward lesson:** When any future migration uses `ALTER FUNCTION … SET SCHEMA`, also emit `CREATE OR REPLACE FUNCTION` with the corrected body in the same file. The SQL rewrite is not automatic.
+
+### 3b. proposal_trending_24h required a manual refresh (FIX-104)
+
+The promotion migration recreates the mat view via `CREATE MATERIALIZED VIEW … AS SELECT …` against `public.proposals`. That populates the view at create time — but on Pro, the public.proposals table was effectively empty at that instant (the shadow data had been promoted but no fresh ingest had run yet). So the mat view existed with **0 rows** until the first nightly cron, and the homepage `/proposals` "Featured" / trending sections showed nothing.
+
+Fixed operationally on 2026-04-22 by calling `SELECT public.refresh_proposal_trending();` directly against Pro — went from 0 → 894 rows. The nightly-sync cron (`packages/data/src/pipelines/index.ts:490`) already invokes this RPC, so future state self-heals daily at 02:00 UTC.
+
+**Carry-forward lesson:** any cutover that drops + recreates a materialized view must either (a) include an explicit `REFRESH MATERIALIZED VIEW` after the source table is repopulated, or (b) ensure a refresh job runs before user-visible traffic resumes. `CREATE MATERIALIZED VIEW … AS SELECT` is not enough on its own when the underlying tables are themselves being repopulated by post-migration pipelines.
 
 ### 4. Pipeline rewrites (Option C)
 

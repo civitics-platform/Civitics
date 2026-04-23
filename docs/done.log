@@ -122,3 +122,4 @@
 2026-04-22 | FIX-097 | 66ee22db | feat(rpc): restore 6 chord/treemap RPCs on polymorphic schema
 2026-04-22 | FIX-102 | 9530e508 | chore(data): delete 307 orphan proposals on Pro
 2026-04-22 | FIX-106 | d1b12198 | feat(auth): add 6-digit OTP option to SignInForm
+2026-04-22 | FIX-101 | 645c51ae | feat(data): seed enrichment_queue on Pro — FIX-101 complete

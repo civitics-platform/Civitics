@@ -119,3 +119,4 @@
 2026-04-22 | FIX-100 | a7db6c6b | feat(connections): implement rebuild_entity_connections() derivation
 2026-04-22 | FIX-098 | d633b121 | feat(rpc): restore 4 officials/donor RPCs against polymorphic schema
 2026-04-22 | FIX-099 | a5883228 | feat(rpc): restore search_graph_entities() on polymorphic schema
+2026-04-22 | FIX-097 | 66ee22db | feat(rpc): restore 6 chord/treemap RPCs on polymorphic schema

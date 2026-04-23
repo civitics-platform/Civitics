@@ -117,3 +117,4 @@
 2026-04-22 | FIX-103 | 8cce42bb | fix(api/status): replace broken .catch on rpc with try/await
 2026-04-22 | FIX-104 | f53b5c5a | docs(runbook): clarify FIX-104 — mat view existed but was unrefreshed
 2026-04-22 | FIX-100 | a7db6c6b | feat(connections): implement rebuild_entity_connections() derivation
+2026-04-22 | FIX-098 | d633b121 | feat(rpc): restore 4 officials/donor RPCs against polymorphic schema

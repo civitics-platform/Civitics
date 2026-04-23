@@ -27,8 +27,16 @@ import {
 } from "./queue";
 
 const DRY_RUN = process.argv.includes("--dry-run");
-const PAGE = 1000;
-const UPSERT_CHUNK = 500;
+// Pagination size for the snapshot SELECTs (fetchAll). enrichment_queue
+// lacks an index on (entity_type, task_type) for non-pending rows, so each
+// page scan is O(N) on a growing table. 500 keeps a full page inside Pro's
+// ~8s statement timeout even at 100k+ rows.
+const PAGE = 500;
+// Chunk size is constrained by Pro's statement timeout. Context JSONB is
+// ~1-2 KB per row; a 500-row upsert can exceed 8s and get cancelled
+// server-side with "canceling statement due to statement timeout".
+// 100 keeps each statement well under the budget.
+const UPSERT_CHUNK = 100;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Db = any;

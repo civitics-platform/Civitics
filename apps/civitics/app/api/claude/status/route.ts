@@ -591,8 +591,8 @@ export async function GET(request: Request) {
       section(async () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const anyDb = db as any;
-        const { data } = await anyDb.rpc("get_officials_breakdown").catch(() => ({ data: null }));
-        if (!data) return null;
+        const { data, error } = await anyDb.rpc("get_officials_breakdown");
+        if (error || !data) return null;
         type Row = { category: string; count: number };
         const rows = data as Row[];
         const get = (cat: string) => rows.find((r) => r.category === cat)?.count ?? 0;

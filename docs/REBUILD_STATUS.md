@@ -100,11 +100,11 @@ The cutover was scoped as "Option C" — rewrite only `congress/bills.ts` + `con
 - **FIX-097, 098, 099, 104** — reimplement the 11 dropped RPCs (chord, treemap, search, officials breakdown, etc.) against the new polymorphic `financial_relationships` shape.
 - ~~**FIX-100** — build the `rebuild_entity_connections()` derivation rules; `entity_connections` is currently empty.~~ **Done 2026-04-22.** 9 derivation rules implemented in `20260422000002–5`; first run on Pro produced 124,943 edges (vote_yes 81,476 + vote_no 43,467) from votes alone. Other rule outputs grow as FIX-101 lands. Wired into nightly-sync as step 3c.
 - **FIX-101** — re-run against Pro: FEC bulk, USASpending, Regulations.gov, OpenStates, CourtListener, Legistar (4 metros), tag-rules, ai-summaries, tag-ai. Each needs its shadow→public writer rewrite similar to what was done for congress.
-- **FIX-102** — clean 307 orphan proposals from the early broken ingest runs.
+- ~~**FIX-102** — clean 307 orphan proposals from the early broken ingest runs.~~ **Done 2026-04-22.** Verified zero FK refs (civic_comments / submissions / cosponsors / promises / init_links all 0), then `DELETE FROM proposals WHERE id IN (...)` via direct psql. proposals now 1:1 with bill_details.
 - **FIX-103** — fix `officials_breakdown` chain bug in `/api/claude/status`.
 
 Post-cutover Pro row counts (for reference):
-- 903 officials · 989 proposals · 682 bill_details · 217,548 votes
+- 903 officials · 682 proposals · 682 bill_details · 217,548 votes
 - 124,943 entity_connections (FIX-100 ✓) · 0 financial_relationships · 0 financial_entities (FIX-101)
 
 ---

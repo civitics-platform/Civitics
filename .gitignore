@@ -1,6 +1,9 @@
 
 .vscode/
-.claude/
+.claude/*
+!.claude/agents/
+!.claude/agents/**
+!.claude/settings.local.json
 
 node_modules/
 

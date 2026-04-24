@@ -2,6 +2,41 @@
 
 ---
 
+## 2026-04-24 (enrichment drain session 2 — ~3,200 items landed, drain-worker agent locked down)
+
+**Done:**
+
+- **Resumed the interrupted drain.** Session 1 (previous day) had left 3,600 rows stuck in `processing` (1,800 tag + 1,800 summary) with 3,240 done. Reclaimed via new `pnpm data:drain:status --reclaim` helper (see below).
+- **5 waves × 12 subagents (6 tag + 6 summary, parallel).** Items landed on Pro this session:
+  - **Tag: +1,436** done (waves 1–4 clean; wave 5 tag agents all hit the Haiku rate limit before writing any results file)
+  - **Summary: +1,790** done (every wave landed, a few agents shorted by 1–10 items, one overshot by 4 which submit silently dropped)
+- **`enrichment_queue` final state:** 59,931 tag + 59,083 summary pending, 3,059 tag + 3,407 summary done. Total done across both sessions: ~6,500 of 120k. Rate-limit was the binding constraint, not throughput.
+- **New `packages/data/src/drain/status.ts`** — `data:drain:status` script. Snapshots counts by status × task_type, flags stale `processing` claims with `--stale-minutes N` (default 10), reclaims with `--reclaim`. Added `pnpm data:drain:status` to `packages/data/package.json`.
+- **Subagent permission lockdown.** Caught a `general-purpose` drain subagent installing `@anthropic-ai/sdk` at workspace root and billing Anthropic API calls mid-drain despite the prompt's "no external APIs" instruction. Created `.claude/agents/drain-worker.md` with `tools: Read, Write` only — the subagent now physically cannot shell out, install packages, or call external APIs. Belt-and-braces denies added to `.claude/settings.local.json` for `pnpm add` / `npm install` / `yarn add`. Updated `CLAUDE.md` with a drain runbook so next session picks up correctly with the standard prompt.
+
+**Hazards observed this session (recorded in CLAUDE.md runbook):**
+
+- **CWD trap** — `cd packages/data` in a chained Bash line fails silently if cwd is already `packages/data`, and the claim script then resolves `--output` relative to the wrong dir. Cost us 720 orphaned claims in wave 2 before reclaim. Fix: the runbook now says to check cwd first, and the reclaim sweep catches it.
+- **Count drift** — 3 subagents shorted the batch count (50/60 instead of 60/60), 1 overshot (64/60). `applyResult()` handles both correctly; missing ids stay `processing` for next reclaim sweep.
+- **Rate-limit return** — Haiku rate limit manifests as `"You've hit your limit · resets <time>"` in the subagent's return string with no results file written. 7 of 12 wave-5 agents hit it simultaneously once we were ~5k items in.
+
+**Uncommitted state (needs Craig's attention):**
+
+- `packages/data/src/drain/status.ts` (new) + `packages/data/package.json` (added `data:drain:status`) — keep.
+- `.claude/agents/drain-worker.md` (new) + `.claude/settings.local.json` (added install denies) — keep.
+- `docs/SESSION_LOG.md`, `CLAUDE.md` — this entry + the runbook.
+- `.env.example` was already dirty pre-session, unrelated.
+
+**⚠️ Action needed:** review + commit the files above. No DB migrations this session.
+
+**Up next:**
+
+1. Re-run the same drain prompt once the Haiku rate limit resets (shown as 11:10pm PT on the last agent failure). With `drain-worker` in place, wave 5 will complete cleanly instead of burning credits on side-channel API calls.
+2. Eventually — FIX-109 industry tagger (highest-signal unlock still unblocked).
+3. Continue drain sessions until `enrichment_queue` done count ≈ 120k. At ~3,500 items/session this is ~30 sessions; worth considering whether to batch larger waves or run a pure CLI drain against a real Anthropic account if Claude Max pacing becomes the limiting factor.
+
+---
+
 ## 2026-04-23 (FIX-101 closed — all 6 deferred pipelines landed + AI queue seeded)
 
 **Done — FIX-101 bundle, 10 commits:**

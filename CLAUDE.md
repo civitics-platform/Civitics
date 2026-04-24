@@ -286,6 +286,50 @@ See `docs/REBUILD_STATUS.md` + `docs/PHASE_GOALS.md` for detailed task tracking.
 
 ---
 
+## Enrichment Queue Drain — Runbook
+
+The `enrichment_queue` holds ~120k pending tag + summary items (seeded 2026-04-23, FIX-101). Drains run in the VS Code Claude Code session using parallel Haiku subagents. No direct Anthropic API calls — Max-plan subagent capacity is the binding constraint.
+
+**Scripts (all from `packages/data/`):**
+
+```
+pnpm data:drain:status                 snapshot counts + stale claims
+pnpm data:drain:status --reclaim       flip stale 'processing' rows back to 'pending'
+  (--stale-minutes N defaults to 10; use 0 to reclaim all)
+
+pnpm data:drain:claim  --task tag|summary --size 60 --worker <id> --output FILE
+pnpm data:drain:submit --input FILE
+```
+
+**Subagent type — always use `drain-worker`**, never `general-purpose`. Defined at `.claude/agents/drain-worker.md` with `tools: Read, Write` so the subagent physically cannot `pnpm add`, shell out, or spawn its own API calls. Belt-and-braces: `.claude/settings.local.json` denies `pnpm add` / `npm install` / `yarn add`.
+
+**Standard prompt form** (triggers the full drain loop):
+
+> *drain got interrupted. verify data and continue and pick up where the last job left off. Drain 30 batches of both tag and summary, batch size 60, parallel 6*
+
+means: 5 waves × 12 subagents (6 tag + 6 summary in parallel per wave) = 30 tag + 30 summary batches of 60 each ≈ 3,600 items per session. Plan for the Haiku rate limit around the 1,400–1,800 tag-item mark; the summary queue drains further before rate-limiting because it's shorter per item.
+
+**Wave loop (run from `packages/data/`):**
+
+1. `pnpm data:drain:status --reclaim --stale-minutes 0` — reclaims anything the previous session orphaned in `processing`.
+2. `mkdir -p .drain-tmp/wave<N>` inside `packages/data/`. The dir is gitignored-by-absence (add to `.gitignore` if committed). **Always `cd packages/data` first** — pnpm resolves `--output` paths from package cwd; running from repo root claims 12 batches then fails to write the files, leaking claims.
+3. Claim 6 tag + 6 summary batches in parallel using unique worker ids (`w<N>-tag-1..6`, `w<N>-sum-1..6`).
+4. Spawn 12 `drain-worker` subagents in parallel, one per batch. Each gets `BATCH_FILE`, `RESULTS_FILE`, `MODEL_NAME=claude-haiku-4-5-20251001`, and a pointer to `packages/data/src/drain/prompts/{tag,summary}.md`.
+5. Wait for all 12 completions.
+6. Submit all 12 results in parallel via `data:drain:submit --input`.
+7. Repeat for next wave.
+
+**Known hazards:**
+
+- Subagent can short the count (reports "50/50 ok" on a 60-item batch). Submit accepts whatever lands; the missing queue rows stay `processing` until reclaimed. Not worth chasing per-batch — the next session's reclaim sweep handles it.
+- Subagent can overshoot (reports "64/60 ok"). Apply rejects the phantom `queue_id`s; the real 60 land fine.
+- Rate-limit hits land as `"You've hit your limit · resets <time>"` in the subagent's return string with no results file written. Those batches need `--reclaim --stale-minutes 0` to free.
+- Do **not** run concurrent drain sessions against the same `claimed_by` prefix — the RPC uses `SELECT ... FOR UPDATE SKIP LOCKED` so it's race-safe, but identical worker ids confuse the stale-claim sweep.
+
+**Ignore:** any `process_tags*.{py,mjs,js}` or `process-tag*.js` files that appear in the repo or `.drain-tmp/`. They're from the pre-`drain-worker` era when `general-purpose` subagents installed `@anthropic-ai/sdk` and wrote helper scripts. Delete and move on.
+
+---
+
 ## votes Table — Actual Column Names
 
 ```

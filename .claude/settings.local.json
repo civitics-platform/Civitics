@@ -14,7 +14,12 @@
       "Bash(git reset --hard*)",
       "Bash(git checkout -- *)",
       "Bash(rm -rf*)",
-      "Bash(rmdir*)"
+      "Bash(rmdir*)",
+      "Bash(pnpm add*)",
+      "Bash(pnpm install*)",
+      "Bash(npm install*)",
+      "Bash(npm i *)",
+      "Bash(yarn add*)"
     ]
   },
   "disabledMcpjsonServers": [

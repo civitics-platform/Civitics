@@ -38,6 +38,7 @@
     "data:enrich-seed": "tsx --env-file=../../.env.local src/pipelines/enrichment/seed-backlog.ts",
     "data:drain:claim": "tsx --env-file=../../.env.local src/drain/claim.ts",
     "data:drain:submit": "tsx --env-file=../../.env.local src/drain/submit.ts",
+    "data:drain:status": "tsx --env-file=../../.env.local src/drain/status.ts",
     "data:audit": "tsx --env-file=../../.env.local src/pipelines/integrity-audit/index.ts"
   },
   "dependencies": {

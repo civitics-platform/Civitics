@@ -179,6 +179,16 @@ export async function generateSummary(
   const cached = await getCachedSummary(entityType, entityId, type);
   if (cached) return cached;
 
+  // Kill switch: when AI_SUMMARIES_ENABLED=false, refuse on cache miss
+  // instead of calling Anthropic. Matches the pipeline-level guard in
+  // packages/data/src/pipelines/ai-summaries and tags/ai-tagger.
+  if (process.env["AI_SUMMARIES_ENABLED"] === "false") {
+    throw new Error(
+      "AI summaries are temporarily disabled. Cached summaries are still available; " +
+        "uncached entities will resume once summaries are re-enabled."
+    );
+  }
+
   // Cost guard: never exceed $4.00/month on Anthropic
   const spentCents = await getMonthlySpendCents();
   if (spentCents >= MONTHLY_SPEND_LIMIT_CENTS) {

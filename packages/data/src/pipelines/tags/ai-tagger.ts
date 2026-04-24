@@ -30,6 +30,7 @@ import {
   buildProposalTagContext,
   buildOfficialTagContext,
   aggregateOfficialStats,
+  loadJurisdictionPriorities,
 } from "../enrichment/queue";
 
 const AI_MODEL = "claude-haiku-4-5-20251001";
@@ -427,13 +428,15 @@ export type ProposalNeedingTags = {
   title: string;
   summary_plain: string | null;
   metadata: Record<string, unknown> | null;
+  jurisdiction_id: string;
+  updated_at: string;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function fetchProposalsNeedingTags(db: any, limit = 2000): Promise<ProposalNeedingTags[]> {
   const { data: allProposals, error } = await db
     .from("proposals")
-    .select("id, title, summary_plain, metadata")
+    .select("id, title, summary_plain, metadata, jurisdiction_id, updated_at")
     .limit(limit);
   if (error || !allProposals || allProposals.length === 0) return [];
 
@@ -456,13 +459,15 @@ export type OfficialNeedingTags = {
   vote_count: number;
   total_raised: number;
   top_industries: string;
+  jurisdiction_id: string;
+  updated_at: string;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function fetchOfficialsNeedingTags(db: any): Promise<OfficialNeedingTags[]> {
   const { data: officials, error } = await db
     .from("officials")
-    .select("id, full_name, role_title, party, metadata, is_active")
+    .select("id, full_name, role_title, party, metadata, is_active, jurisdiction_id, updated_at")
     .eq("is_active", true);
   if (error || !officials || officials.length === 0) return [];
 
@@ -493,6 +498,8 @@ export async function fetchOfficialsNeedingTags(db: any): Promise<OfficialNeedin
       vote_count: agg?.vote_count ?? 0,
       total_raised: agg?.total_raised ?? 0,
       top_industries: agg?.top_industries ?? "Unknown",
+      jurisdiction_id: o.jurisdiction_id ?? "",
+      updated_at: o.updated_at ?? new Date().toISOString(),
     };
   });
 }
@@ -521,6 +528,13 @@ export async function runAiTagger(options?: {
     console.log("  Mode: queue — staging to enrichment_queue, no API calls");
     const proposals = await fetchProposalsNeedingTags(db);
     const officials = await fetchOfficialsNeedingTags(db);
+
+    const jIds = [
+      ...proposals.map((p) => p.jurisdiction_id),
+      ...officials.map((o) => o.jurisdiction_id),
+    ].filter(Boolean) as string[];
+    const jPriority = await loadJurisdictionPriorities(db, jIds);
+
     const counts = zeroCounts();
     for (const p of proposals) {
       const action = await enqueue(db, {
@@ -528,6 +542,8 @@ export async function runAiTagger(options?: {
         entity_type: "proposal",
         task_type: "tag",
         context: buildProposalTagContext(p),
+        priority: jPriority.get(p.jurisdiction_id) ?? 0,
+        entity_updated_at: p.updated_at,
       });
       counts[action]++;
     }
@@ -537,6 +553,8 @@ export async function runAiTagger(options?: {
         entity_type: "official",
         task_type: "tag",
         context: buildOfficialTagContext(o),
+        priority: jPriority.get(o.jurisdiction_id) ?? 0,
+        entity_updated_at: o.updated_at,
       });
       counts[action]++;
     }

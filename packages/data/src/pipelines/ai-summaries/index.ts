@@ -35,6 +35,7 @@ import {
   zeroCounts,
   buildProposalSummaryContext,
   buildOfficialSummaryContext,
+  loadJurisdictionPriorities,
 } from "../enrichment/queue";
 
 // ---------------------------------------------------------------------------
@@ -51,6 +52,8 @@ type ProposalRow = {
   agency_name: string | null;
   agency_acronym: string | null;
   context_level: ContextLevel;
+  jurisdiction_id: string;
+  updated_at: string;
 };
 
 type OfficialRow = {
@@ -62,6 +65,8 @@ type OfficialRow = {
   vote_count: number;
   donor_count: number;
   total_raised: number;
+  jurisdiction_id: string;
+  updated_at: string;
 };
 
 type ProposalStats = {
@@ -136,7 +141,7 @@ export async function fetchOpenProposals(db: ReturnType<typeof createAdminClient
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result = await (db as any)
     .from("proposals")
-    .select("id, title, summary_plain, type, metadata")
+    .select("id, title, summary_plain, type, metadata, jurisdiction_id, updated_at")
     .gt("comment_period_end", new Date().toISOString())
     .order("comment_period_end", { ascending: true })
     .limit(200);
@@ -171,6 +176,8 @@ export async function fetchOpenProposals(db: ReturnType<typeof createAdminClient
         agency_acronym: acronym,
         agency_name: agencyFullName(acronym),
         context_level: contextLevel,
+        jurisdiction_id: p.jurisdiction_id ?? "",
+        updated_at: p.updated_at ?? new Date().toISOString(),
       };
     });
 }
@@ -298,7 +305,7 @@ export async function fetchOfficials(db: ReturnType<typeof createAdminClient>): 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const officialsRes = await (db as any)
     .from("officials")
-    .select("id, full_name, role_title, party, metadata")
+    .select("id, full_name, role_title, party, metadata, jurisdiction_id, updated_at")
     .in("role_title", ["Senator", "Representative"])
     .eq("is_active", true)
     .limit(200);
@@ -358,6 +365,8 @@ export async function fetchOfficials(db: ReturnType<typeof createAdminClient>): 
       vote_count: voteCounts.get(o.id) ?? 0,
       donor_count: donorCounts.get(o.id) ?? 0,
       total_raised: donorTotals.get(o.id) ?? 0,
+      jurisdiction_id: o.jurisdiction_id ?? "",
+      updated_at: o.updated_at ?? new Date().toISOString(),
     }))
     .filter((o: OfficialRow) => o.vote_count > 0 || o.donor_count > 0)
     .sort((a: OfficialRow, b: OfficialRow) => b.vote_count - a.vote_count)
@@ -501,6 +510,14 @@ export async function runAiSummariesPipeline(incremental = false): Promise<void>
     console.log("    Mode: queue — staging to enrichment_queue, no API calls");
     const proposals = await fetchOpenProposals(db);
     const officials = await fetchOfficials(db);
+
+    const jIds = [
+      ...proposals.map((p) => p.jurisdiction_id),
+      ...officials.map((o) => o.jurisdiction_id),
+    ].filter(Boolean) as string[];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const jPriority = await loadJurisdictionPriorities(db as any, jIds);
+
     const counts = zeroCounts();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const q = db as any;
@@ -518,6 +535,8 @@ export async function runAiSummariesPipeline(incremental = false): Promise<void>
           agency_name: p.agency_name,
           agency_acronym: p.agency_acronym,
         }),
+        priority: jPriority.get(p.jurisdiction_id) ?? 0,
+        entity_updated_at: p.updated_at,
       });
       counts[action]++;
     }
@@ -536,6 +555,8 @@ export async function runAiSummariesPipeline(incremental = false): Promise<void>
           donor_count: o.donor_count,
           total_raised: o.total_raised,
         }),
+        priority: jPriority.get(o.jurisdiction_id) ?? 0,
+        entity_updated_at: o.updated_at,
       });
       counts[action]++;
     }

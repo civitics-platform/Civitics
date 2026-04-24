@@ -31,6 +31,8 @@ export async function enqueue(
     entity_type: EntityType;
     task_type: TaskType;
     context: unknown;
+    priority?: number;
+    entity_updated_at?: string;
   },
 ): Promise<EnqueueAction> {
   const { data, error } = await db.rpc("enqueue_enrichment", {
@@ -38,9 +40,45 @@ export async function enqueue(
     p_entity_type: row.entity_type,
     p_task_type: row.task_type,
     p_context: row.context,
+    ...(row.priority !== undefined && { p_priority: row.priority }),
+    ...(row.entity_updated_at !== undefined && { p_entity_updated_at: row.entity_updated_at }),
   });
   if (error) throw error;
   return data as EnqueueAction;
+}
+
+// ---------------------------------------------------------------------------
+// Jurisdiction-based priority helpers
+// ---------------------------------------------------------------------------
+
+export function jurisdictionToPriority(type: string): number {
+  switch (type) {
+    case "global":
+    case "supranational":
+    case "country": return 40;
+    case "state":   return 30;
+    case "county":  return 20;
+    case "city":
+    case "district": return 10;
+    default:         return 5;
+  }
+}
+
+export async function loadJurisdictionPriorities(
+  db: Db,
+  jurisdictionIds: string[],
+): Promise<Map<string, number>> {
+  if (jurisdictionIds.length === 0) return new Map();
+  const unique = [...new Set(jurisdictionIds)];
+  const { data } = await db
+    .from("jurisdictions")
+    .select("id, type")
+    .in("id", unique);
+  const out = new Map<string, number>();
+  for (const j of (data ?? []) as { id: string; type: string }[]) {
+    out.set(j.id, jurisdictionToPriority(j.type));
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

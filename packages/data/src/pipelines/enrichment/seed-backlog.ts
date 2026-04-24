@@ -20,6 +20,7 @@ import {
   buildOfficialSummaryContext,
   classifyProposalContext,
   aggregateOfficialStats,
+  loadJurisdictionPriorities,
   type EnqueueCounts,
   type EnqueueAction,
   type EntityType,
@@ -27,6 +28,8 @@ import {
 } from "./queue";
 
 const DRY_RUN = process.argv.includes("--dry-run");
+// --force: also reseeds items already marked 'done', refreshing context + priority.
+const FORCE = process.argv.includes("--force");
 // Pagination size for the snapshot SELECTs (fetchAll). enrichment_queue
 // lacks an index on (entity_type, task_type) for non-pending rows, so each
 // page scan is O(N) on a growing table. 500 keeps a full page inside Pro's
@@ -116,6 +119,8 @@ type ProposalRow = {
   summary_plain: string | null;
   type: string | null;
   metadata: Record<string, unknown> | null;
+  jurisdiction_id: string;
+  updated_at: string;
 };
 
 async function fetchAllProposals(db: Db): Promise<ProposalRow[]> {
@@ -123,7 +128,7 @@ async function fetchAllProposals(db: Db): Promise<ProposalRow[]> {
   return fetchAll<ProposalRow>("proposals", (from, to) =>
     db
       .from("proposals")
-      .select("id, title, summary_plain, type, metadata")
+      .select("id, title, summary_plain, type, metadata, jurisdiction_id, updated_at")
       .not("title", "ilike", "On %")
       .filter("title", "not.ilike", "% v. %")
       .range(from, to),
@@ -140,13 +145,15 @@ type OfficialRow = {
   role_title: string;
   party: string | null;
   metadata: Record<string, unknown> | null;
+  jurisdiction_id: string;
+  updated_at: string;
 };
 
 async function fetchAllActiveOfficials(db: Db): Promise<OfficialRow[]> {
   return fetchAll<OfficialRow>("officials", (from, to) =>
     db
       .from("officials")
-      .select("id, full_name, role_title, party, metadata")
+      .select("id, full_name, role_title, party, metadata, jurisdiction_id, updated_at")
       .eq("is_active", true)
       .range(from, to),
   );
@@ -186,7 +193,7 @@ function classifyAction(
   existing: { status: string; retry_count: number } | undefined,
 ): EnqueueAction {
   if (!existing) return "created";
-  if (existing.status === "done") return "skipped_done";
+  if (existing.status === "done") return FORCE ? "retried" : "skipped_done";
   if (existing.status === "failed" && existing.retry_count < 3) return "retried";
   return "skipped_pending";
 }
@@ -200,6 +207,8 @@ async function enqueueAll(
     entity_type: "proposal" | "official";
     task_type: "tag" | "summary";
     context: unknown;
+    priority: number;
+    entity_updated_at: string;
   }>,
   label: string,
 ): Promise<EnqueueCounts> {
@@ -236,6 +245,8 @@ async function enqueueAll(
       entity_type: c.row.entity_type,
       task_type: c.row.task_type,
       context: c.row.context,
+      priority: c.row.priority,
+      entity_updated_at: c.row.entity_updated_at,
       status: "pending",
       claimed_at: null,
       claimed_by: null,
@@ -269,22 +280,33 @@ function fmt(counts: EnqueueCounts): string {
 
 async function main(): Promise<void> {
   console.log(`\n═══ Enrichment backlog seed ════════════════════════════════`);
-  console.log(`    Mode: ${DRY_RUN ? "DRY RUN" : "LIVE"}`);
+  console.log(`    Mode: ${DRY_RUN ? "DRY RUN" : "LIVE"}${FORCE ? " + FORCE (reseed done items)" : ""}`);
   console.log(`    Time: ${new Date().toISOString()}\n`);
 
   const db = createAdminClient() as unknown as Db;
 
-  // 1. Proposal tags
-  const [proposals, taggedProposalIds] = await Promise.all([
+  // Fetch proposals + officials, then resolve jurisdiction priorities in one batch.
+  const [proposals, officials] = await Promise.all([
     fetchAllProposals(db),
-    taggedEntityIds(db, "proposal"),
+    fetchAllActiveOfficials(db),
   ]);
+
+  const allJurisdictionIds = [
+    ...proposals.map((p) => p.jurisdiction_id),
+    ...officials.map((o) => o.jurisdiction_id),
+  ].filter(Boolean) as string[];
+  const jPriority = await loadJurisdictionPriorities(db, allJurisdictionIds);
+
+  // 1. Proposal tags
+  const taggedProposalIds = await taggedEntityIds(db, "proposal");
   const proposalTagRows = proposals
-    .filter((p) => !taggedProposalIds.has(p.id))
+    .filter((p) => FORCE || !taggedProposalIds.has(p.id))
     .map((p) => ({
       entity_id: p.id,
       entity_type: "proposal" as const,
       task_type: "tag" as const,
+      priority: jPriority.get(p.jurisdiction_id) ?? 0,
+      entity_updated_at: p.updated_at,
       context: buildProposalTagContext({
         id: p.id,
         title: p.title,
@@ -292,14 +314,14 @@ async function main(): Promise<void> {
         metadata: p.metadata,
       }),
     }));
-  console.log(`── Proposal tags (${proposalTagRows.length} missing) ──`);
+  console.log(`── Proposal tags (${proposalTagRows.length} to seed) ──`);
   const proposalTagCounts = await enqueueAll(db, "proposal", "tag", proposalTagRows, "proposal-tags");
   console.log(`   ${fmt(proposalTagCounts)}\n`);
 
   // 2. Proposal summaries — exclude truly_empty (worker can't produce output)
   const summarizedProposalIds = await summarizedEntityIds(db, "proposal", "plain_language");
   const proposalSummaryRows = proposals
-    .filter((p) => !summarizedProposalIds.has(p.id))
+    .filter((p) => FORCE || !summarizedProposalIds.has(p.id))
     .filter((p) => classifyProposalContext(p.summary_plain, p.title) !== "truly_empty")
     .map((p) => {
       const acronym = (p.metadata?.["agency_id"] as string | undefined) ?? null;
@@ -307,6 +329,8 @@ async function main(): Promise<void> {
         entity_id: p.id,
         entity_type: "proposal" as const,
         task_type: "summary" as const,
+        priority: jPriority.get(p.jurisdiction_id) ?? 0,
+        entity_updated_at: p.updated_at,
         context: buildProposalSummaryContext({
           id: p.id,
           title: p.title,
@@ -317,14 +341,13 @@ async function main(): Promise<void> {
         }),
       };
     });
-  console.log(`── Proposal summaries (${proposalSummaryRows.length} missing, non-empty) ──`);
+  console.log(`── Proposal summaries (${proposalSummaryRows.length} to seed, non-empty) ──`);
   const proposalSummaryCounts = await enqueueAll(db, "proposal", "summary", proposalSummaryRows, "proposal-summaries");
   console.log(`   ${fmt(proposalSummaryCounts)}\n`);
 
   // 3. Official tags + 4. Official summaries — share the officials fetch and
   //    the stats aggregation (top_industries, vote_count, total_raised).
-  const [officials, taggedOfficialIds, summarizedOfficialIds] = await Promise.all([
-    fetchAllActiveOfficials(db),
+  const [taggedOfficialIds, summarizedOfficialIds] = await Promise.all([
     taggedEntityIds(db, "official"),
     summarizedEntityIds(db, "official", "profile"),
   ]);
@@ -332,13 +355,15 @@ async function main(): Promise<void> {
   const stats = await aggregateOfficialStats(db, officialIds);
 
   const officialTagRows = officials
-    .filter((o) => !taggedOfficialIds.has(o.id))
+    .filter((o) => FORCE || !taggedOfficialIds.has(o.id))
     .map((o) => {
       const agg = stats.get(o.id);
       return {
         entity_id: o.id,
         entity_type: "official" as const,
         task_type: "tag" as const,
+        priority: jPriority.get(o.jurisdiction_id) ?? 0,
+        entity_updated_at: o.updated_at,
         context: buildOfficialTagContext({
           id: o.id,
           full_name: o.full_name,
@@ -351,18 +376,20 @@ async function main(): Promise<void> {
         }),
       };
     });
-  console.log(`── Official tags (${officialTagRows.length} missing) ──`);
+  console.log(`── Official tags (${officialTagRows.length} to seed) ──`);
   const officialTagCounts = await enqueueAll(db, "official", "tag", officialTagRows, "official-tags");
   console.log(`   ${fmt(officialTagCounts)}\n`);
 
   const officialSummaryRows = officials
-    .filter((o) => !summarizedOfficialIds.has(o.id))
+    .filter((o) => FORCE || !summarizedOfficialIds.has(o.id))
     .map((o) => {
       const agg = stats.get(o.id);
       return {
         entity_id: o.id,
         entity_type: "official" as const,
         task_type: "summary" as const,
+        priority: jPriority.get(o.jurisdiction_id) ?? 0,
+        entity_updated_at: o.updated_at,
         context: buildOfficialSummaryContext({
           id: o.id,
           full_name: o.full_name,
@@ -375,7 +402,7 @@ async function main(): Promise<void> {
         }),
       };
     });
-  console.log(`── Official summaries (${officialSummaryRows.length} missing) ──`);
+  console.log(`── Official summaries (${officialSummaryRows.length} to seed) ──`);
   const officialSummaryCounts = await enqueueAll(db, "official", "summary", officialSummaryRows, "official-summaries");
   console.log(`   ${fmt(officialSummaryCounts)}\n`);
 

@@ -26,7 +26,14 @@
         "COURTLISTENER_API_KEY",
         "OPENSTATES_API_KEY",
         "FEC_API_KEY",
-        "REGULATIONS_API_KEY"
+        "REGULATIONS_API_KEY",
+        "AI_SUMMARIES_ENABLED",
+        "CIVITICS_ENRICHMENT_MODE",
+        "CRON_SECRET",
+        "ANTHROPIC_ADMIN_API_KEY",
+        "ANTHROPIC_ORG_ID",
+        "ADMIN_EMAIL",
+        "SUPABASE_DB_PASSWORD"
       ]
     },
     "dev": {

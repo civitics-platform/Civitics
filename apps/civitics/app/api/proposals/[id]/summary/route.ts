@@ -62,6 +62,13 @@ export async function GET(
     // cache miss — proceed
   }
 
+  // Kill switch: when AI_SUMMARIES_ENABLED=false, refuse on cache miss
+  // instead of calling Anthropic. Mirrors the guard in
+  // packages/ai/src/client.ts#generateSummary.
+  if (process.env["AI_SUMMARIES_ENABLED"] === "false") {
+    return NextResponse.json({ summary: null, error: "disabled" });
+  }
+
   // 2. Fetch proposal
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const proposalRes = await (db as any)

@@ -14,18 +14,34 @@ type Props = {
   officialId: string;
 };
 
+// Survives tab switches: ProfileTabs unmounts the overview subtree when
+// another tab is active, so without this cache every return to Overview
+// refires the fetch (and shows the "Generating…" spinner).
+const summaryCache = new Map<string, string | null>();
+
 export function AiProfileSection({ officialId }: Props) {
-  const [summary, setSummary] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const hasCached = summaryCache.has(officialId);
+  const [summary, setSummary] = useState<string | null>(
+    hasCached ? summaryCache.get(officialId) ?? null : null,
+  );
+  const [loading, setLoading] = useState(!hasCached);
 
   useEffect(() => {
+    if (summaryCache.has(officialId)) {
+      setSummary(summaryCache.get(officialId) ?? null);
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
 
     fetch(`/api/officials/${officialId}/summary`)
       .then((r) => r.json())
       .then((data: { summary: string | null }) => {
+        const s = data.summary ?? null;
+        summaryCache.set(officialId, s);
         if (!cancelled) {
-          setSummary(data.summary ?? null);
+          setSummary(s);
           setLoading(false);
         }
       })

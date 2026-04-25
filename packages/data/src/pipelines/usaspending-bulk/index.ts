@@ -381,10 +381,13 @@ async function processCsvFile(
   for await (const row of parser as AsyncIterable<CsvRow>) {
     rowsRead++;
 
-    const subAgencyName = (row.awarding_sub_agency_name ?? "").toUpperCase().trim();
-    const agencyName    = (row.awarding_agency_name ?? "").toUpperCase().trim();
-    const agencyId      = (subAgencyName ? agencyMap.get(subAgencyName) : undefined)
-                          ?? agencyMap.get(agencyName);
+    const subRaw  = (row.awarding_sub_agency_name ?? "").toUpperCase().trim();
+    const subKey  = subRaw.replace(/^U\.S\.\s+/, "");
+    const agRaw   = (row.awarding_agency_name ?? "").toUpperCase().trim();
+    const agKey   = agRaw.replace(/^U\.S\.\s+/, "");
+    const agencyId = (subKey ? agencyMap.get(subKey) ?? agencyMap.get(subRaw) : undefined)
+                     ?? agencyMap.get(agKey)
+                     ?? agencyMap.get(agRaw);
     if (!agencyId) { result.skipped++; continue; }
 
     // Use contract_award_unique_key (transaction-level) as the dedup key;

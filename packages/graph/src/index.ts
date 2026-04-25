@@ -70,6 +70,9 @@ export type { ChordGraphProps } from "./ChordGraph";
 export { SunburstGraph, CivicBadge } from "./SunburstGraph";
 export type { SunburstGraphProps } from "./SunburstGraph";
 
+export { SpendingGraph } from "./SpendingGraph";
+export type { SpendingGraphProps } from "./SpendingGraph";
+
 // ── Components — panels ─────────────────────────────────────────────────────
 export { GraphHeader } from "./components/GraphHeader";
 export type { GraphHeaderProps } from "./components/GraphHeader";

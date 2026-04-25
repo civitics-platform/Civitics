@@ -144,6 +144,25 @@ export const VIZ_REGISTRY: VizRegistryEntry[] = [
     tooltip: placeholderTooltip,
     onNodeClick: defaultOnNodeClick,
   },
+
+  {
+    id: 'spending',
+    label: 'Spending',
+    civicQuestion: 'How is taxpayer money flowing to government contractors?',
+    description: 'Contract flows from agencies to recipient companies by NAICS sector',
+    group: 'standard',
+    status: 'active',
+    icon: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z',
+
+    requiresEntity: false,
+    supportedConnectionTypes: ['contract'],
+    defaultOptions: {},
+
+    screenshotTarget: '#spending-panel',
+    screenshotPrep: prepScreenshot,
+    tooltip: placeholderTooltip,
+    onNodeClick: defaultOnNodeClick,
+  },
 ]
 
 export const vizRegistry = new Map<VizType, VizRegistryEntry>(

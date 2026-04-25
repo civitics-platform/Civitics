@@ -13,7 +13,7 @@ import type { ComponentType, ReactNode } from 'react'
 
 // ── Viz Type ───────────────────────────────────────────────────────────────────
 
-export type VizType = 'force' | 'chord' | 'treemap' | 'sunburst'
+export type VizType = 'force' | 'chord' | 'treemap' | 'sunburst' | 'spending'
 
 // ── Node ───────────────────────────────────────────────────────────────────────
 
@@ -277,6 +277,7 @@ export interface GraphView {
       chord?: ChordOptions
       treemap?: TreemapOptions
       sunburst?: SunburstOptions
+      spending?: Record<string, never>
     }
   }
 

@@ -6,6 +6,7 @@ import {
   TreemapGraph,
   ChordGraph,
   SunburstGraph,
+  SpendingGraph,
   AiNarrative,
   EmbedModal,
   useGraphView,
@@ -308,6 +309,14 @@ export function GraphPage({ initialCode }: GraphPageProps = {}) {
               vizOptions={view.style.vizOptions.sunburst}
               primaryGroup={primaryGroup}
             />
+          </div>
+
+          {/* Spending */}
+          <div
+            className="absolute inset-0 transition-opacity duration-300"
+            style={{ opacity: vizType === "spending" ? 1 : 0, pointerEvents: vizType === "spending" ? "auto" : "none" }}
+          >
+            <SpendingGraph className="w-full h-full" />
           </div>
 
           {/* Floating share / screenshot panels */}

@@ -275,7 +275,14 @@ async function loadAgencyMap(
 
   const map = new Map<string, string>();
   for (const row of data as Array<{ id: string; name: string | null; acronym: string | null }>) {
-    if (row.name)    map.set(row.name.toUpperCase().trim(), row.id);
+    if (row.name) {
+      const upper = row.name.toUpperCase().trim();
+      map.set(upper, row.id);
+      // Also index without "U.S. " prefix so CSV names like "Department of Agriculture"
+      // match DB entries like "U.S. Department of Agriculture".
+      const stripped = upper.replace(/^U\.S\.\s+/, "");
+      if (stripped !== upper) map.set(stripped, row.id);
+    }
     if (row.acronym) map.set(row.acronym.toUpperCase().trim(), row.id);
   }
 
@@ -295,6 +302,7 @@ interface CsvRow {
   federal_action_obligation?: string;
   action_date?:               string;
   awarding_agency_name?:      string;
+  awarding_sub_agency_name?:  string;
   naics_code?:                string;
   award_description?:         string;
 }
@@ -373,8 +381,10 @@ async function processCsvFile(
   for await (const row of parser as AsyncIterable<CsvRow>) {
     rowsRead++;
 
-    const agencyName = (row.awarding_agency_name ?? "").toUpperCase().trim();
-    const agencyId   = agencyMap.get(agencyName);
+    const subAgencyName = (row.awarding_sub_agency_name ?? "").toUpperCase().trim();
+    const agencyName    = (row.awarding_agency_name ?? "").toUpperCase().trim();
+    const agencyId      = (subAgencyName ? agencyMap.get(subAgencyName) : undefined)
+                          ?? agencyMap.get(agencyName);
     if (!agencyId) { result.skipped++; continue; }
 
     // Use contract_award_unique_key (transaction-level) as the dedup key;

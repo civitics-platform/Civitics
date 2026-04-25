@@ -128,3 +128,4 @@
 2026-04-24 | FIX-109 | 16ef8f07 | feat(enrichment): Option C financial_entity industry tagging
 2026-04-24 | FIX-112 | 16ef8f07 | feat(enrichment): Option C financial_entity industry tagging
 2026-04-24 | FIX-110 | 8d4ac050 | feat(spending): surface contract flows in graph RPCs and Spending viz
+2026-04-24 | FIX-111 | 6d638be1 | chore(data): remove shadow-era dead pipelines

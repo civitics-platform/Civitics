@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { cookies } from "next/headers";
 import { createServerClient, agencyFullName } from "@civitics/db";
 import { AgenciesList } from "./components/AgenciesList";
+import { AgencyActivityChart } from "./components/AgencyActivityChart";
 import { PageViewTracker } from "../components/PageViewTracker";
 import { PageHeader } from "@civitics/ui";
 
@@ -24,12 +25,20 @@ export default async function AgenciesPage() {
   const cookieStore = await cookies();
   const supabase = createServerClient(cookieStore);
 
-  const { data: agencyRows, error } = await supabase
-    .from("agencies")
-    .select("id, name, short_name, acronym, agency_type, website_url, description")
-    .eq("is_active", true)
-    .order("name")
-    .limit(200);
+  const [{ data: agencyRows, error }, { data: featuredRow }] = await Promise.all([
+    supabase
+      .from("agencies")
+      .select("id, name, short_name, acronym, agency_type, website_url, description")
+      .eq("is_active", true)
+      .order("name")
+      .limit(200),
+    supabase
+      .from("agencies")
+      .select("id, name, short_name, acronym, agency_type, website_url, description")
+      .filter("metadata->>featured", "eq", "true")
+      .limit(1)
+      .maybeSingle(),
+  ]);
 
   if (error) console.error("agencies fetch error:", error.message);
 
@@ -70,6 +79,25 @@ export default async function AgenciesPage() {
     };
   });
 
+  const featuredAgency: AgencyRow | null = featuredRow
+    ? {
+        id:             featuredRow.id,
+        name:           agencyFullName(featuredRow.acronym) ?? featuredRow.name,
+        short_name:     featuredRow.short_name ?? null,
+        acronym:        featuredRow.acronym ?? null,
+        agency_type:    featuredRow.agency_type,
+        website_url:    featuredRow.website_url ?? null,
+        description:    featuredRow.description ?? null,
+        totalProposals: agencies.find((a) => a.id === featuredRow.id)?.totalProposals ?? 0,
+        openProposals:  agencies.find((a) => a.id === featuredRow.id)?.openProposals ?? 0,
+      }
+    : null;
+
+  const chartRows = [...agencies]
+    .sort((a, b) => b.totalProposals - a.totalProposals)
+    .slice(0, 12)
+    .map((a) => ({ name: a.name, acronym: a.acronym, count: a.totalProposals }));
+
   return (
     <div className="min-h-screen bg-gray-50">
       <PageViewTracker entityType="agency_list" />
@@ -82,8 +110,9 @@ export default async function AgenciesPage() {
             { label: "Agencies" },
           ]}
         />
+        <AgencyActivityChart rows={chartRows} />
       </div>
-      <AgenciesList agencies={agencies} />
+      <AgenciesList agencies={agencies} featuredAgency={featuredAgency} />
     </div>
   );
 }

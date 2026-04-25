@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { createServerClient, createAdminClient } from "@civitics/db";
 import { createClient } from "@supabase/supabase-js";
 import { AgencyGraph } from "./components/AgencyGraph";
+import { AgencyHierarchyTree } from "./components/AgencyHierarchyTree";
 import { PageViewTracker } from "../../components/PageViewTracker";
 import { FollowButton } from "../../components/FollowButton";
 
@@ -18,6 +19,13 @@ type Proposal = {
   introduced_at: string | null;
   comment_period_end: string | null;
   summary_plain: string | null;
+};
+
+type OfficialLink = {
+  id: string;
+  name: string;
+  title: string;
+  connectionType: string;
 };
 
 type SpendingRow = {
@@ -153,7 +161,7 @@ export default async function AgencyProfilePage({
   // Step 1: fetch agency
   const agencyRes = await supabase
     .from("agencies")
-    .select("id, name, short_name, acronym, agency_type, website_url, contact_email, description, governing_body_id")
+    .select("id, name, short_name, acronym, agency_type, website_url, contact_email, description, governing_body_id, parent_agency_id")
     .eq("id", slug)
     .single();
 
@@ -263,6 +271,65 @@ export default async function AgencyProfilePage({
 
   const totalSpentCents = spendingGroups.reduce((sum, g) => sum + g.totalCents, 0);
 
+  // Officials connected to this agency via entity_connections
+  const { data: connectionRows } = await supabase
+    .from("entity_connections")
+    .select("from_id, from_type, to_id, to_type, connection_type")
+    .or(
+      `and(from_type.eq.official,to_id.eq.${agency.id}),and(to_type.eq.official,from_id.eq.${agency.id})`
+    )
+    .limit(20);
+
+  const officialIds = Array.from(
+    new Set(
+      (connectionRows ?? []).map((r) =>
+        r.from_type === "official" ? r.from_id : r.to_id
+      )
+    )
+  );
+
+  const officialConnTypes = new Map<string, string>(
+    (connectionRows ?? []).map((r) => [
+      r.from_type === "official" ? r.from_id : r.to_id,
+      r.connection_type,
+    ])
+  );
+
+  let officials: OfficialLink[] = [];
+  if (officialIds.length > 0) {
+    const { data: officialRows } = await supabase
+      .from("officials")
+      .select("id, full_name, role_title")
+      .in("id", officialIds);
+    officials = (officialRows ?? []).map((o) => ({
+      id:             o.id,
+      name:           o.full_name,
+      title:          o.role_title,
+      connectionType: officialConnTypes.get(o.id) ?? "oversight",
+    }));
+  }
+
+  // Agency hierarchy: parent + children
+  const [parentRes, childrenRes] = await Promise.all([
+    agency.parent_agency_id
+      ? supabase
+          .from("agencies")
+          .select("id, name, acronym")
+          .eq("id", agency.parent_agency_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    supabase
+      .from("agencies")
+      .select("id, name, acronym")
+      .eq("parent_agency_id", agency.id)
+      .eq("is_active", true)
+      .order("name")
+      .limit(30),
+  ]);
+
+  const parentAgency = parentRes.data as { id: string; name: string; acronym: string | null } | null;
+  const childAgencies = (childrenRes.data ?? []) as { id: string; name: string; acronym: string | null }[];
+
   const typeColor = AGENCY_TYPE_COLORS[agency.agency_type] ?? AGENCY_TYPE_COLORS["other"]!;
   const typeLabel = AGENCY_TYPE_LABELS[agency.agency_type] ?? "Agency";
   const displayAcronym = agency.acronym ?? agency.short_name ?? agency.name.slice(0, 5).toUpperCase();
@@ -355,6 +422,17 @@ export default async function AgencyProfilePage({
           />
           <StatBox value="—" label="Promises tracked" note="Phase 2" />
         </div>
+
+        {/* ── HIERARCHY TREE ───────────────────────────────────────────────── */}
+        {(parentAgency || childAgencies.length > 0) && (
+          <div className="mt-6">
+            <AgencyHierarchyTree
+              parent={parentAgency}
+              current={{ id: agency.id, name: agency.name, acronym: agency.acronym ?? null }}
+              children={childAgencies}
+            />
+          </div>
+        )}
 
         <div className="mt-6 grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 flex flex-col gap-6">
@@ -526,26 +604,31 @@ export default async function AgencyProfilePage({
             {/* ── 3. LEADERSHIP ─────────────────────────────────────────────── */}
             <section>
               <SectionHeader title="Leadership" />
-              <div className="rounded-lg border border-gray-200 bg-white p-4">
-                <p className="text-sm text-gray-400">
-                  Leadership data syncs from official sources.
-                </p>
-                <button
-                  disabled
-                  className="mt-3 w-full cursor-not-allowed rounded border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-300"
-                >
-                  ✦ Director history — Phase 2
-                </button>
-              </div>
-            </section>
-
-            {/* ── 7. LEADERSHIP HISTORY ──────────────────────────────────────── */}
-            <section>
-              <SectionHeader title="Past Officials" subtitle="Secretaries and directors" />
-              <div className="rounded-lg border border-gray-200 bg-white p-4">
-                <p className="text-sm text-gray-400">
-                  Career history and revolving door tracking loads as data is ingested.
-                </p>
+              <div className="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
+                {officials.length === 0 ? (
+                  <div className="px-4 py-5">
+                    <p className="text-sm text-gray-400">No leadership data on record yet.</p>
+                  </div>
+                ) : (
+                  officials.map((o) => (
+                    <a
+                      key={o.id}
+                      href={`/officials/${o.id}`}
+                      className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors"
+                    >
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-600">
+                        {o.name.split(" ").map((w) => w[0]).join("").slice(0, 2)}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-gray-900">{o.name}</p>
+                        <p className="text-xs text-gray-500">{o.title}</p>
+                      </div>
+                      <svg className="h-4 w-4 shrink-0 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </a>
+                  ))
+                )}
               </div>
             </section>
 

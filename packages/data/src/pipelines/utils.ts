@@ -2,29 +2,6 @@
  * Shared fetch utilities for all data pipelines.
  */
 
-// ---------------------------------------------------------------------------
-// Shadow-schema client helper
-//
-// supabase-js supports `.schema("shadow")` at runtime, but the generated
-// Database type (packages/db/src/types/database.ts) currently only covers
-// `public`. Until `supabase gen types --schema public,shadow` is wired up,
-// we cast the shadow-schema client to `any` in one central place so callers
-// don't need to sprinkle eslint-disables.
-//
-// Runtime behavior is unchanged: cross-schema reads/writes use the same
-// PostgREST endpoint, just with a different schema prefix.
-// ---------------------------------------------------------------------------
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type ShadowDb = any;
-
-/** Return a shadow-schema supabase-js client from a public client. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function shadowClient(db: any): ShadowDb {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (db as any).schema("shadow");
-}
-
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

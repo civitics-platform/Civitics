@@ -17,7 +17,6 @@ import { runUsaSpendingPipeline } from "./usaspending";
 import { runCourtListenerPipeline } from "./courtlistener";
 import { runOpenStatesPipeline } from "./openstates";
 import { runOfficialsPipeline, runVotesPipeline } from "./congress";
-import { runConnectionsDelta } from "./connections/delta";
 import { runRuleBasedTagger } from "./tags/rules";
 import { runAiTagger } from "./tags/ai-tagger";
 import { runAiSummariesPipeline } from "./ai-summaries";
@@ -465,20 +464,6 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         results.pipelines.elections = { status: "failed", error: msg };
         results.errors.push(`Elections: ${msg}`);
       }
-    }
-  }
-
-  // 3. Derive connections (delta only)
-  {
-    const t0 = Date.now();
-    try {
-      const r = await runConnectionsDelta();
-      results.pipelines.connections = { status: "complete", rows_added: r.inserted, duration_ms: Date.now() - t0 };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error("[nightly] connections-delta failed:", msg);
-      results.pipelines.connections = { status: "failed", error: msg };
-      results.errors.push(`Connections: ${msg}`);
     }
   }
 

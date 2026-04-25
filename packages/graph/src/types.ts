@@ -28,6 +28,7 @@ export type NodeType =
   | 'pac'
   | 'individual'
   | 'group'
+  | 'user'
 
 export interface GraphNode {
   id: string

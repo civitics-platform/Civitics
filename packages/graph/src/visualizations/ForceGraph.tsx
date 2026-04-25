@@ -84,6 +84,7 @@ const NODE_FILL: Record<string, string> = {
   pac:          "#fff7ed",
   individual:   "#eff6ff",
   group:        "#1e1b4b",
+  user:         "#f3e8ff",
 };
 
 const NODE_STROKE: Record<string, string> = {
@@ -96,6 +97,7 @@ const NODE_STROKE: Record<string, string> = {
   pac:          "#ea580c",
   individual:   "#3b82f6",
   group:        "#818cf8",
+  user:         "#8b5cf6",
 };
 
 const PARTY_STROKE: Record<string, string> = {
@@ -110,9 +112,16 @@ function getBaseRadius(node: GraphNode): number {
   const BASE: Record<string, number> = {
     official: 24, agency: 20, proposal: 18, financial: 16,
     organization: 20, corporation: 20, pac: 18, individual: 14,
-    group: 30,
+    group: 30, user: 28,
   };
   return BASE[node.type] ?? 20;
+}
+
+function alignmentEdgeColor(ratio: number | null | undefined): string {
+  if (ratio == null) return "#6b7280";   // no overlap yet — gray
+  if (ratio >= 0.6)  return "#16a34a";   // aligned — green
+  if (ratio >= 0.4)  return "#f59e0b";   // mixed — amber
+  return "#dc2626";                       // misaligned — red
 }
 
 function getNodeRadius(node: GraphNode, sizeBy: string | undefined): number {
@@ -135,6 +144,62 @@ function initials(name: string | undefined | null): string {
 function truncate(s: string | undefined | null, n: number): string {
   if (!s) return "";
   return s.length > n ? s.slice(0, n) + "…" : s;
+}
+
+// ── Alignment Edge Tooltip ────────────────────────────────────────────────────
+
+interface AlignmentEdgeTooltipProps {
+  officialName: string;
+  ratio: number | null;
+  matchedVotes: number;
+  totalVotes: number;
+  voteDetails: Array<{ title: string; user_pos: string; official_vote: string; aligned: boolean }>;
+  x: number;
+  y: number;
+}
+
+function AlignmentEdgeTooltip({
+  officialName, ratio, matchedVotes, totalVotes, voteDetails, x, y,
+}: AlignmentEdgeTooltipProps) {
+  const pct = ratio != null ? Math.round(ratio * 100) : null;
+  const color =
+    pct == null  ? "text-gray-500"  :
+    pct >= 60    ? "text-green-600" :
+    pct >= 40    ? "text-amber-500" : "text-red-600";
+
+  const TOOLTIP_W = 260;
+  const safeX = Math.min(x + 14, (typeof window !== "undefined" ? window.innerWidth : 1024) - TOOLTIP_W - 8);
+
+  return (
+    <div
+      className="absolute z-50 pointer-events-none bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-3 text-sm"
+      style={{ left: safeX, top: y - 8, width: TOOLTIP_W }}
+    >
+      <div className="font-semibold text-gray-900 leading-tight mb-1">{officialName}</div>
+      {pct != null ? (
+        <div className={`text-2xl font-bold ${color}`}>{pct}% aligned</div>
+      ) : (
+        <div className="text-gray-400 text-xs">No overlapping votes yet</div>
+      )}
+      {totalVotes > 0 && (
+        <div className="text-gray-500 text-xs mt-0.5">
+          {matchedVotes} of {totalVotes} overlapping votes match
+        </div>
+      )}
+      {voteDetails.length > 0 && (
+        <ul className="mt-2 space-y-1 border-t border-gray-100 pt-2">
+          {voteDetails.map((v, i) => (
+            <li key={i} className="flex items-start gap-1.5 text-xs text-gray-600">
+              <span className={v.aligned ? "text-green-500 shrink-0" : "text-red-400 shrink-0"}>
+                {v.aligned ? "✓" : "✗"}
+              </span>
+              <span className="truncate">{v.title ?? "Untitled"}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -169,6 +234,17 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
 
     const { tooltip, show: showTip, hide: hideTip } = useTooltip();
     const [popup, setPopup] = useState<GraphNode | null>(null);
+
+    interface AlignTooltipState {
+      officialName: string;
+      ratio: number | null;
+      matchedVotes: number;
+      totalVotes: number;
+      voteDetails: Array<{ title: string; user_pos: string; official_vote: string; aligned: boolean }>;
+      x: number;
+      y: number;
+    }
+    const [alignTooltip, setAlignTooltip] = useState<AlignTooltipState | null>(null);
 
     // ── Category C — data change: full re-init preserving positions ───────────
     useEffect(() => {
@@ -270,12 +346,16 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
       const focusIds = new Set(focusEntities.map((fe) => fe.id));
 
       function edgeColor(d: SimLink): string {
+        if (d.connectionType === "alignment") {
+          return alignmentEdgeColor(d.metadata?.alignmentRatio as number | null);
+        }
         return connections[d.connectionType]?.color
           ?? CONNECTION_TYPE_REGISTRY[d.connectionType]?.color
           ?? "#94a3b8";
       }
 
       function edgeOpacityFn(d: SimLink): number {
+        if (d.connectionType === "alignment") return 0.85;
         const isShared =
           focusIds.has(d.source?.id ?? d.fromId) &&
           focusIds.has(d.target?.id ?? d.toId);
@@ -284,6 +364,7 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
       }
 
       function edgeWidthFn(d: SimLink): number {
+        if (d.connectionType === "alignment") return 2;
         const isShared =
           focusIds.has(d.source?.id ?? d.fromId) &&
           focusIds.has(d.target?.id ?? d.toId);
@@ -321,6 +402,31 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
         .attr("marker-end", (d) => `url(#arrow-${d.connectionType})`);
 
       linkSelRef.current = link;
+
+      // Alignment edge tooltip on hover
+      link
+        .on("mouseenter.align", function (event: MouseEvent, d: SimLink) {
+          if (d.connectionType !== "alignment") return;
+          const rect = svgEl.getBoundingClientRect();
+          setAlignTooltip({
+            officialName: d.metadata?.officialName as string ?? "",
+            ratio: d.metadata?.alignmentRatio as number | null,
+            matchedVotes: d.metadata?.matchedVotes as number ?? 0,
+            totalVotes: d.metadata?.totalVotes as number ?? 0,
+            voteDetails: d.metadata?.voteDetails as AlignTooltipState["voteDetails"] ?? [],
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+          });
+        })
+        .on("mousemove.align", function (event: MouseEvent, d: SimLink) {
+          if (d.connectionType !== "alignment") return;
+          const rect = svgEl.getBoundingClientRect();
+          setAlignTooltip(prev => prev ? { ...prev, x: event.clientX - rect.left, y: event.clientY - rect.top } : prev);
+        })
+        .on("mouseleave.align", (_event: MouseEvent, d: SimLink) => {
+          if (d.connectionType !== "alignment") return;
+          setAlignTooltip(null);
+        });
 
       // Edge labels (shown on hover)
       const edgeLabelGroup = g.append("g").attr("class", "edge-labels").attr("opacity", 0);
@@ -511,6 +617,29 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
             .attr("fill", "#7c2d12")
             .attr("pointer-events", "none")
             .text(truncate(d.name, 8));
+        } else if (d.type === "user") {
+          // YOU node: purple double-ring circle
+          el.append("circle")
+            .attr("r", r + 4)
+            .attr("fill", "none")
+            .attr("stroke", stroke)
+            .attr("stroke-width", 1)
+            .attr("opacity", 0.35)
+            .attr("pointer-events", "none");
+          el.append("circle")
+            .attr("class", "node-circle")
+            .attr("r", r)
+            .attr("fill", fill)
+            .attr("stroke", stroke)
+            .attr("stroke-width", 3);
+          el.append("text")
+            .attr("text-anchor", "middle")
+            .attr("dominant-baseline", "central")
+            .attr("font-size", "10px")
+            .attr("font-weight", "800")
+            .attr("fill", "#6d28d9")
+            .attr("pointer-events", "none")
+            .text("YOU");
         } else {
           // fallback: circle
           el.append("circle")
@@ -620,8 +749,11 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
         .on("click", (event: MouseEvent, d) => {
           event.stopPropagation();
           hideTip();
-          setPopup(d);
-          onNodeClick?.(d);
+          // USER node has no profile page — skip popup
+          if (d.type !== "user") {
+            setPopup(d);
+            onNodeClick?.(d);
+          }
         });
 
       // ── Simulation ────────────────────────────────────────────────────────
@@ -661,8 +793,13 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
 
       simRef.current = sim;
 
-      // Pin focused + pinned entities
+      // Pin focused + pinned entities; also pin the USER node at canvas center
       sim.nodes().forEach((n) => {
+        if (n.type === "user") {
+          n.fx = width / 2;
+          n.fy = height / 2;
+          return;
+        }
         const fe = focusEntities.find((fe) => fe.id === n.id);
         if (fe?.pinned) {
           n.fx = n.x;
@@ -685,16 +822,20 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
       link
         .style("display", (d: SimLink) => {
           if (!hasConnectionFilter) return "block";
+          if (d.connectionType === "alignment") return "block"; // always show
           const conn = connections[d.connectionType];
           if (!conn) return "block";           // unknown type: show
           if (conn.enabled === false) return "none"; // explicitly disabled: hide
           return "block";
         })
-        .attr("stroke", (d: SimLink) =>
-          connections[d.connectionType]?.color
+        .attr("stroke", (d: SimLink) => {
+          if (d.connectionType === "alignment") {
+            return alignmentEdgeColor(d.metadata?.alignmentRatio as number | null);
+          }
+          return connections[d.connectionType]?.color
             ?? CONNECTION_TYPE_REGISTRY[d.connectionType]?.color
-            ?? "#94a3b8"
-        )
+            ?? "#94a3b8";
+        })
         .attr("stroke-opacity", (d: SimLink) => {
           const isShared =
             focusIds.has((d.source as SimNode).id ?? d.fromId) &&
@@ -895,6 +1036,19 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
           y={tooltip.y}
           visible={tooltip.visible}
         />
+
+        {/* Alignment edge tooltip */}
+        {alignTooltip && (
+          <AlignmentEdgeTooltip
+            officialName={alignTooltip.officialName}
+            ratio={alignTooltip.ratio}
+            matchedVotes={alignTooltip.matchedVotes}
+            totalVotes={alignTooltip.totalVotes}
+            voteDetails={alignTooltip.voteDetails}
+            x={alignTooltip.x}
+            y={alignTooltip.y}
+          />
+        )}
 
         <NodePopup
           node={popup}

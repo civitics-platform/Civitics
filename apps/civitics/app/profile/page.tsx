@@ -1,7 +1,7 @@
-// QWEN-ADDED: User profile page — displays account info for logged-in users
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerClient } from "@civitics/db";
+import { DistrictPickerForm } from "./DistrictPickerForm";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +21,14 @@ export default async function ProfilePage() {
     .from("users")
     .select("id, display_name, email, avatar_url, civic_credits_balance, is_active, created_at")
     .eq("id", user.id)
+    .maybeSingle();
+
+  // Fetch user's saved district preferences for the picker's initial values
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: prefs } = await (supabase as any)
+    .from("user_preferences")
+    .select("home_state, home_district")
+    .eq("user_id", user.id)
     .maybeSingle();
 
   // Fallback to email-based lookup if no row exists yet (first sign-in edge case)
@@ -83,6 +91,12 @@ export default async function ProfilePage() {
           </div>
         </dl>
       </div>
+
+      {/* District picker — sets home_state/home_district for the USER graph node */}
+      <DistrictPickerForm
+        initialState={prefs?.home_state ?? null}
+        initialDistrict={prefs?.home_district ?? null}
+      />
 
       {/* Coming soon sections */}
       <div className="mt-6 space-y-4">

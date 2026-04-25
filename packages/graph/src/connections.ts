@@ -70,6 +70,13 @@ export const CONNECTION_TYPE_REGISTRY: Record<string, ConnectionTypeDefinition> 
     description: 'Bill co-sponsorship',
     hasAmount: false,
   },
+  alignment: {
+    label: 'Alignment',
+    icon: '≈',
+    color: '#8b5cf6',
+    description: 'Alignment between your civic positions and representative votes',
+    hasAmount: false,
+  },
 }
 
 // ── Default connection state for a new GraphView ───────────────────────────────

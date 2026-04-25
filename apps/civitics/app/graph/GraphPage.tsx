@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   ForceGraph,
   TreemapGraph,
@@ -18,7 +18,7 @@ import {
   isFocusEntity,
   isFocusGroup,
 } from "@civitics/graph";
-import type { VizType, FocusGroup } from "@civitics/graph";
+import type { VizType, FocusGroup, GraphNodeV2 as GraphNode, GraphEdgeV2 as GraphEdge } from "@civitics/graph";
 import { SharePanel }      from "./SharePanel";
 import { ScreenshotPanel } from "./ScreenshotPanel";
 import { GhostGraph }      from "./GhostGraph";
@@ -68,11 +68,92 @@ export function GraphPage({ initialCode }: GraphPageProps = {}) {
     })();
   }, [initialCode, view.focus.entities.length, graphHooks]);
 
+  // ── USER node: fetch representatives + alignment scores ──────────────────
+  // Independently of focus entities — always present when home_state is set.
+  const USER_NODE_ID = "user:me";
+  const userRepFetchedRef = useRef(false);
+  const [userNode,       setUserNode]       = useState<GraphNode | null>(null);
+  const [repNodes,       setRepNodes]       = useState<GraphNode[]>([]);
+  const [alignmentEdges, setAlignmentEdges] = useState<GraphEdge[]>([]);
+
+  useEffect(() => {
+    if (userRepFetchedRef.current) return;
+    if (initialCode) return;
+    userRepFetchedRef.current = true;
+
+    (async () => {
+      try {
+        const res = await fetch("/api/graph/my-representatives", { credentials: "include" });
+        if (!res.ok) return;
+        const { configured, reps } = await res.json() as {
+          configured: boolean;
+          reps: Array<{
+            id: string; name: string; type: "official";
+            role?: string; party?: "democrat" | "republican" | "independent";
+            photoUrl?: string;
+            alignment: {
+              ratio: number | null;
+              matchedVotes: number;
+              totalVotes: number;
+              voteDetails: Array<{ title: string; user_pos: string; official_vote: string; aligned: boolean }>;
+            };
+          }>;
+        };
+        if (!configured || !reps.length) return;
+
+        setUserNode({
+          id: USER_NODE_ID,
+          name: "YOU",
+          type: "user",
+        });
+
+        setRepNodes(reps.map(rep => ({
+          id: rep.id,
+          name: rep.name,
+          type: rep.type,
+          role: rep.role,
+          party: rep.party,
+        })));
+
+        setAlignmentEdges(reps.map(rep => ({
+          fromId: USER_NODE_ID,
+          toId: rep.id,
+          connectionType: "alignment",
+          strength: 1,
+          metadata: {
+            alignmentRatio: rep.alignment.ratio,
+            matchedVotes: rep.alignment.matchedVotes,
+            totalVotes: rep.alignment.totalVotes,
+            voteDetails: rep.alignment.voteDetails,
+            officialName: rep.name,
+          },
+        })));
+      } catch {
+        // Unauthenticated or no preferences set — silently skip.
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialCode]);
+
   // ── Graph data (nodes + edges for all focused entities) ───────────────────
   const { nodes, allEdges, loadingEntityId, graphMeta } = useGraphData(
     view.focus,
     view.connections
   );
+
+  // Merge user node + rep nodes + alignment edges into the display arrays.
+  // repNodes not already in `nodes` are added so alignment edges can render.
+  const displayNodes = useMemo((): GraphNode[] => {
+    if (!userNode) return nodes;
+    const existingIds = new Set(nodes.map(n => n.id));
+    const newReps = repNodes.filter(n => !existingIds.has(n.id));
+    return [...nodes, ...newReps, userNode];
+  }, [nodes, userNode, repNodes]);
+
+  const displayEdges = useMemo((): GraphEdge[] => {
+    if (!userNode) return allEdges;
+    return [...allEdges, ...alignmentEdges];
+  }, [allEdges, userNode, alignmentEdges]);
 
   // ── Panel collapse state ──────────────────────────────────────────────────
   // Auto-collapse both panels on small screens (<768px) — panels are fixed-width
@@ -232,7 +313,7 @@ export function GraphPage({ initialCode }: GraphPageProps = {}) {
             className="absolute inset-0 transition-opacity duration-300"
             style={{ opacity: vizType === "force" ? 1 : 0, pointerEvents: vizType === "force" ? "auto" : "none" }}
           >
-            {nodes.length === 0 && view.focus.entities.length === 0 ? (
+            {displayNodes.length === 0 ? (
               <div className="relative w-full h-full">
                 <GhostGraph className="w-full h-full absolute inset-0 opacity-30" />
                 <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
@@ -251,8 +332,8 @@ export function GraphPage({ initialCode }: GraphPageProps = {}) {
               </div>
             ) : (
               <ForceGraph
-                nodes={nodes}
-                edges={allEdges}
+                nodes={displayNodes}
+                edges={displayEdges}
                 loadingEntityId={loadingEntityId}
                 focusEntities={view.focus.entities.filter(isFocusEntity)}
                 connections={view.connections}

@@ -26,7 +26,7 @@ Read `{BATCH_FILE}`. The shape is:
 }
 ```
 
-Each item is either a `proposal` or an `official`. Handle them differently:
+Each item is a `proposal`, an `official`, or a `financial_entity`. Handle them differently:
 
 ### When `entity_type === "proposal"` — `context` has
 
@@ -60,6 +60,27 @@ Also emit one complexity tag.
 
 Classify the official's policy focus into **1–3 issue_areas** drawn exclusively
 from `issue_areas`. No complexity tag for officials.
+
+### When `entity_type === "financial_entity"` — `context` has
+
+```
+{
+  display_name: string,          // entity name (PAC name, company name, etc.)
+  entity_subtype: string,        // "pac" | "super_pac" | "corporation" | "union" | etc.
+  industry_hint: string | null,  // FEC CONNECTED_ORG_NM — often the parent company name
+  total_donated_cents: number,
+  valid_industries: string[],    // the ONLY tags you may use
+  industry_labels: Record<string,string>
+}
+```
+
+Classify the entity into **exactly 1 industry** drawn exclusively from `valid_industries`.
+Use `display_name` as the primary signal, `industry_hint` as a secondary clue (it may be a
+more canonical form of the org name). If neither is classifiable with confidence ≥ 0.6,
+emit `{ "success": false, "error": "insufficient signal" }`.
+
+For financial entities, omit the complexity tag and `affects_individuals` field.
+Set `is_primary: true` on the single tag, `rank: 1`.
 
 ## Classification rules
 

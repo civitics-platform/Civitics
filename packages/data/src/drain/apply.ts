@@ -26,7 +26,7 @@ type QueueRow = {
   id: number;
   task_type: "tag" | "summary";
   entity_id: string;
-  entity_type: "proposal" | "official";
+  entity_type: "proposal" | "official" | "financial_entity";
 };
 
 type TagResultItem = {
@@ -149,11 +149,12 @@ export async function applyResult(db: Db, r: SubmitResult): Promise<ApplyOutcome
       }
       const model = parsed.model ?? "claude-sonnet-4-6";
       const pipelineVersion = parsed.pipeline_version ?? "v1";
+      const tagCategory = queueRow.entity_type === "financial_entity" ? "industry" : "topic";
       const rows = parsed.tags.map((t) => ({
         entity_type: queueRow.entity_type,
         entity_id: queueRow.entity_id,
         tag: t.tag,
-        tag_category: "topic",
+        tag_category: tagCategory,
         display_label: t.display_label ?? titleize(t.tag),
         display_icon: t.display_icon ?? null,
         visibility: t.visibility ?? "secondary",

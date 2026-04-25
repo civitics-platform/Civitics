@@ -18,6 +18,7 @@ import {
   buildOfficialTagContext,
   buildProposalSummaryContext,
   buildOfficialSummaryContext,
+  buildFinancialEntityTagContext,
   classifyProposalContext,
   aggregateOfficialStats,
   loadJurisdictionPriorities,
@@ -86,6 +87,21 @@ async function taggedEntityIds(
         .eq("entity_type", entityType)
         .eq("generated_by", "ai")
         .eq("tag_category", "topic")
+        .range(from, to),
+  );
+  return new Set(rows.map((r) => r.entity_id));
+}
+
+// Returns IDs that already have ANY industry tag (rule or AI) — skip those.
+async function industryTaggedFinancialEntityIds(db: Db): Promise<Set<string>> {
+  const rows = await fetchAll<{ entity_id: string }>(
+    "entity_tags(financial_entity,industry)",
+    (from, to) =>
+      db
+        .from("entity_tags")
+        .select("entity_id")
+        .eq("entity_type", "financial_entity")
+        .eq("tag_category", "industry")
         .range(from, to),
   );
   return new Set(rows.map((r) => r.entity_id));
@@ -406,12 +422,55 @@ async function main(): Promise<void> {
   const officialSummaryCounts = await enqueueAll(db, "official", "summary", officialSummaryRows, "official-summaries");
   console.log(`   ${fmt(officialSummaryCounts)}\n`);
 
+  // 5. Financial entity industry tags — seed only entities without any industry tag.
+  //    Rule-based pass (data:tag-rules) should run first; this seeds the remainder.
+  type FinancialEntityRow = {
+    id: string;
+    display_name: string;
+    entity_type: string;
+    industry: string | null;
+    total_donated_cents: number;
+    updated_at: string;
+  };
+  const financialEntities = await fetchAll<FinancialEntityRow>(
+    "financial_entities",
+    (from, to) =>
+      db
+        .from("financial_entities")
+        .select("id, display_name, entity_type, industry, total_donated_cents, updated_at")
+        .range(from, to),
+  );
+
+  const industryTaggedIds = await industryTaggedFinancialEntityIds(db);
+
+  const feTagRows = financialEntities
+    .filter((fe) => FORCE || !industryTaggedIds.has(fe.id))
+    .map((fe) => ({
+      entity_id: fe.id,
+      entity_type: "financial_entity" as EntityType,
+      task_type: "tag" as TaskType,
+      // Federal financial entities are high-value; treat same priority as country-level.
+      priority: 40,
+      entity_updated_at: fe.updated_at,
+      context: buildFinancialEntityTagContext({
+        id: fe.id,
+        display_name: fe.display_name,
+        entity_subtype: fe.entity_type,
+        industry_hint: fe.industry ?? null,
+        total_donated_cents: fe.total_donated_cents,
+      }),
+    }));
+  console.log(`── Financial entity industry tags (${feTagRows.length} to seed) ──`);
+  const feTagCounts = await enqueueAll(db, "financial_entity", "tag", feTagRows, "financial-entity-tags");
+  console.log(`   ${fmt(feTagCounts)}\n`);
+
   // Summary report
   console.log(`══ Seed complete ════════════════════════════════════════════`);
-  console.log(`   Proposal tags:      ${fmt(proposalTagCounts)}`);
-  console.log(`   Proposal summaries: ${fmt(proposalSummaryCounts)}`);
-  console.log(`   Official tags:      ${fmt(officialTagCounts)}`);
-  console.log(`   Official summaries: ${fmt(officialSummaryCounts)}`);
+  console.log(`   Proposal tags:              ${fmt(proposalTagCounts)}`);
+  console.log(`   Proposal summaries:         ${fmt(proposalSummaryCounts)}`);
+  console.log(`   Official tags:              ${fmt(officialTagCounts)}`);
+  console.log(`   Official summaries:         ${fmt(officialSummaryCounts)}`);
+  console.log(`   Financial entity tags:      ${fmt(feTagCounts)}`);
   if (DRY_RUN) console.log(`   (DRY RUN — nothing inserted)`);
 }
 

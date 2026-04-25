@@ -253,7 +253,7 @@ async function tagProposals(db: any): Promise<number> {
 
   const { data: proposals, error } = await db
     .from("proposals")
-    .select("id, title, type, status, comment_period_end, introduced_at, created_at, metadata");
+    .select("id, title, type, status, introduced_at, created_at, metadata");
 
   if (error) {
     console.error("    Error fetching proposals:", error.message);
@@ -272,9 +272,11 @@ async function tagProposals(db: any): Promise<number> {
     const tags: TagInsert[] = [];
     const base = { entity_type: "proposal", entity_id: p.id as string, generated_by: "rule" as const, confidence: 1.0, pipeline_version: "v1" };
 
-    // ── Urgency from comment_period_end ──────────────────────────────────
-    if (p.comment_period_end) {
-      const closeDate = new Date(p.comment_period_end as string);
+    // ── Urgency from comment_period_end (lives in metadata post-cutover) ────
+    const commentPeriodEnd =
+      (p.metadata as Record<string, string> | null)?.["comment_period_end"] ?? null;
+    if (commentPeriodEnd) {
+      const closeDate = new Date(commentPeriodEnd);
       const days = daysBetween(now, closeDate);
 
       if (days >= 0 && days <= 7) {
@@ -382,9 +384,20 @@ async function tagOfficials(db: any): Promise<number> {
     .from("votes")
     .select("official_id, proposal_id, vote");
 
+  // Post-cutover: to_id = official UUID, from_type = 'financial_entity'
   const { data: allFinancials } = await db
     .from("financial_relationships")
-    .select("official_id, donor_type, amount_cents");
+    .select("to_id, from_id, amount_cents")
+    .eq("to_type", "official")
+    .eq("relationship_type", "donation");
+
+  // Load entity_types for donor entities so we can detect pac_heavy / grassroots
+  const donorIds = [...new Set<string>((allFinancials ?? []).map((f: { from_id: string }) => f.from_id))];
+  const { data: donorEntities } = donorIds.length > 0
+    ? await db.from("financial_entities").select("id, entity_type").in("id", donorIds)
+    : { data: [] };
+  const donorTypeById = new Map<string, string>();
+  for (const e of donorEntities ?? []) donorTypeById.set(e.id as string, e.entity_type as string);
 
   // Index votes by official_id
   const votesByOfficial = new Map<string, Array<{ proposal_id: string; vote: string }>>();
@@ -410,15 +423,15 @@ async function tagOfficials(db: any): Promise<number> {
     if (o.party) partyByOfficial.set(o.id, o.party);
   }
 
-  // Index financials by official_id
+  // Index financials by official UUID (to_id)
   const financialsByOfficial = new Map<
     string,
     Array<{ donor_type: string; amount_cents: number }>
   >();
   for (const f of allFinancials ?? []) {
-    const list = financialsByOfficial.get(f.official_id) ?? [];
-    list.push({ donor_type: f.donor_type, amount_cents: f.amount_cents ?? 0 });
-    financialsByOfficial.set(f.official_id, list);
+    const list = financialsByOfficial.get(f.to_id) ?? [];
+    list.push({ donor_type: donorTypeById.get(f.from_id) ?? "other", amount_cents: f.amount_cents ?? 0 });
+    financialsByOfficial.set(f.to_id, list);
   }
 
   for (const official of officials) {
@@ -553,6 +566,55 @@ async function tagOfficials(db: any): Promise<number> {
 }
 
 // ---------------------------------------------------------------------------
+// NAICS 2-digit → industry tag (for USASpending contractors)
+// More-specific 3/4-digit entries override the 2-digit bucket.
+// ---------------------------------------------------------------------------
+
+const NAICS2_INDUSTRY: Record<string, string> = {
+  "11": "agriculture",
+  "21": "oil_gas",
+  "22": "oil_gas",
+  "31": "agriculture",
+  "32": "pharma",
+  "33": "defense",
+  "42": "retail",
+  "44": "retail",
+  "45": "retail",
+  "48": "transportation",
+  "49": "transportation",
+  "51": "tech",
+  "52": "finance",
+  "53": "real_estate",
+  "54": "tech",
+  "55": "finance",
+  "56": "labor",
+  "62": "pharma",
+  "92": "lobby",
+};
+
+const NAICS_OVERRIDE: Record<string, string> = {
+  "334": "tech",
+  "335": "tech",
+  "336": "defense",
+  "325": "pharma",
+  "326": "pharma",
+  "541": "tech",
+  "5411": "legal",
+  "5412": "finance",
+  "5415": "tech",
+};
+
+function naicsToIndustry(code: string): string | null {
+  const clean = code.trim();
+  return (
+    NAICS_OVERRIDE[clean.slice(0, 4)] ??
+    NAICS_OVERRIDE[clean.slice(0, 3)] ??
+    NAICS2_INDUSTRY[clean.slice(0, 2)] ??
+    null
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 3. Financial entity rules (donation size + industry)
 // ---------------------------------------------------------------------------
 
@@ -560,20 +622,20 @@ async function tagOfficials(db: any): Promise<number> {
 async function tagFinancialEntities(db: any): Promise<number> {
   console.log("\n  [3/3] Tagging financial entities...");
 
-  // Load financial_relationships for donation size
+  // Post-cutover: from_id = financial_entity UUID, to_id = official/agency UUID
   const { data: relationships, error: relErr } = await db
     .from("financial_relationships")
-    .select("id, official_id, donor_name, amount_cents");
+    .select("from_id, to_id, to_type, amount_cents, relationship_type, metadata")
+    .eq("from_type", "financial_entity");
 
   if (relErr) {
     console.error("    Error fetching financial_relationships:", relErr.message);
     return 0;
   }
 
-  // Load financial_entities for industry matching
   const { data: entities, error: entErr } = await db
     .from("financial_entities")
-    .select("id, name, entity_type");
+    .select("id, display_name, entity_type, industry");
 
   if (entErr) {
     console.error("    Error fetching financial_entities:", entErr.message);
@@ -582,50 +644,32 @@ async function tagFinancialEntities(db: any): Promise<number> {
 
   let totalUpserted = 0;
 
-  // ── Donation size tags (per relationship row → tagged on financial entity) ─
-  // Build lookup: donor_name → financial_entity id
-  const entityByName = new Map<string, string>();
-  for (const e of entities ?? []) {
-    entityByName.set(String(e.name).trim().toUpperCase(), e.id as string);
-  }
-
+  // ── Donation size tags — aggregate per financial_entity ─────────────────
+  const donationTotalByEntity = new Map<string, number>();
   for (const rel of relationships ?? []) {
-    const donorName = String(rel.donor_name ?? "").trim().toUpperCase();
-    const entityId = entityByName.get(donorName);
-    if (!entityId) continue;
-
-    const amountCents = Number(rel.amount_cents ?? 0);
-    const base = { entity_type: "financial_entity", entity_id: entityId, generated_by: "rule" as const, confidence: 1.0, pipeline_version: "v1" };
-
-    let tag: string, label: string, icon: string | null, visibility: "primary" | "secondary" | "internal";
-
-    if (amountCents < 500_000) {
-      tag = "small_donation"; label = "Small Donation"; icon = null; visibility = "internal";
-    } else if (amountCents < 5_000_000) {
-      tag = "medium_donation"; label = "Medium Donation"; icon = null; visibility = "secondary";
-    } else if (amountCents < 50_000_000) {
-      tag = "large_donation"; label = "Large Donation"; icon = "💰"; visibility = "primary";
-    } else {
-      tag = "major_donation"; label = "Major Donation"; icon = "💰💰"; visibility = "primary";
-    }
-
-    const tagRow: TagInsert = {
-      ...base, tag, tag_category: "size", display_label: label, display_icon: icon, visibility,
-      metadata: { amount_cents: amountCents },
-    };
-    totalUpserted += await upsertTags(db, [tagRow]);
+    if (rel.relationship_type !== "donation") continue;
+    const id = rel.from_id as string;
+    donationTotalByEntity.set(id, (donationTotalByEntity.get(id) ?? 0) + Number(rel.amount_cents ?? 0));
   }
 
-  // ── Industry from name matching ──────────────────────────────────────────
+  for (const [entityId, totalCents] of donationTotalByEntity.entries()) {
+    const base = { entity_type: "financial_entity", entity_id: entityId, generated_by: "rule" as const, confidence: 1.0, pipeline_version: "v1" };
+    let tag: string, label: string, icon: string | null, visibility: "primary" | "secondary" | "internal";
+    if (totalCents < 500_000)        { tag = "small_donation";  label = "Small Donation";  icon = null;    visibility = "internal"; }
+    else if (totalCents < 5_000_000) { tag = "medium_donation"; label = "Medium Donation"; icon = null;    visibility = "secondary"; }
+    else if (totalCents < 50_000_000){ tag = "large_donation";  label = "Large Donation";  icon = "💰";   visibility = "primary"; }
+    else                              { tag = "major_donation";  label = "Major Donation";  icon = "💰💰"; visibility = "primary"; }
+    totalUpserted += await upsertTags(db, [{ ...base, tag, tag_category: "size", display_label: label, display_icon: icon, visibility, metadata: { total_cents: totalCents } }]);
+  }
+
+  // ── Industry from display_name keyword matching (FEC PACs / orgs) ────────
   for (const entity of entities ?? []) {
-    const nameLower = String(entity.name ?? "").toLowerCase();
+    const nameLower = String(entity.display_name ?? "").toLowerCase();
     const matchedIndustries: string[] = [];
 
     for (const [industry, keywords] of Object.entries(INDUSTRY_KEYWORDS)) {
       const matched = keywords.some((kw) => {
         if (kw.length <= 4) {
-          // Short keywords require word boundaries to avoid false positives.
-          // e.g. "gas" should not match "gaston"; "ups" should not match "groups"
           const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
           return new RegExp(`\\b${escaped}\\b`, "i").test(nameLower);
         }
@@ -634,26 +678,56 @@ async function tagFinancialEntities(db: any): Promise<number> {
       if (matched) matchedIndustries.push(industry);
     }
 
-    if (matchedIndustries.length === 0) continue;
-
-    const baseConfidence = matchedIndustries.length > 1 ? 0.7 : 0.8;
-    const base = { entity_type: "financial_entity", entity_id: entity.id as string, generated_by: "rule" as const, pipeline_version: "v1" };
-
-    for (const industry of matchedIndustries) {
-      const info = INDUSTRY_LABELS[industry];
-      if (!info) continue;
-      const tagRow: TagInsert = {
-        ...base,
-        confidence: baseConfidence,
-        tag: industry,
-        tag_category: "industry",
-        display_label: info.label,
-        display_icon: info.icon,
-        visibility: baseConfidence >= 0.8 ? "primary" : "secondary",
-        metadata: { matched_count: matchedIndustries.length },
-      };
-      totalUpserted += await upsertTags(db, [tagRow]);
+    if (matchedIndustries.length > 0) {
+      const baseConfidence = matchedIndustries.length > 1 ? 0.7 : 0.8;
+      const base = { entity_type: "financial_entity", entity_id: entity.id as string, generated_by: "rule" as const, pipeline_version: "v1" };
+      for (const industry of matchedIndustries) {
+        const info = INDUSTRY_LABELS[industry];
+        if (!info) continue;
+        totalUpserted += await upsertTags(db, [{
+          ...base,
+          confidence: baseConfidence,
+          tag: industry,
+          tag_category: "industry",
+          display_label: info.label,
+          display_icon: info.icon,
+          visibility: baseConfidence >= 0.8 ? "primary" : "secondary",
+          metadata: { matched_count: matchedIndustries.length },
+        }]);
+      }
     }
+  }
+
+  // ── NAICS → industry for USASpending contractors ─────────────────────────
+  // Each contract relationship carries naics_code in metadata.
+  // Use the first NAICS found per entity; keyword match takes priority if
+  // already written (upsert is idempotent — same tag+category → no-op).
+  const naicsByEntity = new Map<string, string>();
+  for (const rel of relationships ?? []) {
+    if (rel.relationship_type !== "contract" && rel.relationship_type !== "grant") continue;
+    const naics = (rel.metadata as Record<string, unknown> | null)?.["naics_code"] as string | null;
+    if (!naics || naicsByEntity.has(rel.from_id)) continue;
+    naicsByEntity.set(rel.from_id as string, naics);
+  }
+
+  for (const [entityId, naics] of naicsByEntity.entries()) {
+    const industry = naicsToIndustry(naics);
+    if (!industry) continue;
+    const info = INDUSTRY_LABELS[industry];
+    if (!info) continue;
+    totalUpserted += await upsertTags(db, [{
+      entity_type: "financial_entity",
+      entity_id: entityId,
+      tag: industry,
+      tag_category: "industry",
+      display_label: info.label,
+      display_icon: info.icon,
+      visibility: "primary",
+      confidence: 0.85,
+      generated_by: "rule",
+      pipeline_version: "v1",
+      metadata: { naics_code: naics },
+    }]);
   }
 
   console.log(`    Upserted ${totalUpserted} financial entity tags`);
@@ -668,10 +742,12 @@ async function tagFinancialEntities(db: any): Promise<number> {
 async function tagPreVoteConnections(db: any): Promise<number> {
   console.log("\n  [4/4] Tagging pre-vote timing connections...");
 
-  // Fetch financial relationships — use contribution_date (not created_at) for donation timing
+  // Post-cutover: to_id = official UUID, occurred_at replaces contribution_date
   const { data: relationships, error: relErr } = await db
     .from("financial_relationships")
-    .select("official_id, donor_name, contribution_date");
+    .select("from_id, to_id, occurred_at")
+    .eq("to_type", "official")
+    .eq("relationship_type", "donation");
 
   if (relErr) {
     console.error("    Error fetching financial_relationships:", relErr.message);
@@ -679,22 +755,23 @@ async function tagPreVoteConnections(db: any): Promise<number> {
   }
 
   // Fetch votes with voted_at
+  // Post-cutover: proposal_id renamed to bill_proposal_id
   const { data: votes, error: voteErr } = await db
     .from("votes")
-    .select("id, official_id, proposal_id, vote, voted_at");
+    .select("id, official_id, bill_proposal_id, vote, voted_at");
 
   if (voteErr) {
     console.error("    Error fetching votes:", voteErr.message);
     return 0;
   }
 
-  // Build donation index: official_id → [{donorName, date}]
-  const donationsByOfficial = new Map<string, Array<{ donorName: string; date: Date }>>();
+  // Build donation index: official UUID → [{fromId, date}]
+  const donationsByOfficial = new Map<string, Array<{ fromId: string; date: Date }>>();
   for (const r of relationships ?? []) {
-    if (!r.official_id || !r.contribution_date) continue;
-    const list = donationsByOfficial.get(r.official_id) ?? [];
-    list.push({ donorName: r.donor_name, date: new Date(r.contribution_date) });
-    donationsByOfficial.set(r.official_id, list);
+    if (!r.to_id || !r.occurred_at) continue;
+    const list = donationsByOfficial.get(r.to_id) ?? [];
+    list.push({ fromId: r.from_id as string, date: new Date(r.occurred_at as string) });
+    donationsByOfficial.set(r.to_id as string, list);
   }
 
   // Fetch proposals for titles
@@ -703,12 +780,6 @@ async function tagPreVoteConnections(db: any): Promise<number> {
   for (const p of proposals ?? []) {
     proposalTitles.set(p.id, p.title ?? "Unknown");
   }
-
-  // Fetch entity_connections (donation type) for entity_id lookups
-  const { data: connections } = await db
-    .from("entity_connections")
-    .select("id, from_id, to_id, connection_type")
-    .eq("connection_type", "donation");
 
   let totalUpserted = 0;
 
@@ -721,19 +792,12 @@ async function tagPreVoteConnections(db: any): Promise<number> {
       const daysBefore = daysBetween(donation.date, voteDate);
       if (daysBefore <= 0 || daysBefore > 90) continue;
 
-      // Find the entity_connection for this donation relationship
-      const connection = (connections ?? []).find(
-        (c: { from_id: string; to_id: string; connection_type: string }) =>
-          c.to_id === vote.official_id && c.connection_type === "donation"
-      );
-      if (!connection) continue;
-
-      const proposalTitle = proposalTitles.get(vote.proposal_id) ?? "Unknown proposal";
+      const proposalTitle = proposalTitles.get(vote.bill_proposal_id) ?? "Unknown proposal";
 
       // Tag the financial entity (from_id) with pre-vote timing
       const tagRow: TagInsert = {
         entity_type: "financial_entity",
-        entity_id: connection.from_id,
+        entity_id: donation.fromId,
         tag: "pre_vote_timing",
         tag_category: "internal",
         display_label: "Pre-Vote Timing",
@@ -745,7 +809,7 @@ async function tagPreVoteConnections(db: any): Promise<number> {
         metadata: {
           days_before_vote: daysBefore,
           vote_cast: vote.vote,
-          proposal_id: vote.proposal_id,
+          proposal_id: vote.bill_proposal_id,
           proposal_title: proposalTitle,
           vote_id: vote.id,
           official_id: vote.official_id,

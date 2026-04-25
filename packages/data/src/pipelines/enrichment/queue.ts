@@ -10,7 +10,7 @@ type Db = any;
 
 import { VALID_TOPICS, TOPIC_ICONS, ISSUE_AREAS } from "../tags/topics";
 
-export type EntityType = "proposal" | "official";
+export type EntityType = "proposal" | "official" | "financial_entity";
 export type TaskType = "tag" | "summary";
 export type EnqueueAction =
   | "created"
@@ -189,6 +189,53 @@ export function buildOfficialSummaryContext(o: OfficialSummaryInput) {
 }
 
 // ---------------------------------------------------------------------------
+// Financial entity context builder
+// ---------------------------------------------------------------------------
+
+// Valid industry tags the AI worker may assign — mirrors INDUSTRY_LABELS in rules.ts.
+export const VALID_INDUSTRIES = [
+  "pharma", "oil_gas", "finance", "tech", "defense",
+  "real_estate", "labor", "agriculture", "legal",
+  "retail", "transportation", "lobby",
+] as const;
+
+export const INDUSTRY_DISPLAY: Record<string, { label: string; icon: string }> = {
+  pharma:         { label: "Pharma",           icon: "💊" },
+  oil_gas:        { label: "Oil & Gas",        icon: "🛢" },
+  finance:        { label: "Finance",          icon: "📈" },
+  tech:           { label: "Tech",             icon: "💻" },
+  defense:        { label: "Defense",          icon: "🛡" },
+  real_estate:    { label: "Real Estate",      icon: "🏠" },
+  labor:          { label: "Labor",            icon: "👷" },
+  agriculture:    { label: "Agriculture",      icon: "🌾" },
+  legal:          { label: "Legal",            icon: "⚖️" },
+  retail:         { label: "Retail",           icon: "🛒" },
+  transportation: { label: "Transportation",   icon: "🚛" },
+  lobby:          { label: "Lobby / Advocacy", icon: "🏛" },
+};
+
+export type FinancialEntityTagInput = {
+  id: string;
+  display_name: string;
+  entity_subtype: string;  // financial_entities.entity_type (pac, corporation, …)
+  industry_hint: string | null;  // financial_entities.industry column (FEC connected org name)
+  total_donated_cents: number;
+};
+
+export function buildFinancialEntityTagContext(fe: FinancialEntityTagInput) {
+  return {
+    display_name: fe.display_name,
+    entity_subtype: fe.entity_subtype,
+    industry_hint: fe.industry_hint ?? null,
+    total_donated_cents: fe.total_donated_cents,
+    valid_industries: VALID_INDUSTRIES,
+    industry_labels: Object.fromEntries(
+      Object.entries(INDUSTRY_DISPLAY).map(([k, v]) => [k, v.label])
+    ),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Batch enrichment for officials — top_industries / vote_count / total_raised
 // aren't on the officials row itself; they come from aggregating votes and
 // financial_relationships. Both the tag-context builder and summary-context
@@ -209,12 +256,15 @@ export async function aggregateOfficialStats(
   const out = new Map<string, OfficialAggregate>();
   if (officialIds.length === 0) return out;
 
+  // Post-cutover: to_id = official UUID, no donor_type column on the relationship row
   const [voteRes, donorRes] = await Promise.all([
     db.from("votes").select("official_id").in("official_id", officialIds),
     db
       .from("financial_relationships")
-      .select("official_id, donor_type, amount_cents")
-      .in("official_id", officialIds),
+      .select("to_id, from_id, amount_cents")
+      .eq("to_type", "official")
+      .eq("relationship_type", "donation")
+      .in("to_id", officialIds),
   ]);
 
   const voteCounts = new Map<string, number>();
@@ -224,35 +274,21 @@ export async function aggregateOfficialStats(
 
   const donorCounts = new Map<string, number>();
   const donorTotals = new Map<string, number>();
-  const typeByOfficial = new Map<string, Map<string, number>>();
   for (const d of (donorRes.data ?? []) as {
-    official_id: string;
-    donor_type: string | null;
+    to_id: string;
+    from_id: string;
     amount_cents: number | null;
   }[]) {
-    donorCounts.set(d.official_id, (donorCounts.get(d.official_id) ?? 0) + 1);
-    donorTotals.set(
-      d.official_id,
-      (donorTotals.get(d.official_id) ?? 0) + (d.amount_cents ?? 0),
-    );
-    const typeKey = d.donor_type ?? "unknown";
-    const typeMap = typeByOfficial.get(d.official_id) ?? new Map<string, number>();
-    typeMap.set(typeKey, (typeMap.get(typeKey) ?? 0) + (d.amount_cents ?? 0));
-    typeByOfficial.set(d.official_id, typeMap);
+    donorCounts.set(d.to_id, (donorCounts.get(d.to_id) ?? 0) + 1);
+    donorTotals.set(d.to_id, (donorTotals.get(d.to_id) ?? 0) + (d.amount_cents ?? 0));
   }
 
   for (const id of officialIds) {
-    const typeMap = typeByOfficial.get(id) ?? new Map<string, number>();
-    const topIndustries = Array.from(typeMap.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .map(([t]) => t)
-      .join(", ");
     out.set(id, {
       vote_count: voteCounts.get(id) ?? 0,
       donor_count: donorCounts.get(id) ?? 0,
       total_raised: donorTotals.get(id) ?? 0,
-      top_industries: topIndustries || "Unknown",
+      top_industries: "Unknown",  // derive from entity_tags once FIX-109 AI pass completes
     });
   }
   return out;

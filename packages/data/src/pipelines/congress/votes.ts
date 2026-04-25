@@ -25,10 +25,10 @@ import {
   CURRENT_CONGRESS,
 } from "./members";
 import {
-  findOrCreateBillProposal,
-  upsertBillProposal,
+  resolveBillsBatch,
   upsertBillProposalsBatch,
   chamberForBillType,
+  type BillProposalArgs,
 } from "./bills";
 import { XMLParser } from "fast-xml-parser";
 
@@ -434,15 +434,30 @@ export async function runVotesPipeline(
   ];
 
   // -------------------------------------------------------------------------
-  // Step 3: House Clerk XML vote feeds
+  // Step 3: House Clerk XML vote feeds — two-pass to batch bill resolution
   // -------------------------------------------------------------------------
 
   console.log("\n--- Step 3: Fetching House Clerk XML votes ---");
 
   let houseUnmatched = 0;
 
+  interface HouseRollItem {
+    rollCallId:    string;
+    url:           string;
+    session:       number;
+    billKey:       string | null;
+    votedAt:       Date | null;
+    voteQuestion:  string;
+    resultStr:     string;
+    legisNum:      string;
+    recordedVotes: unknown[];
+  }
+  const houseRollBuffer: HouseRollItem[] = [];
+  const houseBillArgs = new Map<string, BillProposalArgs>();
+
+  // Pass 1: fetch + parse XML for all novel rolls; buffer bill args + vote data
   for (const { session, year } of sessions) {
-    console.log(`\n  House session ${session} (${year}):`);
+    console.log(`\n  House session ${session} (${year}) — collecting rolls...`);
 
     for (let rollNum = 1; rollNum <= 500; rollNum++) {
       const paddedRoll = String(rollNum).padStart(3, "0");
@@ -462,7 +477,7 @@ export async function runVotesPipeline(
           continue;
         }
 
-        console.log(`    Processing House session ${session} roll call ${rollNum}...`);
+        console.log(`    Roll ${rollNum}: fetching...`);
 
         let xmlText: string;
         try {
@@ -486,44 +501,13 @@ export async function runVotesPipeline(
           continue;
         }
 
-        const legisNum = meta["legis-num"] ?? "";
-        const billRef = parseHouseLegisNum(String(legisNum));
-
+        const legisNum     = meta["legis-num"] ?? "";
+        const billRef      = parseHouseLegisNum(String(legisNum));
         const actionDateStr = meta["action-date"] ?? "";
-        const votedAt = parseHouseDate(String(actionDateStr));
-
-        const resultStr = String(meta["vote-result"] ?? "");
+        const votedAt      = parseHouseDate(String(actionDateStr));
+        const resultStr    = String(meta["vote-result"] ?? "");
         const proposalStatus = mapVoteResult(resultStr) as ProposalStatus;
         const voteQuestion = String(meta["vote-question"] ?? "");
-
-        let proposalId: string | null = null;
-        if (billRef) {
-          const billKey = `${CURRENT_CONGRESS}-${billRef.type}-${billRef.number}`;
-          const billTitle = `${billRef.type} ${billRef.number}`;
-          const proposalType = mapLegislationType(billRef.type) as ProposalType;
-          const govBodyId = chamberGovBodyId(billRef.type, senateGovBodyId, houseGovBodyId);
-          const congressGovUrl = congressGovBillUrl(CURRENT_CONGRESS, billRef.type, billRef.number);
-          const introducedIso = votedAt ? new Date(votedAt).toISOString() : null;
-
-          proposalId = await findOrCreateBillProposal(db, {
-            billKey,
-            title: billTitle,
-            billNumber: `${billRef.type} ${billRef.number}`,
-            billType: billRef.type,
-            chamber: chamberForBillType(billRef.type),
-            type: proposalType,
-            status: proposalStatus,
-            jurisdictionId: federalId,
-            governingBodyId: govBodyId,
-            congressGovUrl,
-            introducedAt: introducedIso,
-            lastActionAt: introducedIso,
-            congressNumber: CURRENT_CONGRESS,
-            session: String(CURRENT_CONGRESS),
-          });
-
-          if (proposalId) proposalsUpserted++;
-        }
 
         const recordedVotes: unknown[] = Array.isArray(voteData["recorded-vote"])
           ? voteData["recorded-vote"]
@@ -531,82 +515,120 @@ export async function runVotesPipeline(
             ? [voteData["recorded-vote"]]
             : [];
 
-        const voteRecords: VoteInsert[] = [];
-
-        if (!proposalId) {
-          console.log(`    Roll ${rollNum}: no proposal reference, skipping vote records`);
-        } else if (!votedAt) {
-          console.log(`    Roll ${rollNum}: no voted_at, skipping (column is NOT NULL)`);
-        } else {
-          const votedAtIso = new Date(votedAt).toISOString();
-
-          for (const rv of recordedVotes) {
-            const rvObj = rv as Record<string, unknown>;
-            const legislator = rvObj["legislator"] as Record<string, unknown> | null;
-            const voteText = String(rvObj["vote"] ?? "");
-
-            if (!legislator) continue;
-
-            const bioguide = String(legislator["@_name-id"] ?? "");
-            if (!bioguide) continue;
-
-            const officialId = officialMap.get(bioguide);
-            if (!officialId) {
-              houseUnmatched++;
-              continue;
-            }
-
-            const voteRecord: VoteInsert = {
-              official_id: officialId,
-              bill_proposal_id: proposalId,
-              vote: mapVote(voteText),
-              chamber: "House",
-              roll_call_id: rollCallId,
-              session: String(session),
-              voted_at: votedAtIso,
-              vote_question: voteQuestion,
-              source_url: url,
-              metadata: {
-                vote_result: resultStr,
-                legis_num: legisNum,
-              },
-            };
-
-            voteRecords.push(voteRecord);
+        let billKey: string | null = null;
+        if (billRef) {
+          billKey = `${CURRENT_CONGRESS}-${billRef.type}-${billRef.number}`;
+          if (!houseBillArgs.has(billKey)) {
+            const govBodyId      = chamberGovBodyId(billRef.type, senateGovBodyId, houseGovBodyId);
+            const congressGovUrl = congressGovBillUrl(CURRENT_CONGRESS, billRef.type, billRef.number);
+            const introducedIso  = votedAt ? new Date(votedAt).toISOString() : null;
+            houseBillArgs.set(billKey, {
+              billKey,
+              title:           `${billRef.type} ${billRef.number}`,
+              billNumber:      `${billRef.type} ${billRef.number}`,
+              billType:        billRef.type,
+              chamber:         chamberForBillType(billRef.type),
+              type:            mapLegislationType(billRef.type) as ProposalType,
+              status:          proposalStatus,
+              jurisdictionId:  federalId,
+              governingBodyId: govBodyId,
+              congressGovUrl,
+              introducedAt:    introducedIso,
+              lastActionAt:    introducedIso,
+              congressNumber:  CURRENT_CONGRESS,
+              session:         String(CURRENT_CONGRESS),
+            });
           }
         }
 
-        if (voteRecords.length > 0) {
-          const { error: insertErr } = await db
-            .from("votes")
-            .insert(voteRecords);
-          if (insertErr && insertErr.code !== "23505") {
-            console.error(`    Roll ${rollNum}: insert error — ${insertErr.message}`);
-          } else if (insertErr?.code === "23505") {
-            console.log(`    Roll ${rollNum}: unique violation on (roll_call_id, official_id)`);
-          } else {
-            votesInserted += voteRecords.length;
-            console.log(`    Roll ${rollNum}: inserted ${voteRecords.length} votes`);
-          }
-        } else {
-          console.log(`    Roll ${rollNum}: no matchable vote records`);
-        }
+        houseRollBuffer.push({ rollCallId, url, session, billKey, votedAt, voteQuestion, resultStr, legisNum, recordedVotes });
       } catch (err) {
         console.error(`    House roll ${rollNum} (session ${session}): unexpected error —`, err);
       }
     }
   }
 
+  // Batch resolve: one bulk lookup + one bulk insert for novel bills
+  console.log(`\n  Resolving ${houseBillArgs.size} unique House bills in batch...`);
+  const houseBillKeyToId = await resolveBillsBatch(db, houseBillArgs);
+  proposalsUpserted += [...houseBillKeyToId.values()].filter((v) => v !== null).length;
+
+  // Pass 2: write vote records using the resolved proposalId map
+  console.log("  Writing House vote records...");
+  for (const roll of houseRollBuffer) {
+    const proposalId = roll.billKey ? (houseBillKeyToId.get(roll.billKey) ?? null) : null;
+    const voteRecords: VoteInsert[] = [];
+
+    if (!proposalId) {
+      console.log(`    ${roll.rollCallId}: no proposal reference, skipping vote records`);
+    } else if (!roll.votedAt) {
+      console.log(`    ${roll.rollCallId}: no voted_at, skipping (column is NOT NULL)`);
+    } else {
+      const votedAtIso = new Date(roll.votedAt).toISOString();
+
+      for (const rv of roll.recordedVotes) {
+        const rvObj      = rv as Record<string, unknown>;
+        const legislator = rvObj["legislator"] as Record<string, unknown> | null;
+        const voteText   = String(rvObj["vote"] ?? "");
+        if (!legislator) continue;
+        const bioguide   = String(legislator["@_name-id"] ?? "");
+        if (!bioguide) continue;
+        const officialId = officialMap.get(bioguide);
+        if (!officialId) { houseUnmatched++; continue; }
+        voteRecords.push({
+          official_id:      officialId,
+          bill_proposal_id: proposalId,
+          vote:             mapVote(voteText),
+          chamber:          "House",
+          roll_call_id:     roll.rollCallId,
+          session:          String(roll.session),
+          voted_at:         votedAtIso,
+          vote_question:    roll.voteQuestion,
+          source_url:       roll.url,
+          metadata:         { vote_result: roll.resultStr, legis_num: roll.legisNum },
+        });
+      }
+    }
+
+    if (voteRecords.length > 0) {
+      const { error: insertErr } = await db.from("votes").insert(voteRecords);
+      if (insertErr && insertErr.code !== "23505") {
+        console.error(`    ${roll.rollCallId}: insert error — ${insertErr.message}`);
+      } else if (insertErr?.code === "23505") {
+        console.log(`    ${roll.rollCallId}: unique violation on (roll_call_id, official_id)`);
+      } else {
+        votesInserted += voteRecords.length;
+        console.log(`    ${roll.rollCallId}: inserted ${voteRecords.length} votes`);
+      }
+    } else if (proposalId && roll.votedAt) {
+      console.log(`    ${roll.rollCallId}: no matchable vote records`);
+    }
+  }
+
   // -------------------------------------------------------------------------
-  // Step 4: Senate LIS XML vote feeds
+  // Step 4: Senate LIS XML vote feeds — two-pass to batch bill resolution
   // -------------------------------------------------------------------------
 
   console.log("\n--- Step 4: Fetching Senate LIS XML votes ---");
 
   let senateUnmatched = 0;
 
+  interface SenateRollItem {
+    rollCallId:   string;
+    url:          string;
+    session:      number;
+    billKey:      string | null;
+    votedAt:      Date | null;
+    voteQuestion: string;
+    resultStr:    string;
+    memberList:   unknown[];
+  }
+  const senateRollBuffer: SenateRollItem[] = [];
+  const senateBillArgs = new Map<string, BillProposalArgs>();
+
+  // Pass 1: fetch + parse XML for all novel rolls; buffer bill args + vote data
   for (const { session } of sessions) {
-    console.log(`\n  Senate session ${session}:`);
+    console.log(`\n  Senate session ${session} — collecting rolls...`);
 
     const folderKey = `vote${CURRENT_CONGRESS}${session}`;
 
@@ -630,7 +652,7 @@ export async function runVotesPipeline(
           continue;
         }
 
-        console.log(`    Processing Senate session ${session} roll call ${rollNum}...`);
+        console.log(`    Roll ${rollNum}: fetching...`);
 
         let xmlText: string;
         try {
@@ -653,51 +675,11 @@ export async function runVotesPipeline(
           continue;
         }
 
-        const docBlock = root["document"] as Record<string, unknown> | null;
-        let proposalId: string | null = null;
-
-        if (docBlock) {
-          const rawDocType = String(docBlock["document_type"] ?? "");
-          const docNumber = String(docBlock["document_number"] ?? "");
-          if (rawDocType && docNumber) {
-            const billType = normalizeSenateDocType(rawDocType);
-            const billKey = `${CURRENT_CONGRESS}-${billType}-${docNumber}`;
-            const voteQuestion = String(root["question"] ?? "");
-            const resultStr = String(root["result"] ?? "");
-            const proposalStatus = mapVoteResult(resultStr) as ProposalStatus;
-            const proposalType = mapLegislationType(billType) as ProposalType;
-            const govBodyId = chamberGovBodyId(billType, senateGovBodyId, houseGovBodyId);
-            const congressGovUrl = congressGovBillUrl(CURRENT_CONGRESS, billType, docNumber);
-
-            const voteDateStr = String(root["vote_date"] ?? "");
-            const votedAt = parseSenateDate(voteDateStr);
-
-            const introducedIso = votedAt ? new Date(votedAt).toISOString() : null;
-            proposalId = await findOrCreateBillProposal(db, {
-              billKey,
-              title: `${billType} ${docNumber}`,
-              billNumber: `${billType} ${docNumber}`,
-              billType,
-              chamber: chamberForBillType(billType),
-              type: proposalType,
-              status: proposalStatus,
-              jurisdictionId: federalId,
-              governingBodyId: govBodyId,
-              congressGovUrl,
-              introducedAt: introducedIso,
-              lastActionAt: introducedIso,
-              congressNumber: CURRENT_CONGRESS,
-              session: String(CURRENT_CONGRESS),
-            });
-
-            if (proposalId) proposalsUpserted++;
-          }
-        }
-
-        const voteDateStr = String(root["vote_date"] ?? "");
-        const votedAt = parseSenateDate(voteDateStr);
+        const voteDateStr  = String(root["vote_date"] ?? "");
+        const votedAt      = parseSenateDate(voteDateStr);
         const voteQuestion = String(root["question"] ?? "");
-        const resultStr = String(root["result"] ?? "");
+        const resultStr    = String(root["result"] ?? "");
+        const proposalStatus = mapVoteResult(resultStr) as ProposalStatus;
 
         const membersContainer = root["members"] as Record<string, unknown> | null;
         const memberList: unknown[] = membersContainer
@@ -708,68 +690,99 @@ export async function runVotesPipeline(
                 : [])
           : [];
 
-        const voteRecords: VoteInsert[] = [];
-
-        if (!proposalId) {
-          console.log(`    Roll ${rollNum}: no proposal reference, skipping vote records`);
-        } else if (!votedAt) {
-          console.log(`    Roll ${rollNum}: no voted_at, skipping (column is NOT NULL)`);
-        } else {
-          const votedAtIso = new Date(votedAt).toISOString();
-
-          for (const m of memberList) {
-            const mObj = m as Record<string, unknown>;
-            const lastName = String(mObj["last_name"] ?? "").trim();
-            const state = String(mObj["state"] ?? "").trim().toUpperCase();
-            const voteText = String(mObj["vote_cast"] ?? "");
-
-            if (!lastName || !state) continue;
-
-            const key = `${lastName.toLowerCase()}:${state}`;
-            const officialId = senatorByNameState.get(key);
-
-            if (!officialId) {
-              senateUnmatched++;
-              continue;
+        const docBlock = root["document"] as Record<string, unknown> | null;
+        let billKey: string | null = null;
+        if (docBlock) {
+          const rawDocType = String(docBlock["document_type"] ?? "");
+          const docNumber  = String(docBlock["document_number"] ?? "");
+          if (rawDocType && docNumber) {
+            const billType = normalizeSenateDocType(rawDocType);
+            billKey = `${CURRENT_CONGRESS}-${billType}-${docNumber}`;
+            if (!senateBillArgs.has(billKey)) {
+              const govBodyId      = chamberGovBodyId(billType, senateGovBodyId, houseGovBodyId);
+              const congressGovUrl = congressGovBillUrl(CURRENT_CONGRESS, billType, docNumber);
+              const introducedIso  = votedAt ? new Date(votedAt).toISOString() : null;
+              senateBillArgs.set(billKey, {
+                billKey,
+                title:           `${billType} ${docNumber}`,
+                billNumber:      `${billType} ${docNumber}`,
+                billType,
+                chamber:         chamberForBillType(billType),
+                type:            mapLegislationType(billType) as ProposalType,
+                status:          proposalStatus,
+                jurisdictionId:  federalId,
+                governingBodyId: govBodyId,
+                congressGovUrl,
+                introducedAt:    introducedIso,
+                lastActionAt:    introducedIso,
+                congressNumber:  CURRENT_CONGRESS,
+                session:         String(CURRENT_CONGRESS),
+              });
             }
-
-            const voteRecord: VoteInsert = {
-              official_id: officialId,
-              bill_proposal_id: proposalId,
-              vote: mapVote(voteText),
-              chamber: "Senate",
-              roll_call_id: rollCallId,
-              session: String(session),
-              voted_at: votedAtIso,
-              vote_question: voteQuestion,
-              source_url: url,
-              metadata: {
-                vote_result: resultStr,
-              },
-            };
-
-            voteRecords.push(voteRecord);
           }
         }
 
-        if (voteRecords.length > 0) {
-          const { error: insertErr } = await db
-            .from("votes")
-            .insert(voteRecords);
-          if (insertErr && insertErr.code !== "23505") {
-            console.error(`    Roll ${rollNum}: insert error — ${insertErr.message}`);
-          } else if (insertErr?.code === "23505") {
-            console.log(`    Roll ${rollNum}: unique violation on (roll_call_id, official_id)`);
-          } else {
-            votesInserted += voteRecords.length;
-            console.log(`    Roll ${rollNum}: inserted ${voteRecords.length} votes`);
-          }
-        } else {
-          console.log(`    Roll ${rollNum}: no matchable vote records`);
-        }
+        senateRollBuffer.push({ rollCallId, url, session, billKey, votedAt, voteQuestion, resultStr, memberList });
       } catch (err) {
         console.error(`    Senate roll ${rollNum} (session ${session}): unexpected error —`, err);
       }
+    }
+  }
+
+  // Batch resolve: one bulk lookup + one bulk insert for novel bills
+  console.log(`\n  Resolving ${senateBillArgs.size} unique Senate bills in batch...`);
+  const senateBillKeyToId = await resolveBillsBatch(db, senateBillArgs);
+  proposalsUpserted += [...senateBillKeyToId.values()].filter((v) => v !== null).length;
+
+  // Pass 2: write vote records using the resolved proposalId map
+  console.log("  Writing Senate vote records...");
+  for (const roll of senateRollBuffer) {
+    const proposalId = roll.billKey ? (senateBillKeyToId.get(roll.billKey) ?? null) : null;
+    const voteRecords: VoteInsert[] = [];
+
+    if (!proposalId) {
+      console.log(`    ${roll.rollCallId}: no proposal reference, skipping vote records`);
+    } else if (!roll.votedAt) {
+      console.log(`    ${roll.rollCallId}: no voted_at, skipping (column is NOT NULL)`);
+    } else {
+      const votedAtIso = new Date(roll.votedAt).toISOString();
+
+      for (const m of roll.memberList) {
+        const mObj     = m as Record<string, unknown>;
+        const lastName = String(mObj["last_name"] ?? "").trim();
+        const state    = String(mObj["state"] ?? "").trim().toUpperCase();
+        const voteText = String(mObj["vote_cast"] ?? "");
+        if (!lastName || !state) continue;
+        const key        = `${lastName.toLowerCase()}:${state}`;
+        const officialId = senatorByNameState.get(key);
+        if (!officialId) { senateUnmatched++; continue; }
+        voteRecords.push({
+          official_id:      officialId,
+          bill_proposal_id: proposalId,
+          vote:             mapVote(voteText),
+          chamber:          "Senate",
+          roll_call_id:     roll.rollCallId,
+          session:          String(roll.session),
+          voted_at:         votedAtIso,
+          vote_question:    roll.voteQuestion,
+          source_url:       roll.url,
+          metadata:         { vote_result: roll.resultStr },
+        });
+      }
+    }
+
+    if (voteRecords.length > 0) {
+      const { error: insertErr } = await db.from("votes").insert(voteRecords);
+      if (insertErr && insertErr.code !== "23505") {
+        console.error(`    ${roll.rollCallId}: insert error — ${insertErr.message}`);
+      } else if (insertErr?.code === "23505") {
+        console.log(`    ${roll.rollCallId}: unique violation on (roll_call_id, official_id)`);
+      } else {
+        votesInserted += voteRecords.length;
+        console.log(`    ${roll.rollCallId}: inserted ${voteRecords.length} votes`);
+      }
+    } else if (proposalId && roll.votedAt) {
+      console.log(`    ${roll.rollCallId}: no matchable vote records`);
     }
   }
 

@@ -64,3 +64,6 @@ ngrok.yml
 
 # Database dumps / backups (never commit)
 backups/
+
+# USASpending bulk pipeline state (tracks last processed archive date for delta runs)
+packages/data/.usaspending-bulk-state.json

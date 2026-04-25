@@ -51,7 +51,7 @@ import { canonicalizeEntityName } from "../fec-bulk/writer";
 
 const TMP_DIR           = path.join(os.tmpdir(), "usaspending-bulk");
 const ARCHIVE_INDEX_URL = "https://files.usaspending.gov/award_data_archive/";
-const STATE_FILE        = path.join(__dirname, "../../.usaspending-bulk-state.json");
+const STATE_FILE        = path.join(__dirname, "../../../.usaspending-bulk-state.json");
 const BATCH_SIZE        = 1_000;   // rows per DB write batch
 
 // ---------------------------------------------------------------------------
@@ -93,15 +93,23 @@ function currentFy(): number {
 }
 
 // ---------------------------------------------------------------------------
-// Archive index
+// Archive index — S3 XML prefix queries
+//
+// The archive bucket is paginated (>1000 keys, alphabetical). Fetching the
+// root listing returns FY2007–FY2010 on the first page; FY2026 is far down.
+// Use targeted ?prefix= queries instead of scanning the root listing.
+//
+// File naming (discovered 2026-04-25):
+//   Full  : FY{YEAR}_All_Contracts_Full_{YYYYMMDD}.zip
+//   Delta : FY(All)_All_Contracts_Delta_{YYYYMMDD}.zip
 // ---------------------------------------------------------------------------
 
 interface ArchiveFile {
   name: string;
   url:  string;
-  date: string;            // YYYYMMDD
+  date: string;   // YYYYMMDD
   type: "Full" | "Delta";
-  part: number;            // 1-based (1 when no part suffix)
+  part: number;   // 1-based (1 when no part suffix)
 }
 
 async function fetchText(url: string): Promise<string> {
@@ -124,45 +132,59 @@ async function fetchText(url: string): Promise<string> {
   });
 }
 
-function parseArchiveIndex(html: string, fy: number): ArchiveFile[] {
-  // Matches e.g. FY2026_All_Contracts_Full_20260415.zip
-  //          and FY2026_All_Contracts_Delta_20260416_1.zip
-  const re = new RegExp(
-    `(FY${fy}_All_Contracts_(Full|Delta)_(\\d{8})(?:_(\\d+))?\\.zip)`,
-    "g",
-  );
-
-  const seen  = new Set<string>();
+/**
+ * Query the S3 bucket with a prefix filter and return matching ArchiveFiles.
+ * The parentheses in "FY(All)" must be percent-encoded in the query string.
+ */
+async function discoverFiles(
+  prefix:   string,
+  type:     "Full" | "Delta",
+  reStr:    string,
+): Promise<ArchiveFile[]> {
+  const xml  = await fetchText(`${ARCHIVE_INDEX_URL}?prefix=${encodeURIComponent(prefix)}`);
+  const re   = new RegExp(reStr);
   const files: ArchiveFile[] = [];
-  let m: RegExpExecArray | null;
 
-  while ((m = re.exec(html)) !== null) {
-    const name = m[1]!;
-    if (seen.has(name)) continue;
-    seen.add(name);
+  for (const [, key] of xml.matchAll(/<Key>([^<]+)<\/Key>/g)) {
+    const m = key.match(re);
+    if (!m) continue;
     files.push({
-      name,
-      url:  `${ARCHIVE_INDEX_URL}${name}`,
-      date: m[3]!,
-      type: m[2] as "Full" | "Delta",
-      part: m[4] ? parseInt(m[4], 10) : 1,
+      name: key,
+      // Keys with '(' must be percent-encoded in the download URL
+      url:  `${ARCHIVE_INDEX_URL}${key.replace(/\(/g, "%28").replace(/\)/g, "%29")}`,
+      date: m[1]!,
+      type,
+      part: m[2] ? parseInt(m[2], 10) : 1,
     });
   }
   return files;
 }
 
+async function discoverFullFiles(fy: number): Promise<ArchiveFile[]> {
+  return discoverFiles(
+    `FY${fy}_All_Contracts_Full`,
+    "Full",
+    `FY${fy}_All_Contracts_Full_(\\d{8})(?:_(\\d+))?\\.zip$`,
+  );
+}
+
+async function discoverDeltaFiles(): Promise<ArchiveFile[]> {
+  return discoverFiles(
+    "FY(All)_All_Contracts_Delta",
+    "Delta",
+    `FY\\(All\\)_All_Contracts_Delta_(\\d{8})(?:_(\\d+))?\\.zip$`,
+  );
+}
+
 function latestFullSet(files: ArchiveFile[]): ArchiveFile[] {
-  const fulls = files.filter((f) => f.type === "Full");
-  if (fulls.length === 0) return [];
-  const latest = fulls.reduce((max, f) => (f.date > max ? f.date : max), "");
-  return fulls
-    .filter((f) => f.date === latest)
-    .sort((a, b) => a.part - b.part);
+  if (files.length === 0) return [];
+  const latest = files.reduce((max, f) => (f.date > max ? f.date : max), "");
+  return files.filter((f) => f.date === latest).sort((a, b) => a.part - b.part);
 }
 
 function deltasSince(files: ArchiveFile[], since: string): ArchiveFile[] {
   return files
-    .filter((f) => f.type === "Delta" && f.date > since)
+    .filter((f) => f.date > since)
     .sort((a, b) => a.date.localeCompare(b.date) || a.part - b.part);
 }
 
@@ -441,40 +463,40 @@ export async function runUsaSpendingBulkPipeline(
   let totalFailed   = 0;
 
   try {
-    // ── [1/5] Fetch archive index ──────────────────────────────────────────
-    console.log("\n  [1/5] Fetching archive index...");
-    const html = await fetchText(ARCHIVE_INDEX_URL);
-    const fy   = currentFy();
-    const all  = parseArchiveIndex(html, fy);
-    console.log(`  Found ${all.length} archive entries for FY${fy}`);
+    // ── [1/5] Discover archive files via S3 prefix queries ────────────────
+    console.log("\n  [1/5] Discovering archive files...");
+    const fy    = currentFy();
+    const state = opts.force ? null : loadState();
 
-    if (all.length === 0) {
-      console.warn("  No archive files found — aborting");
-      await failSync(logId, "No archive files found in index");
+    // Fetch Full listing unconditionally (needed whether we run Full or to
+    // determine the latest Full date for delta-mode display). Delta listing
+    // is deferred — only fetched when we actually need it.
+    const fullFiles = await discoverFullFiles(fy);
+    console.log(`  FY${fy} Full Contracts files: ${fullFiles.length}`);
+
+    if (fullFiles.length === 0) {
+      console.warn(`  No Full archive found for FY${fy}`);
+      await failSync(logId, `No Full archive found for FY${fy}`);
       return { inserted: 0, updated: 0, failed: 1, estimatedMb: 0 };
     }
 
     // ── [2/5] Decide Full vs Delta ─────────────────────────────────────────
     console.log("\n  [2/5] Determining run mode...");
-    const state = opts.force ? null : loadState();
 
     let filesToProcess: ArchiveFile[];
     let runMode: "full" | "delta";
 
     if (!state) {
-      filesToProcess = latestFullSet(all);
+      filesToProcess = latestFullSet(fullFiles);
       runMode = "full";
-      if (filesToProcess.length === 0) {
-        console.warn("  No Full archive found for FY" + fy);
-        await failSync(logId, `No Full archive found for FY${fy}`);
-        return { inserted: 0, updated: 0, failed: 1, estimatedMb: 0 };
-      }
       console.log(
         `  ${opts.force ? "Forced full re-run" : "No prior state — first run"}:` +
-        ` ${filesToProcess.length} Full file(s) dated ${filesToProcess[0]!.date}`,
+        ` Full file dated ${filesToProcess[0]!.date}`,
       );
     } else {
-      filesToProcess = deltasSince(all, state.lastArchiveDate);
+      const deltaFiles = await discoverDeltaFiles();
+      console.log(`  Delta files available: ${deltaFiles.length}`);
+      filesToProcess = deltasSince(deltaFiles, state.lastArchiveDate);
       runMode = "delta";
       if (filesToProcess.length === 0) {
         console.log(`  No new Delta files since ${state.lastArchiveDate} — nothing to do`);

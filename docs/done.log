@@ -139,3 +139,4 @@
 2026-04-25 | FIX-039 | 4fe275f6 | feat(agencies): reimplement FIX-036 through FIX-041
 2026-04-25 | FIX-040 | 4fe275f6 | feat(agencies): reimplement FIX-036 through FIX-041
 2026-04-25 | FIX-041 | 4fe275f6 | feat(agencies): reimplement FIX-036 through FIX-041
+2026-04-25 | FIX-118 | 9a20cf1d | feat(data): add USASpending bulk archive pipeline (FIX-118)

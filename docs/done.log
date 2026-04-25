@@ -132,3 +132,4 @@
 2026-04-24 | FIX-113 | d94aba7e | fix(data): paginate loadOfficials in fec-bulk to avoid 1000-row truncation
 2026-04-24 | FIX-115 | a21cffec | perf(data): batch bill resolution in vote-ingestion path (FIX-115)
 2026-04-24 | FIX-116 | a7397f5f | fix(data): tighten OpenStates people-endpoint rate limiting (FIX-116)
+2026-04-25 | FIX-117 | eda1e0f7 | fix(data): add index on enrichment_queue(entity_type, task_type) (FIX-117)

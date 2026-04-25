@@ -24,7 +24,7 @@ into Supabase. Runs as Node.js scripts, not as part of the Next.js build.
 |--------|--------|----------|
 | Congress.gov | 80MB | Full resolution — bills + votes + legislators |
 | FEC bulk | 50MB | Candidate totals (weball24.zip) + PAC contributions (pas224.zip, streamed) |
-| USASpending | 60MB | Current FY, contracts >$1M, top 20 agencies |
+| USASpending | 250MB | Full FY bulk archive, all agencies in our DB, all award sizes |
 | Regulations.gov | 40MB | Active proposals only, no archived |
 | CourtListener | 20MB | Metadata only — no opinion text |
 | OpenStates | 20MB | Current legislative term only |
@@ -61,12 +61,15 @@ Step 2b (PAC contributions):
 - The API-based pipeline (`data:fec`) is retained for reference only — **do not use it** (hits rate limits)
 
 ### USASpending.gov
-- Current fiscal year only
-- Contracts over $1M only
-- Top 20 federal agencies by spending volume
-- API key: `USASPENDING_API_KEY` (free registration)
-- Update schedule: daily at 2am
-- Script: `pnpm --filter @civitics/data data:usaspending`
+- Full FY bulk archive — all agencies in `public.agencies`, all award sizes, no rate limits
+- First run: Full file (`FY{year}_All_Contracts_Full_{YYYYMMDD}.zip`, 300 MB–1 GB compressed)
+- Subsequent runs: Delta files since last processed date (much smaller)
+- State tracked in `packages/data/.usaspending-bulk-state.json` (gitignored, not committed)
+- No API key required
+- Update schedule: weekly cron (Full file refreshes weekly; Deltas daily)
+- Primary script: `pnpm --filter @civitics/data data:usaspending-bulk`
+- Force full re-run: `pnpm --filter @civitics/data data:usaspending-bulk -- --force`
+- Legacy API script (`data:usaspending`) retained for reference — superseded by bulk approach (FIX-118)
 
 ### Regulations.gov
 - Active proposals only (open for comment + recently closed)

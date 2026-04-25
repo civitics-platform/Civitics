@@ -2,6 +2,51 @@
 
 ---
 
+## 2026-04-25 (USER node in connection graph — FIX-042)
+
+**Done:**
+
+- **FIX-042** — Added the signed-in user as a first-class node in the D3 force graph, connected to their district's federal representatives (2 senators + 1 house rep) with alignment score edges.
+
+  **Migrations (local + Pro):**
+  - `20260425101000_user_preferences_location.sql` — adds `home_state TEXT` and `home_district INT` to `user_preferences`
+  - `20260425102000_compute_alignment_score.sql` — `compute_alignment_score(user_id, official_id)` RPC; joins `civic_comments × votes` on substantive proposals; returns `alignment_ratio`, `matched_votes`, `total_votes`, `vote_details JSONB`; `SECURITY DEFINER`, `GRANT EXECUTE TO authenticated`
+
+  **New API routes:**
+  - `GET/PUT /api/profile/preferences` — reads/upserts `home_state + home_district` for signed-in user
+  - `GET /api/profile/districts?state=CO` — returns sorted distinct House CD numbers for a state
+  - `GET /api/graph/my-representatives` — returns 3 federal reps (senators + house rep) with alignment scores
+
+  **Profile page:**
+  - New `DistrictPickerForm.tsx` client component — state dropdown, district dropdown (fetched from API), save button, live preview of 3 federal representatives after save
+
+  **Graph package:**
+  - Added `'user'` to `NodeType` union
+  - Added `'alignment'` to `CONNECTION_TYPE_REGISTRY`
+  - `ForceGraph.tsx` — user node renders as purple double-ring circle with "YOU" label, pinned at canvas center; alignment edges color-coded by ratio (green ≥0.6 / amber ≥0.4 / red <0.4 / gray = no overlap); `AlignmentEdgeTooltip` shows %, vote count, and up to 5 specific votes on edge hover
+
+  **GraphPage.tsx:**
+  - Fetches `/api/graph/my-representatives` on mount; injects synthetic USER node + alignment edges via `displayNodes`/`displayEdges` useMemo (bypasses useGraphData — no DB connection fetch for a synthetic node); unauthenticated and unconfigured users see no USER node, no errors
+
+  **Pre-check confirmed:** 0 federal officials missing `state_abbr` — conditional migration step was skipped
+
+**Commits:** `44829221` (feat — 11 files), `6a606412` (chore sync)
+
+**Deferred as new FIX items:**
+- ZIP code → district lookup
+- Issue-area breakdown in alignment tooltip (needs `proposals.category`)
+- State legislators
+
+**⚠️ Action needed — none.** Both migrations applied local + Pro. All commits pushed to `main`.
+
+**Up next:**
+
+1. **Drain sessions** — continue draining `enrichment_queue` (~114k pending). Standard drain prompt with `drain-worker` subagent type.
+2. **FIX-116 (🟡 S)** — Tighten OpenStates people-endpoint rate limiting.
+3. **FIX-110 (🟡 M)** — New RPCs for contract/grant flow visualisations.
+
+---
+
 ## 2026-04-25 (USASpending bulk pipeline — FIX-118, FIX-119)
 
 **Done:**

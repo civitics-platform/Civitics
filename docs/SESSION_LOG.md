@@ -2,6 +2,33 @@
 
 ---
 
+## 2026-04-25 (USASpending bulk pipeline — FIX-118, FIX-119)
+
+**Done:**
+
+- **FIX-118** — Replaced the paginated USASpending API pipeline (top-20 agencies, top-100 awards ≥$1M, FY2024 only) with a full bulk archive approach. Downloads `FY{YEAR}_All_Contracts_Full_{YYYYMMDD}.zip` (529 MB → 2GB uncompressed) on first run; uses consolidated Delta files on subsequent runs. State tracked in `packages/data/.usaspending-bulk-state.json` (gitignored). Filters to agencies in `public.agencies`, reuses `upsertSpendingRelationshipsBatch` writer. New script: `pnpm --filter @civitics/data data:usaspending-bulk`; `--force` flag forces full re-run. First run: **837k contracts upserted** across all federal agencies. USASpending storage budget raised to 250MB in `packages/data/CLAUDE.md`.
+
+- **FIX-119** — Fixed sub-agency attribution. Three bugs combined to zero out several agencies:
+  1. Pipeline only checked `awarding_agency_name` — Forest Service contracts landed on USDA instead of FS.
+  2. CSV sub-agency names sometimes carry "U.S." prefix (e.g. `"U.S. Immigration and Customs Enforcement"`) while DB names don't — ICE, CBP, USCG, USCIS contracts were routing to DHS.
+  3. DB names like "U.S. Department of Agriculture" didn't match CSV's "Department of Agriculture".
+  
+  Fixes: (a) pipeline now checks `awarding_sub_agency_name` before `awarding_agency_name`; (b) strips `"U.S. "` from both DB name keys and CSV lookup keys; (c) seeded ICE, TSA, FEMA as DHS sub-agencies via migration `20260425000800`. Re-ran `--force` after fix — same 841k matched (contracts were already landing on DHS; they now correctly route to ICE/CBP/etc.).
+
+- **Display fix** — `DHS`, `EOP`, `ICE` were missing from `AGENCY_NAMES` in `packages/db/src/agency-names.ts`. `agencyFullName()` returns the acronym itself when a key is missing (not null), so the `?? agency.name` fallback in `agencies/page.tsx` never fired — those cards showed "DHS", "EOP", "ICE" instead of the full name. Added all three.
+
+**Commits:** `773a5fd6` (FIX-118 docs), `4fe275f6` (FIX-036–041 reimpl), `9f645a00` (FIX-119), `81395fbe` (sync), `f2f5b710` (display + pipeline lookup fix).
+
+**⚠️ Action needed — none.** All migrations applied local + Pro. All commits pushed to `main`.
+
+**Up next:**
+
+1. **Drain sessions** — continue draining `enrichment_queue` (~114k pending). Standard drain prompt with `drain-worker` subagent type.
+2. **FIX-116 (🟡 S)** — Tighten OpenStates people-endpoint rate limiting.
+3. **FIX-110 (🟡 M)** — New RPCs for contract/grant flow visualisations (`chord_contract_flows`, `treemap_recipients_by_contracts`).
+
+---
+
 ## 2026-04-24 (pipeline cleanup — FIX-111, FIX-113, FIX-115)
 
 **Done:**

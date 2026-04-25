@@ -109,7 +109,7 @@ The shadow→public promotion migration (`20260422000000_promote_shadow_to_publi
 
 ## AGENCIES
 
-- [ ] ⬜ XL — **Agency hierarchy graph** — visualize parent/sub-agency relationships as a graph or org-chart; requires hierarchy data pipeline <!--id:FIX-041-->
+- [x] ⬜ XL — **Agency hierarchy graph** — implemented 2026-04-25: agencies-hierarchy pipeline run (13 parent links); AgencyHierarchyTree CSS org-chart on detail page shows parent → current → children; hidden when no hierarchy data. <!--id:FIX-041-->
 
 ---
 

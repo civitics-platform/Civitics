@@ -133,3 +133,9 @@
 2026-04-24 | FIX-115 | a21cffec | perf(data): batch bill resolution in vote-ingestion path (FIX-115)
 2026-04-24 | FIX-116 | a7397f5f | fix(data): tighten OpenStates people-endpoint rate limiting (FIX-116)
 2026-04-25 | FIX-117 | eda1e0f7 | fix(data): add index on enrichment_queue(entity_type, task_type) (FIX-117)
+2026-04-25 | FIX-036 | 4fe275f6 | feat(agencies): reimplement FIX-036 through FIX-041
+2026-04-25 | FIX-037 | 4fe275f6 | feat(agencies): reimplement FIX-036 through FIX-041
+2026-04-25 | FIX-038 | 4fe275f6 | feat(agencies): reimplement FIX-036 through FIX-041
+2026-04-25 | FIX-039 | 4fe275f6 | feat(agencies): reimplement FIX-036 through FIX-041
+2026-04-25 | FIX-040 | 4fe275f6 | feat(agencies): reimplement FIX-036 through FIX-041
+2026-04-25 | FIX-041 | 4fe275f6 | feat(agencies): reimplement FIX-036 through FIX-041

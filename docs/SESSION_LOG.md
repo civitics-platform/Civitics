@@ -2,6 +2,24 @@
 
 ---
 
+## 2026-04-24 (pipeline cleanup — FIX-111, FIX-113, FIX-115)
+
+**Done:**
+
+- **FIX-111** — Deleted 6 dead shadow-era pipeline files (`fec/index.ts`, `pac-classify/index.ts`, `financial-entities/index.ts`, `connections/shadow.ts`, `connections/delta.ts`, `initiatives/shadow-backfill.ts`) and removed `shadowClient`/`ShadowDb` from `utils.ts`. Dropped the `runConnectionsDelta` call + import from the nightly sync orchestrator. Removed 5 dead scripts from `packages/data/package.json`. **–2,001 lines.**
+- **FIX-113** — Replaced the single-query `loadOfficials()` in `fec-bulk/index.ts` with a `range(offset, offset+999)` pagination loop. PostgREST's `max_rows=1000` was silently truncating local dev (9,158 officials → 1,000) and would eventually bite Pro as the federal roster grows.
+- **FIX-115** — Refactored both the House and Senate vote-ingestion loops in `congress/votes.ts` from a per-roll `findOrCreateBillProposal` (1 SELECT + 1 INSERT per novel bill, serially) to a two-pass approach: Pass 1 fetches + parses all novel XML rolls and buffers bill args; new `resolveBillsBatch()` in `bills.ts` does one bulk `external_source_refs` lookup + one `upsertBillProposalsBatch` for novel bills; Pass 2 writes vote records using the resolved proposalId map. Also dropped the unused `upsertBillProposal` (singular) import.
+
+**⚠️ Action needed — none** (no DB migrations; all commits pushed to `main`).
+
+**Up next:**
+
+1. **FIX-116 (🟡 S)** — Tighten OpenStates people-endpoint rate limiting (100ms → 1000ms inter-call sleep to reduce 429 retry stalls).
+2. **FIX-117 (🟡 S)** — Add index on `enrichment_queue(entity_type, task_type)` to fix statement timeouts during seed snapshot reads; will close the ~17k gap in the Pro queue.
+3. **Drain sessions** — continue draining the enrichment queue (~114k remaining). Use standard drain prompt with `drain-worker` subagent type.
+
+---
+
 ## 2026-04-24 (enrichment drain session 2 — ~3,200 items landed, drain-worker agent locked down)
 
 **Done:**

@@ -274,23 +274,33 @@ async function loadOfficials(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   db: any
 ): Promise<OfficialRecord[]> {
-  const { data, error } = await db
-    .from("officials")
-    .select("id, full_name, first_name, last_name, role_title, source_ids, jurisdictions!jurisdiction_id(short_name)")
-    .eq("is_active", true);
+  const PAGE = 1000;
+  const all: OfficialRecord[] = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await db
+      .from("officials")
+      .select("id, full_name, first_name, last_name, role_title, source_ids, jurisdictions!jurisdiction_id(short_name)")
+      .eq("is_active", true)
+      .range(offset, offset + PAGE - 1);
 
-  if (error) throw new Error(`Could not load officials: ${error.message}`);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (data ?? []).map((o: any) => ({
-    id:         o.id as string,
-    full_name:  o.full_name as string,
-    first_name: (o.first_name as string | null) ?? null,
-    last_name:  (o.last_name as string | null) ?? null,
-    role_title: (o.role_title as string | null) ?? null,
-    source_ids: (o.source_ids ?? {}) as Record<string, string>,
-    state:      (o.jurisdictions?.short_name as string | null) ?? null,
-  }));
+    if (error) throw new Error(`Could not load officials: ${error.message}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const o of (data ?? []) as any[]) {
+      all.push({
+        id:         o.id as string,
+        full_name:  o.full_name as string,
+        first_name: (o.first_name as string | null) ?? null,
+        last_name:  (o.last_name as string | null) ?? null,
+        role_title: (o.role_title as string | null) ?? null,
+        source_ids: (o.source_ids ?? {}) as Record<string, string>,
+        state:      (o.jurisdictions?.short_name as string | null) ?? null,
+      });
+    }
+    if ((data ?? []).length < PAGE) break;
+    offset += PAGE;
+  }
+  return all;
 }
 
 interface MatchIndex {

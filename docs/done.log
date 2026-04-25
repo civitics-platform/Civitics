@@ -123,3 +123,4 @@
 2026-04-22 | FIX-102 | 9530e508 | chore(data): delete 307 orphan proposals on Pro
 2026-04-22 | FIX-106 | d1b12198 | feat(auth): add 6-digit OTP option to SignInForm
 2026-04-22 | FIX-101 | 645c51ae | feat(data): seed enrichment_queue on Pro — FIX-101 complete
+2026-04-24 | FIX-108 | 3e0d3c88 | fix(rpc): correct chamber/state inference in treemap_officials_by_donations

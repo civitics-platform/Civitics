@@ -86,6 +86,9 @@ interface OSBillList {
 
 const OS_BASE = "https://v3.openstates.org";
 
+// People endpoint: no documented rate per-minute limit but 429s observed at 100ms.
+const PEOPLE_SLEEP_MS = 1000;
+
 // Bills endpoint: 10 req/min → 7s between calls. Page size 20.
 const BILLS_PER_PAGE = 20;
 const BILLS_SLEEP_MS = 7000;
@@ -101,7 +104,7 @@ async function fetchLegislators(
   orgClass: "upper" | "lower",
   page: number,
 ): Promise<OSPersonList> {
-  await sleep(100);
+  await sleep(PEOPLE_SLEEP_MS);
   const url = new URL(`${OS_BASE}/people`);
   url.searchParams.set("jurisdiction",       jurisdictionId);
   url.searchParams.set("org_classification", orgClass);

@@ -35,7 +35,7 @@ function isDailyQuotaBody(body: string): boolean {
   return false;
 }
 
-/** GET JSON with one automatic retry after 30s on failure. */
+/** GET JSON with retry on failure and adaptive back-off on 429 rate-limits. */
 export async function fetchJson<T>(
   url: string,
   options: RequestInit = {},
@@ -47,20 +47,32 @@ export async function fetchJson<T>(
       console.log(`  Retrying in 30s (attempt ${attempt + 1})...`);
       await sleep(30_000);
     }
-    try {
-      const res = await fetch(url, options);
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        if (res.status === 429 && isDailyQuotaBody(body)) {
-          throw new QuotaExhaustedError(url, body);
+    // Inner loop handles per-minute 429s via adaptive back-off (outside retry budget).
+    let rateLimitCount = 0;
+    while (true) {
+      try {
+        const res = await fetch(url, options);
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          if (res.status === 429) {
+            if (isDailyQuotaBody(body)) throw new QuotaExhaustedError(url, body);
+            if (rateLimitCount < 4) {
+              const backoffMs = Math.min(30_000 * Math.pow(2, rateLimitCount), 120_000);
+              console.warn(`  Rate limited (429) — backing off ${backoffMs / 1000}s...`);
+              await sleep(backoffMs);
+              rateLimitCount++;
+              continue;
+            }
+          }
+          throw new Error(`HTTP ${res.status} — ${url}\n  ${body.slice(0, 200)}`);
         }
-        throw new Error(`HTTP ${res.status} — ${url}\n  ${body.slice(0, 200)}`);
+        return res.json() as Promise<T>;
+      } catch (err) {
+        if (err instanceof QuotaExhaustedError) throw err;
+        lastErr = err instanceof Error ? err : new Error(String(err));
+        if (attempt < retries) console.error(`  Request failed: ${lastErr.message}`);
+        break;
       }
-      return res.json() as Promise<T>;
-    } catch (err) {
-      if (err instanceof QuotaExhaustedError) throw err;   // do not retry
-      lastErr = err instanceof Error ? err : new Error(String(err));
-      if (attempt < retries) console.error(`  Request failed: ${lastErr.message}`);
     }
   }
   throw lastErr ?? new Error("Request failed");

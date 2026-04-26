@@ -160,7 +160,7 @@ The shadow→public promotion migration (`20260422000000_promote_shadow_to_publi
 
 ### New visualization types
 
-- [ ] 🟠 L — **Hierarchy viz (D3 tree/dendrogram)** — agency org chart, budget-weighted; embed compact variant on `/agencies`; per GRAPH_PLAN §5.1 <!--id:FIX-144-->
+- [x] 🟠 L — **Hierarchy viz (D3 tree/dendrogram)** — agency org chart, budget-weighted; embed compact variant on `/agencies`; per GRAPH_PLAN §5.1 <!--id:FIX-144-->
 - [ ] 🟠 L — **Matrix viz (N×N heatmap)** — vote agreement matrix; sortable, clusterable; per GRAPH_PLAN §5.2 <!--id:FIX-145-->
 - [ ] 🟠 L — **Alignment viz (USER-centric radial)** — bespoke for USER node; depends on FIX-120; per GRAPH_PLAN §5.3 <!--id:FIX-146-->
 - [ ] 🟠 L — **Sankey budget flow** — d3-sankey for Treasury→agency→vendor; depends on FIX-143; per GRAPH_PLAN §5.4 <!--id:FIX-147-->

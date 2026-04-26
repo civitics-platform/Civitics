@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
   const state      = searchParams.get("state");
   const industry   = searchParams.get("industry");
   const tag        = searchParams.get("tag");
+  const committeeId = searchParams.get("committeeId");
   const groupName  = searchParams.get("groupName")  ?? "Group";
   const groupIcon  = searchParams.get("groupIcon")  ?? "👥";
   const groupColor = searchParams.get("groupColor") ?? "#6366f1";
@@ -31,31 +32,52 @@ export async function GET(req: NextRequest) {
   // Who donated to this group of officials, and how much in aggregate?
 
   if (entityType === "official") {
-    let memberQuery = supabase
-      .from("officials")
-      .select("id", { count: "exact" })
-      .eq("is_active", true);
+    // Committee membership (FIX-139) is a join, not a direct officials column,
+    // so resolve the cohort first and skip the officials.* filters when present.
+    let memberIds: string[] = [];
+    let memberCount: number | null = null;
 
-    if (chamber === "senate")
-      memberQuery = memberQuery.eq("role_title", "Senator");
-    else if (chamber === "house")
-      memberQuery = memberQuery.eq("role_title", "Representative");
+    if (committeeId) {
+      const { data: memberRows, error: memberErr } = await supabase
+        .from("official_committee_memberships")
+        .select("official_id")
+        .eq("committee_id", committeeId)
+        .is("ended_at", null);
 
-    if (party)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      memberQuery = memberQuery.eq("party", party as any);
+      if (memberErr) {
+        return NextResponse.json({ error: memberErr.message }, { status: 500 });
+      }
 
-    if (state)
-      memberQuery = memberQuery.filter("metadata->>state", "eq", state);
+      memberIds   = [...new Set((memberRows ?? []).map(r => r.official_id))];
+      memberCount = memberIds.length;
+    } else {
+      let memberQuery = supabase
+        .from("officials")
+        .select("id", { count: "exact" })
+        .eq("is_active", true);
 
-    // QWEN-ADDED: Add generic type to withDbTimeout for officials query with count
-    const { count: memberCount, data: memberData } = await withDbTimeout<{
-      count: number | null;
-      data: Array<{ id: string }> | null;
-      error: { message: string } | null;
-    }>(memberQuery.limit(1000));
+      if (chamber === "senate")
+        memberQuery = memberQuery.eq("role_title", "Senator");
+      else if (chamber === "house")
+        memberQuery = memberQuery.eq("role_title", "Representative");
 
-    const memberIds = (memberData ?? []).map((m) => m.id);
+      if (party)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        memberQuery = memberQuery.eq("party", party as any);
+
+      if (state)
+        memberQuery = memberQuery.filter("metadata->>state", "eq", state);
+
+      // QWEN-ADDED: Add generic type to withDbTimeout for officials query with count
+      const { count, data: memberData } = await withDbTimeout<{
+        count: number | null;
+        data: Array<{ id: string }> | null;
+        error: { message: string } | null;
+      }>(memberQuery.limit(1000));
+
+      memberIds   = (memberData ?? []).map((m) => m.id);
+      memberCount = count;
+    }
 
     if (memberIds.length === 0) {
       return NextResponse.json({
@@ -169,7 +191,7 @@ export async function GET(req: NextRequest) {
         icon: groupIcon,
         color: groupColor,
         count: memberCount ?? 0,
-        filter: { entity_type: entityType, chamber, party, state },
+        filter: { entity_type: entityType, chamber, party, state, committeeId },
       },
       nodes: [groupNode, ...connectedNodes],
       edges,

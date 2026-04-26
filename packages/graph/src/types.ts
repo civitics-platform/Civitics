@@ -179,6 +179,8 @@ export interface GroupFilter {
   industry?: string
   /** Topic-tag slug from entity_tags.tag. proposal groups only. (FIX-137) */
   tag?: string
+  /** governing_bodies UUID (type='committee'). official groups only. (FIX-139) */
+  committeeId?: string
 }
 
 // ── Focus Group ────────────────────────────────────────────────────────────────

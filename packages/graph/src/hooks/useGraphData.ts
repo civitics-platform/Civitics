@@ -190,6 +190,7 @@ export function useGraphData(
         if (group.filter.state)    params.set('state',    group.filter.state);
         if (group.filter.industry) params.set('industry', group.filter.industry);
         if (group.filter.tag)      params.set('tag',      group.filter.tag);
+        if (group.filter.committeeId) params.set('committeeId', group.filter.committeeId);
 
         const res  = await fetch(`/api/graph/group?` + params);
         const data = await res.json();

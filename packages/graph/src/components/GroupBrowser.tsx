@@ -4,11 +4,12 @@
  * GroupBrowser
  *
  * Recursive 5-category browse hierarchy (FIX-135) with by-state drill-down
- * (FIX-136), by-topic-tag drill-down (FIX-137), and home-location shortcut
- * (FIX-138). Walks GROUP_TREE — each category is a TreeSection, each leaf is
- * either a premade group, a state-list row, a topic-tag row, the home-state
- * shortcut, or the custom-group form. Groups are queries, not lists — adding
- * one stores a filter, not entity IDs.
+ * (FIX-136), by-topic-tag drill-down (FIX-137), home-location shortcut
+ * (FIX-138), and by-committee drill-down (FIX-139). Walks GROUP_TREE — each
+ * category is a TreeSection, each leaf is either a premade group, one of the
+ * dynamic-list slots (state, topic-tag, committee, home-state), or the
+ * custom-group form. Groups are queries, not lists — adding one stores a
+ * filter, not entity IDs.
  */
 
 import { useEffect, useState } from 'react';
@@ -62,6 +63,42 @@ const US_STATES: UsState[] = [
 ];
 
 const STATE_BY_ABBR = new Map(US_STATES.map(s => [s.abbr, s]));
+
+// ── Committee (FIX-139) ───────────────────────────────────────────────────────
+
+interface CommitteeItem {
+  id: string;
+  name: string;
+  chamber: 'house' | 'senate' | 'joint' | null;
+  memberCount: number;
+}
+
+const CHAMBER_ORDER: Array<CommitteeItem['chamber']> = ['senate', 'house', 'joint', null];
+
+const CHAMBER_LABEL: Record<string, string> = {
+  senate: 'Senate',
+  house: 'House',
+  joint: 'Joint',
+  other: 'Other',
+};
+
+function committeeGroupId(id: string): string {
+  return `group-committee-${id}`;
+}
+
+function buildCommitteeGroup(c: CommitteeItem): FocusGroup {
+  return {
+    id: committeeGroupId(c.id),
+    name: c.name,
+    type: 'group',
+    icon: '🪪',
+    color: '#0ea5e9',
+    filter: { entity_type: 'official', committeeId: c.id },
+    isPremade: false,
+    description: `${c.memberCount} members`,
+    count: c.memberCount,
+  };
+}
 
 // ── Topic tag (FIX-137) ───────────────────────────────────────────────────────
 
@@ -143,6 +180,10 @@ export function GroupBrowser({
     onAddGroup(buildTagGroup(t));
   }
 
+  function handleCommitteeSelect(c: CommitteeItem) {
+    onAddGroup(buildCommitteeGroup(c));
+  }
+
   function renderNode(node: GroupTreeNode, depth: number, key: string): React.ReactNode {
     if (node.kind === 'category') {
       const hasContent = node.children.some(c => isLeafRenderable(c, groupMap));
@@ -205,6 +246,17 @@ export function GroupBrowser({
           depth={depth}
           activeIds={activeGroupIds}
           onSelect={handleStateSelect}
+        />
+      );
+    }
+
+    if (node.kind === 'committee-list') {
+      return (
+        <CommitteeList
+          key={key}
+          depth={depth}
+          activeIds={activeGroupIds}
+          onSelect={handleCommitteeSelect}
         />
       );
     }
@@ -313,6 +365,114 @@ function StateList({
             >
               {isActive ? '✓' : '+'}
             </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CommitteeList({
+  depth,
+  activeIds,
+  onSelect,
+}: {
+  depth: number;
+  activeIds: string[];
+  onSelect: (c: CommitteeItem) => void;
+}) {
+  const [committees, setCommittees] = useState<CommitteeItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/graph/committees')
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then(data => { if (!cancelled) setCommittees(data.committees ?? []); })
+      .catch(err => { if (!cancelled) setError(err.message); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const padding = `${8 + depth * 12}px`;
+
+  if (error) {
+    return (
+      <div className="py-2 text-[10px] text-red-500" style={{ paddingLeft: padding, paddingRight: '12px' }}>
+        Couldn’t load committees: {error}
+      </div>
+    );
+  }
+
+  if (committees === null) {
+    return (
+      <div className="py-2 text-[10px] text-gray-400" style={{ paddingLeft: padding, paddingRight: '12px' }}>
+        Loading committees…
+      </div>
+    );
+  }
+
+  if (committees.length === 0) {
+    return (
+      <div className="py-2 text-[10px] text-gray-400" style={{ paddingLeft: padding, paddingRight: '12px' }}>
+        No committees ingested yet.
+      </div>
+    );
+  }
+
+  // Group by chamber so the list reads naturally; senate first.
+  const byChamber = new Map<string, CommitteeItem[]>();
+  for (const c of committees) {
+    const key = c.chamber ?? 'other';
+    const existing = byChamber.get(key);
+    if (existing) existing.push(c);
+    else byChamber.set(key, [c]);
+  }
+
+  return (
+    <div>
+      {CHAMBER_ORDER.map(chamber => {
+        const key = chamber ?? 'other';
+        const items = byChamber.get(key);
+        if (!items || items.length === 0) return null;
+        return (
+          <div key={key}>
+            <div
+              className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold pt-2 pb-0.5"
+              style={{ paddingLeft: padding, paddingRight: '12px' }}
+            >
+              {CHAMBER_LABEL[key] ?? key}
+            </div>
+            {items.map(c => {
+              const isActive = activeIds.includes(committeeGroupId(c.id));
+              return (
+                <div
+                  key={c.id}
+                  className="flex items-center justify-between py-1.5 hover:bg-gray-50 group/row"
+                  style={{ paddingLeft: padding, paddingRight: '12px' }}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs font-medium text-gray-700 truncate">
+                      {c.name}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-gray-400 tabular-nums">
+                      {c.memberCount}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => onSelect(c)}
+                    disabled={isActive}
+                    title={isActive ? 'Already in focus' : `Add ${c.name} to focus`}
+                    className={`shrink-0 ml-2 w-5 h-5 rounded text-xs font-bold transition-colors flex items-center justify-center ${
+                      isActive
+                        ? 'bg-indigo-100 text-indigo-400 cursor-default'
+                        : 'bg-gray-100 text-gray-500 hover:bg-indigo-600 hover:text-white group-hover/row:bg-indigo-50 group-hover/row:text-indigo-600'
+                    }`}
+                  >
+                    {isActive ? '✓' : '+'}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         );
       })}
@@ -484,6 +644,7 @@ function isLeafRenderable(
   if (node.kind === 'group')          return groupMap.has(node.id);
   if (node.kind === 'state-list')     return true;
   if (node.kind === 'topic-tag-list') return true;
+  if (node.kind === 'committee-list') return true;
   if (node.kind === 'home-location')  return true;
   if (node.kind === 'custom-form')    return true;
   return node.children.some(c => isLeafRenderable(c, groupMap));

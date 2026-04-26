@@ -1,4 +1,10 @@
-# Supabase Pro Cutover — Migration Runbook (Actuals)
+# Supabase Pro Cutover — Migration Runbook (ARCHIVED 2026-04-26)
+
+> **Archived:** historical record of the 2026-04-22 cutover. Every item in
+> §7 "What's still broken after the cutover" has since been resolved
+> (FIX-097, 098, 099, 100, 101, 102, 104 all in `docs/done.log`).
+> Lessons captured in §"Lessons / gotchas" remain useful for any future
+> schema-promotion work.
 
 **Executed:** 2026-04-22
 **Plan file:** `C:\Users\Craig\.claude\plans\i-believe-most-everything-drifting-patterson.md`

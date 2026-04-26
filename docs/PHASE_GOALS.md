@@ -264,6 +264,17 @@
 - [ ] Open Collective donations active
 - [ ] First grant received
 
+### Data Coverage Expansion (carried forward from rebuild spec)
+
+These items were scoped in `docs/archive/REBUILD_STATUS.md` but explicitly deferred — none blocked the Stage 2 cutover. Tracked here so they don't slip through the cracks.
+
+- [ ] **NYC Legistar pipeline** — blocked: requires API token (Knight / Mozilla / Democracy Fund grant pre-req per Decision D, 2026-04-20). Other 4 metros (Seattle, Austin, SF, DC) are live.
+- [ ] **FEC bulk 2022 + 2020 cycles** — current FEC data is 2024 only. Backfill older cycles for historical donor pattern analysis.
+- [ ] **Cosponsorship pipeline** — migration stub `20260420000000` exists; writer not implemented. Powers `co_sponsorship` connection type properly.
+- [ ] **Federal Register pipeline** — migration stub `20260420010000` exists; writer not implemented.
+- [ ] **Lobbying pipeline** — migration stub `20260420020000` exists; writer not implemented. Senate LDA disclosures + lobbying spend → `financial_relationships`.
+- [ ] **Stage 3 — Local data rollout** — broaden Legistar coverage and per-metro civic data beyond the initial 5-metro pilot.
+
 ---
 
 ## Phase 3 — Social App `Weeks 23–34` `Planned`

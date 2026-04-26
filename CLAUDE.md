@@ -3,7 +3,7 @@
 Authoritative reference for the Civitics platform. Read before writing any code.
 Update when architecture decisions change. Last updated: 2026-04-22 (Supabase Pro cutover).
 
-> **Cutover status (2026-04-22):** Production is live on Supabase Pro. The `shadow.*` schema has been promoted to `public.*` (migration `20260422000000`). Production branch is `main`. See `docs/MIGRATION_RUNBOOK.md` for the runbook that executed this and `docs/FIXES.md` §POST-CUTOVER for the reimplementation backlog (FIX-097–FIX-104).
+> **Cutover status (2026-04-22):** Production is live on Supabase Pro. The `shadow.*` schema has been promoted to `public.*` (migration `20260422000000`). Production branch is `main`. See `docs/archive/MIGRATION_RUNBOOK.md` for the runbook that executed this; the post-cutover reimplementation backlog (FIX-097–FIX-104) closed by 2026-04-25 — see `docs/done.log`.
 
 ---
 

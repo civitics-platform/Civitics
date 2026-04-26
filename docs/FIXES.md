@@ -130,7 +130,7 @@ The shadow→public promotion migration (`20260422000000_promote_shadow_to_publi
 - [x] 🟡 M — **Bills show titles, not IDs** — connections API joins proposals.title; force-graph node label uses title; per GRAPH_PLAN §1.4 <!--id:FIX-123-->
 - [x] 🟠 L — **State data on officials** — populate `officials.metadata.state_abbr` for federal reps; verify treemap by-state works; HIT_LIST flag; per GRAPH_PLAN §1.5 <!--id:FIX-124-->
 - [x] 🟡 M — **Procedural votes filtered by default** — DEFAULT_VIEW.includeProcedural=false; verify per-roll-call filter end-to-end; HIT_LIST flag; per GRAPH_PLAN §1.6 <!--id:FIX-125-->
-- [ ] 🟠 L — **`user_custom_groups` DB table** — schema + RLS + `/api/graph/custom-groups`; per GRAPH_PLAN §1.7 <!--id:FIX-126-->
+- [x] 🟠 L — **`user_custom_groups` DB table** — schema + RLS + `/api/graph/custom-groups`; per GRAPH_PLAN §1.7 <!--id:FIX-126-->
 - [ ] 🟠 L — **Custom group builder UI** — inline form in GroupBrowser + sidebar widget on `/agencies`; per GRAPH_PLAN §1.8 <!--id:FIX-127-->
 
 ### Direction 3 — Reactive panels

@@ -13,7 +13,7 @@ import type { ComponentType, ReactNode } from 'react'
 
 // ── Viz Type ───────────────────────────────────────────────────────────────────
 
-export type VizType = 'force' | 'chord' | 'treemap' | 'sunburst' | 'spending'
+export type VizType = 'force' | 'chord' | 'treemap' | 'sunburst' | 'spending' | 'hierarchy'
 
 // ── Node ───────────────────────────────────────────────────────────────────────
 
@@ -132,6 +132,17 @@ export interface TreemapOptions {
    * 'pac_party'  = PAC donations grouped by recipient party
    */
   dataMode?: 'officials' | 'pac_sector' | 'pac_party'
+}
+
+export interface HierarchyOptions {
+  /** Tree layout direction. Horizontal reads left-to-right, vertical top-to-bottom. */
+  orientation: 'horizontal' | 'vertical'
+  /** Encoding driving the leaf node radius. */
+  nodeSizeBy: 'budget' | 'employees' | 'uniform'
+  /** Auto-collapse nodes deeper than this depth (0 = root only visible). */
+  collapseDepth: number
+  /** When true, render leaf labels even at deep levels. */
+  showLabels?: boolean
 }
 
 export interface SunburstOptions {
@@ -283,6 +294,7 @@ export interface GraphView {
       treemap?: TreemapOptions
       sunburst?: SunburstOptions
       spending?: Record<string, never>
+      hierarchy?: HierarchyOptions
     }
   }
 

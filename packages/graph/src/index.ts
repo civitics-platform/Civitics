@@ -28,6 +28,7 @@ export type {
   ChordOptions,
   TreemapOptions,
   SunburstOptions,
+  HierarchyOptions,
   NodeActions,
   NodeType as NodeTypeV2,
   ConnectionTypeDefinition,
@@ -78,6 +79,9 @@ export type { SunburstGraphProps } from "./SunburstGraph";
 
 export { SpendingGraph } from "./SpendingGraph";
 export type { SpendingGraphProps } from "./SpendingGraph";
+
+export { HierarchyGraph } from "./HierarchyGraph";
+export type { HierarchyGraphProps } from "./HierarchyGraph";
 
 // ── Components — panels ─────────────────────────────────────────────────────
 export { GraphHeader } from "./components/GraphHeader";

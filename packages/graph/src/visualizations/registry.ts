@@ -206,6 +206,34 @@ export const VIZ_REGISTRY: VizRegistryEntry[] = [
   },
 
   {
+    id: 'hierarchy',
+    label: 'Hierarchy',
+    civicQuestion: 'How is this department structured, and where is the money concentrated?',
+    description: 'Tree/dendrogram of agency org structure, sized by contract budget',
+    group: 'standard',
+    status: 'active',
+    icon: 'M12 2v4m0 12v4M4 12H2m20 0h-2M5.6 5.6l-1.4-1.4m15.6 15.6l-1.4-1.4M5.6 18.4l-1.4 1.4M19.8 4.2l-1.4 1.4',
+
+    requiresEntity: false,
+    supportedConnectionTypes: ['oversight'],
+    defaultOptions: {
+      orientation: 'horizontal',
+      nodeSizeBy: 'budget',
+      collapseDepth: 2,
+      showLabels: true,
+    },
+
+    screenshotTarget: '#hierarchy-svg',
+    screenshotPrep: prepScreenshot,
+    tooltip: placeholderTooltip,
+    onNodeClick: defaultOnNodeClick,
+
+    // Hierarchy renders the federal agency tree by default — always applicable.
+    // When an agency is in focus the tree re-roots at that agency.
+    isApplicable: () => APPLICABLE,
+  },
+
+  {
     id: 'spending',
     label: 'Spending',
     civicQuestion: 'How is taxpayer money flowing to government contractors?',

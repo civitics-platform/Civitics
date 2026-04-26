@@ -7,6 +7,7 @@ import {
   ChordGraph,
   SunburstGraph,
   SpendingGraph,
+  HierarchyGraph,
   AiNarrative,
   EmbedModal,
   useGraphView,
@@ -74,6 +75,30 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
     for (const k of ["groupType","groupName","groupChamber","groupParty","groupState","groupIndustry"]) {
       cleaned.searchParams.delete(k);
     }
+    window.history.replaceState({}, "", cleaned.toString());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialCode]);
+
+  // ── Viz handoff from /agencies (FIX-144) ─────────────────────────────────
+  // The /agencies HierarchyEmbed links to /graph?viz=hierarchy. Read once on
+  // mount, set the viz type, and strip the param so a refresh doesn't re-apply
+  // it after the user has navigated within the graph.
+  const vizHandoffRef = useRef(false);
+  useEffect(() => {
+    if (vizHandoffRef.current) return;
+    if (initialCode) return;
+    if (typeof window === "undefined") return;
+
+    const params = new URL(window.location.href).searchParams;
+    const vizParam = params.get("viz");
+    const validVizTypes: VizType[] = ["force", "chord", "treemap", "sunburst", "spending", "hierarchy"];
+    if (!vizParam || !validVizTypes.includes(vizParam as VizType)) return;
+
+    vizHandoffRef.current = true;
+    graphHooks.setVizType(vizParam as VizType);
+
+    const cleaned = new URL(window.location.href);
+    cleaned.searchParams.delete("viz");
     window.history.replaceState({}, "", cleaned.toString());
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialCode]);
@@ -252,9 +277,10 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
 
   // ── SVG refs for screenshot (chord / treemap / sunburst) ─────────────────
   // Force graph uses id="force-graph-canvas" via registry selector
-  const chordSvgRef    = useRef<SVGSVGElement>(null);
-  const treemapSvgRef  = useRef<SVGSVGElement>(null);
-  const sunburstSvgRef = useRef<SVGSVGElement>(null);
+  const chordSvgRef     = useRef<SVGSVGElement>(null);
+  const treemapSvgRef   = useRef<SVGSVGElement>(null);
+  const sunburstSvgRef  = useRef<SVGSVGElement>(null);
+  const hierarchySvgRef = useRef<SVGSVGElement>(null);
 
   // ── Keyboard: [ = left panel, ] = right panel ─────────────────────────────
   useEffect(() => {
@@ -308,10 +334,11 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
 
   function getScreenshotRef() {
     switch (view.style.vizType) {
-      case "chord":    return chordSvgRef;
-      case "treemap":  return treemapSvgRef;
-      case "sunburst": return sunburstSvgRef;
-      default:         return null; // force uses #force-graph-canvas via registry
+      case "chord":     return chordSvgRef;
+      case "treemap":   return treemapSvgRef;
+      case "sunburst":  return sunburstSvgRef;
+      case "hierarchy": return hierarchySvgRef;
+      default:          return null; // force uses #force-graph-canvas via registry
     }
   }
 
@@ -488,6 +515,19 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
             style={{ opacity: vizType === "spending" ? 1 : 0, pointerEvents: vizType === "spending" ? "auto" : "none" }}
           >
             <SpendingGraph className="w-full h-full" />
+          </div>
+
+          {/* Hierarchy */}
+          <div
+            className="absolute inset-0 transition-opacity duration-300"
+            style={{ opacity: vizType === "hierarchy" ? 1 : 0, pointerEvents: vizType === "hierarchy" ? "auto" : "none" }}
+          >
+            <HierarchyGraph
+              className="w-full h-full"
+              svgRef={hierarchySvgRef}
+              vizOptions={view.style.vizOptions.hierarchy}
+              rootEntityId={primaryEntity?.type === "agency" ? primaryEntity.id : null}
+            />
           </div>
 
           {/* Floating share / screenshot panels */}

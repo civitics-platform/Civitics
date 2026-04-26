@@ -489,6 +489,54 @@ function SunburstSettings({
   );
 }
 
+// ── Hierarchy settings ─────────────────────────────────────────────────────────
+
+function HierarchySettings({ view, hooks }: { view: GraphView; hooks: UseGraphViewReturn }) {
+  const opts = view.style.vizOptions.hierarchy;
+  function set(key: string, value: unknown) { hooks.setVizOption('hierarchy', key, value); }
+
+  return (
+    <>
+      <LabeledSelect
+        label="Orientation"
+        value={opts?.orientation ?? 'horizontal'}
+        options={[
+          { value: 'horizontal', label: 'Horizontal' },
+          { value: 'vertical',   label: 'Vertical'   },
+        ]}
+        onChange={v => set('orientation', v)}
+      />
+      <LabeledSelect
+        label="Node size"
+        value={opts?.nodeSizeBy ?? 'budget'}
+        options={[
+          { value: 'budget',    label: 'Budget' },
+          { value: 'employees', label: 'Awards' },
+          { value: 'uniform',   label: 'Uniform' },
+        ]}
+        onChange={v => set('nodeSizeBy', v)}
+      />
+      <LabeledSelect
+        label="Collapse at"
+        value={String(opts?.collapseDepth ?? 2)}
+        options={[
+          { value: '1', label: 'Depth 1' },
+          { value: '2', label: 'Depth 2' },
+          { value: '3', label: 'Depth 3' },
+          { value: '4', label: 'Depth 4' },
+          { value: '99', label: 'Show all' },
+        ]}
+        onChange={v => set('collapseDepth', parseInt(v))}
+      />
+      <LabeledToggle
+        label="Labels"
+        value={opts?.showLabels ?? true}
+        onChange={v => set('showLabels', v)}
+      />
+    </>
+  );
+}
+
 // ── Main panel ─────────────────────────────────────────────────────────────────
 
 export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePreset, graphMeta }: GraphConfigPanelProps) {
@@ -720,10 +768,11 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
           }
           separator
         >
-          {vizType === 'force'    && <ForceSettings    view={view} hooks={hooks} graphMeta={graphMeta} />}
-          {vizType === 'chord'    && <ChordSettings    view={view} hooks={hooks} graphMeta={graphMeta} />}
-          {vizType === 'treemap'  && <TreemapSettings  view={view} hooks={hooks} graphMeta={graphMeta} />}
-          {vizType === 'sunburst' && <SunburstSettings view={view} hooks={hooks} graphMeta={graphMeta} />}
+          {vizType === 'force'     && <ForceSettings     view={view} hooks={hooks} graphMeta={graphMeta} />}
+          {vizType === 'chord'     && <ChordSettings     view={view} hooks={hooks} graphMeta={graphMeta} />}
+          {vizType === 'treemap'   && <TreemapSettings   view={view} hooks={hooks} graphMeta={graphMeta} />}
+          {vizType === 'sunburst'  && <SunburstSettings  view={view} hooks={hooks} graphMeta={graphMeta} />}
+          {vizType === 'hierarchy' && <HierarchySettings view={view} hooks={hooks} />}
         </TreeSection>
         </div>
 

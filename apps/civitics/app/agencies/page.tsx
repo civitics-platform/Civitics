@@ -5,6 +5,7 @@ import { createServerClient, agencyFullName } from "@civitics/db";
 import { AgenciesList } from "./components/AgenciesList";
 import { AgencyActivityChart } from "./components/AgencyActivityChart";
 import { GroupBuilderWidget } from "./components/GroupBuilderWidget";
+import { HierarchyEmbed } from "./components/HierarchyEmbed";
 import { PageViewTracker } from "../components/PageViewTracker";
 import { PageHeader } from "@civitics/ui";
 
@@ -111,6 +112,7 @@ export default async function AgenciesPage() {
             { label: "Agencies" },
           ]}
         />
+        <HierarchyEmbed />
         <div className="grid gap-6 lg:grid-cols-[1fr,260px]">
           <AgencyActivityChart rows={chartRows} />
           <GroupBuilderWidget />

@@ -149,3 +149,4 @@
 2026-04-25 | FIX-125 | 7ea473e1 | feat(graph): runtime filter for procedural votes (FIX-125)
 2026-04-25 | FIX-124 | 8b4df934 | feat(officials): backfill state_abbr + treemap state derivation (FIX-124)
 2026-04-25 | FIX-126 | 2a4a233f | feat(graph): user_custom_groups DB table + REST API (FIX-126)
+2026-04-25 | FIX-127 | 52dde25a | feat(graph): custom group builder with live count + agencies handoff (FIX-127)

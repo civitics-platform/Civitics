@@ -62,9 +62,8 @@ All tables: **`created_at TIMESTAMPTZ DEFAULT now()`**, `updated_at` where mutab
 | `officials` | Any public official, any country, any level. `source_ids JSONB` holds IDs across source systems. |
 | `proposals` | Any legislative/regulatory proposal. `proposal_type` covers bill, regulation, executive_order, treaty, referendum. `vote_category` controls graph visibility (see below). |
 | `entity_connections` | Connection graph table. See correction below. |
-| `financial_relationships` | All money flows. `donor_type`, `industry`, `amount_cents` |
-| `financial_entities` | FEC donor entities (PAC, individual, corporation) |
-| `spending_records` | USASpending.gov contract/grant data |
+| `financial_relationships` | All money flows — polymorphic on `relationship_type` (donation, gift, honorarium, loan, owns_stock, owns_bond, property, contract, grant, lobbying_spend). Holds both FEC donations and USASpending contract/grant data (the former `spending_records` table was merged here at 2026-04-22 cutover). `from_type`/`to_type` polymorphic FKs. `amount_cents`. |
+| `financial_entities` | Donor / recipient entities — PACs, individuals, corporations, etc. |
 | `votes` | Vote records — official × proposal × vote_value |
 | `promises` | Promise tracker — officials → commitments with status lifecycle |
 | `career_history` | Revolving door tracker |

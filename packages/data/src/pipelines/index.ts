@@ -41,8 +41,12 @@ async function printStatus(): Promise<void> {
     db.from("officials").select("*", { count: "exact", head: true }),
     db.from("proposals").select("*", { count: "exact", head: true }),
     db.from("votes").select("*", { count: "exact", head: true }),
-    db.from("financial_relationships").select("*", { count: "exact", head: true }),
-    db.from("spending_records").select("*", { count: "exact", head: true }),
+    db.from("financial_relationships")
+      .select("*", { count: "exact", head: true })
+      .not("relationship_type", "in", "(contract,grant)"),
+    db.from("financial_relationships")
+      .select("*", { count: "exact", head: true })
+      .in("relationship_type", ["contract", "grant"]),
   ]);
 
   const pipelines = ["regulations", "fec_bulk", "usaspending", "courtlistener", "openstates", "congress_officials", "congress_votes"] as const;
@@ -52,8 +56,8 @@ async function printStatus(): Promise<void> {
   console.log(`  Officials:              ${(officials.count ?? 0).toLocaleString()}`);
   console.log(`  Proposals:              ${(proposals.count ?? 0).toLocaleString()}`);
   console.log(`  Votes:                  ${(votes.count ?? 0).toLocaleString()}`);
-  console.log(`  Financial relationships: ${(financials.count ?? 0).toLocaleString()}`);
-  console.log(`  Spending records:       ${(spending.count ?? 0).toLocaleString()}`);
+  console.log(`  Financial relationships: ${(financials.count ?? 0).toLocaleString()} (donations, gifts, etc.)`);
+  console.log(`  Spending records:       ${(spending.count ?? 0).toLocaleString()} (contracts + grants)`);
 
   console.log("\n  Last sync times:");
   for (let i = 0; i < pipelines.length; i++) {

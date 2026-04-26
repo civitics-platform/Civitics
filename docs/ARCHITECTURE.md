@@ -356,9 +356,8 @@ When a graph setting changes, the update is categorized to avoid unnecessary re-
 | officials | 8,251 (2,252 federal + 6,268 state + 651 judges via CourtListener/OpenStates) |
 | proposals | 2,066 |
 | votes | 227,153 |
-| financial_relationships | 19,647 |
+| financial_relationships | 19,647 donations + 1,980 contracts/grants (USASpending merged here at 2026-04-22 cutover) |
 | entity_connections | ~51k vote connections (full 227k pending IO recovery) |
-| spending_records | 1,980 |
 | entity_tags | 5,978 |
 
 ### Egress Optimization via Delta Tracking

@@ -299,7 +299,7 @@ Pipelines run as Node.js scripts in `packages/data/`. They are NOT part of the N
 |--------|-------------|------|
 | `data:congress` | Congress.gov → officials + votes | Free |
 | `data:fec-bulk` | FEC bulk files → financial_relationships | Free |
-| `data:usaspending` | USASpending.gov → spending_records | Free |
+| `data:usaspending` | USASpending.gov → financial_relationships (contract/grant) | Free |
 | `data:regulations` | Regulations.gov → proposals | Free |
 | `data:openstates` | OpenStates → state legislators | Free |
 | `data:courtlistener` | CourtListener → judges | Free |

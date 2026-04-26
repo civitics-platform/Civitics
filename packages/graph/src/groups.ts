@@ -237,6 +237,7 @@ export type GroupTreeNode =
   | { kind: 'group'; id: string }
   | { kind: 'state-list' }
   | { kind: 'topic-tag-list' }
+  | { kind: 'home-location' }
   | { kind: 'custom-form' }
   | {
       kind: 'category'
@@ -259,6 +260,7 @@ export const GROUP_TREE: GroupTreeNode[] = [
         icon: '🏛',
         defaultExpanded: true,
         children: [
+          { kind: 'home-location' },
           { kind: 'group', id: 'group-full-senate' },
           { kind: 'group', id: 'group-senate-dems' },
           { kind: 'group', id: 'group-senate-reps' },

@@ -4,10 +4,11 @@
  * GroupBrowser
  *
  * Recursive 5-category browse hierarchy (FIX-135) with by-state drill-down
- * (FIX-136) and by-topic-tag drill-down (FIX-137). Walks GROUP_TREE — each
- * category is a TreeSection, each leaf is either a premade group, a
- * state-list row, a topic-tag row, or the custom-group form.
- * Groups are queries, not lists — adding one stores a filter, not entity IDs.
+ * (FIX-136), by-topic-tag drill-down (FIX-137), and home-location shortcut
+ * (FIX-138). Walks GROUP_TREE — each category is a TreeSection, each leaf is
+ * either a premade group, a state-list row, a topic-tag row, the home-state
+ * shortcut, or the custom-group form. Groups are queries, not lists — adding
+ * one stores a filter, not entity IDs.
  */
 
 import { useEffect, useState } from 'react';
@@ -29,7 +30,9 @@ export interface GroupBrowserProps {
 
 // Alphabetical by full name so the drill-down reads naturally.
 // Abbreviations stay in sync with officials.metadata.state_abbr (FIX-124).
-const US_STATES: Array<{ abbr: string; name: string }> = [
+type UsState = { abbr: string; name: string };
+
+const US_STATES: UsState[] = [
   { abbr: 'AL', name: 'Alabama' },        { abbr: 'AK', name: 'Alaska' },
   { abbr: 'AZ', name: 'Arizona' },        { abbr: 'AR', name: 'Arkansas' },
   { abbr: 'CA', name: 'California' },     { abbr: 'CO', name: 'Colorado' },
@@ -57,6 +60,8 @@ const US_STATES: Array<{ abbr: string; name: string }> = [
   { abbr: 'WA', name: 'Washington' },     { abbr: 'WV', name: 'West Virginia' },
   { abbr: 'WI', name: 'Wisconsin' },      { abbr: 'WY', name: 'Wyoming' },
 ];
+
+const STATE_BY_ABBR = new Map(US_STATES.map(s => [s.abbr, s]));
 
 // ── Topic tag (FIX-137) ───────────────────────────────────────────────────────
 
@@ -193,6 +198,17 @@ export function GroupBrowser({
       );
     }
 
+    if (node.kind === 'home-location') {
+      return (
+        <HomeLocationRow
+          key={key}
+          depth={depth}
+          activeIds={activeGroupIds}
+          onSelect={handleStateSelect}
+        />
+      );
+    }
+
     if (node.kind === 'custom-form') {
       return (
         <div key={key} className="px-3 py-2" style={{ paddingLeft: `${8 + depth * 12}px` }}>
@@ -304,6 +320,71 @@ function StateList({
   );
 }
 
+function HomeLocationRow({
+  depth,
+  activeIds,
+  onSelect,
+}: {
+  depth: number;
+  activeIds: string[];
+  onSelect: (abbr: string, name: string) => void;
+}) {
+  const [home, setHome] = useState<{ abbr: string; name: string } | null>(null);
+  const [resolved, setResolved] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/profile/preferences', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (cancelled) return;
+        setResolved(true);
+        const abbr: string | null = data?.preferences?.home_state ?? null;
+        if (!abbr) return;
+        const state = STATE_BY_ABBR.get(abbr);
+        if (state) setHome(state);
+      })
+      .catch(() => { if (!cancelled) setResolved(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Render nothing until we know whether the user has a home set —
+  // and nothing if they don't.
+  if (!resolved || !home) return null;
+
+  const isActive = activeIds.includes(stateGroupId(home.abbr));
+  return (
+    <div
+      className="flex items-center justify-between py-1.5 hover:bg-violet-50/50 group/row border-l-2 border-violet-300"
+      style={{ paddingLeft: `${8 + depth * 12}px`, paddingRight: '12px' }}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-sm shrink-0">📍</span>
+        <div className="min-w-0">
+          <div className="text-xs font-medium text-violet-700 truncate">
+            My state’s reps
+          </div>
+          <div className="text-[10px] text-gray-400 truncate">
+            {home.name} ({home.abbr})
+          </div>
+        </div>
+      </div>
+      <button
+        onClick={() => onSelect(home.abbr, home.name)}
+        disabled={isActive}
+        title={isActive ? 'Already in focus' : `Add ${home.name} delegation to focus`}
+        className={`shrink-0 ml-2 w-5 h-5 rounded text-xs font-bold transition-colors flex items-center justify-center ${
+          isActive
+            ? 'bg-violet-100 text-violet-400 cursor-default'
+            : 'bg-gray-100 text-gray-500 hover:bg-violet-600 hover:text-white group-hover/row:bg-violet-50 group-hover/row:text-violet-600'
+        }`}
+      >
+        {isActive ? '✓' : '+'}
+      </button>
+    </div>
+  );
+}
+
 function TopicTagList({
   depth,
   activeIds,
@@ -403,6 +484,7 @@ function isLeafRenderable(
   if (node.kind === 'group')          return groupMap.has(node.id);
   if (node.kind === 'state-list')     return true;
   if (node.kind === 'topic-tag-list') return true;
+  if (node.kind === 'home-location')  return true;
   if (node.kind === 'custom-form')    return true;
   return node.children.some(c => isLeafRenderable(c, groupMap));
 }

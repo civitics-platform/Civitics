@@ -302,6 +302,39 @@ export const VIZ_REGISTRY: VizRegistryEntry[] = [
       return { applicable: false, reason: 'Add at least 2 officials to enable Matrix' }
     },
   },
+
+  {
+    id: 'alignment',
+    label: 'Alignment',
+    civicQuestion: 'How well do my reps vote with me?',
+    description: 'Radial bar chart — YOU at centre, reps fan out by alignment ratio',
+    group: 'standard',
+    status: 'active',
+    icon: 'M12 2a10 10 0 100 20 10 10 0 000-20zm0 4v6l4 2',
+
+    requiresEntity: false,
+    supportedConnectionTypes: ['alignment'],
+    defaultOptions: {
+      sortBy: 'alignment',
+      showLabels: true,
+      fillMode: 'ratio',
+    },
+
+    screenshotTarget: '#alignment-svg',
+    screenshotPrep: prepScreenshot,
+    tooltip: placeholderTooltip,
+    onNodeClick: defaultOnNodeClick,
+
+    // Alignment is the bespoke USER-centric viz. Only meaningful when the user
+    // has alignment edges loaded (home district configured + at least one
+    // rep with a scored vote overlap). graphMeta is populated by GraphPage's
+    // displayGraphMeta which surfaces alignment edge counts.
+    isApplicable: (_focus, _connections, graphMeta) => {
+      const count = graphMeta?.connectionTypes['alignment']?.count ?? 0
+      if (count > 0) return APPLICABLE
+      return { applicable: false, reason: 'Set your home district to enable Alignment' }
+    },
+  },
 ]
 
 // ── Public helper (FIX-129) ────────────────────────────────────────────────────

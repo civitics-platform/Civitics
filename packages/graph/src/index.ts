@@ -30,6 +30,7 @@ export type {
   SunburstOptions,
   HierarchyOptions,
   MatrixOptions,
+  AlignmentOptions,
   NodeActions,
   NodeType as NodeTypeV2,
   ConnectionTypeDefinition,
@@ -86,6 +87,9 @@ export type { HierarchyGraphProps } from "./HierarchyGraph";
 
 export { MatrixGraph } from "./MatrixGraph";
 export type { MatrixGraphProps } from "./MatrixGraph";
+
+export { AlignmentGraph } from "./AlignmentGraph";
+export type { AlignmentGraphProps } from "./AlignmentGraph";
 
 // ── Components — panels ─────────────────────────────────────────────────────
 export { GraphHeader } from "./components/GraphHeader";

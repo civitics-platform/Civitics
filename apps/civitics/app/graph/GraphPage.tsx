@@ -9,6 +9,7 @@ import {
   SpendingGraph,
   HierarchyGraph,
   MatrixGraph,
+  AlignmentGraph,
   AiNarrative,
   EmbedModal,
   useGraphView,
@@ -92,7 +93,7 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
 
     const params = new URL(window.location.href).searchParams;
     const vizParam = params.get("viz");
-    const validVizTypes: VizType[] = ["force", "chord", "treemap", "sunburst", "spending", "hierarchy", "matrix"];
+    const validVizTypes: VizType[] = ["force", "chord", "treemap", "sunburst", "spending", "hierarchy", "matrix", "alignment"];
     if (!vizParam || !validVizTypes.includes(vizParam as VizType)) return;
 
     vizHandoffRef.current = true;
@@ -283,6 +284,7 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
   const sunburstSvgRef  = useRef<SVGSVGElement>(null);
   const hierarchySvgRef = useRef<SVGSVGElement>(null);
   const matrixSvgRef    = useRef<SVGSVGElement>(null);
+  const alignmentSvgRef = useRef<SVGSVGElement>(null);
 
   // ── Keyboard: [ = left panel, ] = right panel ─────────────────────────────
   useEffect(() => {
@@ -341,6 +343,7 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
       case "sunburst":  return sunburstSvgRef;
       case "hierarchy": return hierarchySvgRef;
       case "matrix":    return matrixSvgRef;
+      case "alignment": return alignmentSvgRef;
       default:          return null; // force uses #force-graph-canvas via registry
     }
   }
@@ -551,6 +554,21 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
               svgRef={matrixSvgRef}
               vizOptions={view.style.vizOptions.matrix}
               officialIds={matrixOfficialIds}
+            />
+          </div>
+
+          {/* Alignment */}
+          <div
+            className="absolute inset-0 transition-opacity duration-300"
+            style={{ opacity: vizType === "alignment" ? 1 : 0, pointerEvents: vizType === "alignment" ? "auto" : "none" }}
+          >
+            <AlignmentGraph
+              className="w-full h-full"
+              svgRef={alignmentSvgRef}
+              vizOptions={view.style.vizOptions.alignment}
+              userNode={userNodeVisible ? userNode : null}
+              repNodes={repNodes}
+              alignmentEdges={alignmentEdges}
             />
           </div>
 

@@ -568,6 +568,43 @@ function MatrixSettings({ view, hooks }: { view: GraphView; hooks: UseGraphViewR
   );
 }
 
+// ── Alignment settings ─────────────────────────────────────────────────────────
+
+function AlignmentSettings({ view, hooks }: { view: GraphView; hooks: UseGraphViewReturn }) {
+  const opts = view.style.vizOptions.alignment;
+  function set(key: string, value: unknown) { hooks.setVizOption('alignment', key, value); }
+
+  return (
+    <>
+      <LabeledSelect
+        label="Sort"
+        value={opts?.sortBy ?? 'alignment'}
+        options={[
+          { value: 'alignment', label: 'By alignment %' },
+          { value: 'party',     label: 'By party'       },
+          { value: 'role',      label: 'By role'        },
+          { value: 'name',      label: 'Alphabetical'   },
+        ]}
+        onChange={v => set('sortBy', v)}
+      />
+      <LabeledSelect
+        label="Bar fill"
+        value={opts?.fillMode ?? 'ratio'}
+        options={[
+          { value: 'ratio',    label: 'Party color' },
+          { value: 'gradient', label: 'Heat gradient' },
+        ]}
+        onChange={v => set('fillMode', v)}
+      />
+      <LabeledToggle
+        label="Labels"
+        value={opts?.showLabels ?? true}
+        onChange={v => set('showLabels', v)}
+      />
+    </>
+  );
+}
+
 // ── Main panel ─────────────────────────────────────────────────────────────────
 
 export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePreset, graphMeta }: GraphConfigPanelProps) {
@@ -805,6 +842,7 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
           {vizType === 'sunburst'  && <SunburstSettings  view={view} hooks={hooks} graphMeta={graphMeta} />}
           {vizType === 'hierarchy' && <HierarchySettings view={view} hooks={hooks} />}
           {vizType === 'matrix'    && <MatrixSettings    view={view} hooks={hooks} />}
+          {vizType === 'alignment' && <AlignmentSettings view={view} hooks={hooks} />}
         </TreeSection>
         </div>
 

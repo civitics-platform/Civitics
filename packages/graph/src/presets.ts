@@ -498,6 +498,35 @@ export const CHORD_DONOR_INDUSTRIES: GraphViewPreset = {
   },
 }
 
+// FIX-146: alignment viz auto-loads alongside the USER node + rep edges that
+// GraphPage already fetches when the user has a home district configured.
+// Selecting this preset switches viz; alignment data lights up on its own.
+export const HOW_ALIGNED_ARE_MY_REPS: GraphViewPreset = {
+  focus: {
+    entities: [],
+    scope: 'all',
+    depth: 1,
+    includeProcedural: false,
+  },
+  connections: buildConnections(['alignment']),
+  style: {
+    vizType: 'alignment',
+    vizOptions: {
+      alignment: {
+        sortBy: 'alignment',
+        showLabels: true,
+        fillMode: 'ratio',
+      },
+    },
+  },
+  meta: {
+    name: 'How aligned are my reps?',
+    isPreset: true,
+    presetId: 'alignment-my-reps',
+    isDirty: false,
+  },
+}
+
 // ── Preset Collection ──────────────────────────────────────────────────────────
 
 export const BUILT_IN_PRESETS: GraphViewPreset[] = [
@@ -516,6 +545,7 @@ export const BUILT_IN_PRESETS: GraphViewPreset[] = [
   TREEMAP_PAC_SECTOR,
   TREEMAP_PAC_PARTY,
   CHORD_DONOR_INDUSTRIES,
+  HOW_ALIGNED_ARE_MY_REPS,
 ]
 
 // ── Preset Utilities ───────────────────────────────────────────────────────────

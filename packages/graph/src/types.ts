@@ -13,7 +13,7 @@ import type { ComponentType, ReactNode } from 'react'
 
 // ── Viz Type ───────────────────────────────────────────────────────────────────
 
-export type VizType = 'force' | 'chord' | 'treemap' | 'sunburst' | 'spending' | 'hierarchy' | 'matrix'
+export type VizType = 'force' | 'chord' | 'treemap' | 'sunburst' | 'spending' | 'hierarchy' | 'matrix' | 'alignment'
 
 // ── Node ───────────────────────────────────────────────────────────────────────
 
@@ -155,6 +155,19 @@ export interface MatrixOptions {
   metric: 'agreement' | 'kappa'
   /** Hide cell labels when officials > N. Default 12. */
   labelLimit?: number
+}
+
+export interface AlignmentOptions {
+  /** Bar ordering around the dial. Default = ratio descending. */
+  sortBy: 'alignment' | 'party' | 'name' | 'role'
+  /** Whether to show numeric percentages on each bar. */
+  showLabels?: boolean
+  /**
+   * Bar fill mode.
+   *  'ratio'   — fill proportional to alignment ratio (default)
+   *  'gradient'— same fill but with a low→high colour gradient
+   */
+  fillMode?: 'ratio' | 'gradient'
 }
 
 export interface SunburstOptions {
@@ -308,6 +321,7 @@ export interface GraphView {
       spending?: Record<string, never>
       hierarchy?: HierarchyOptions
       matrix?: MatrixOptions
+      alignment?: AlignmentOptions
     }
   }
 

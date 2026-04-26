@@ -75,7 +75,7 @@ export function useGraphView(initialView?: Partial<GraphView>) {
       setView(v => {
         if (v.focus.entities.some(e => e.id === group.id)) return v;
         if (v.focus.entities.length >= MAX_FOCUS_ENTITIES) return v;
-        return {
+        return markDirty({
           ...v,
           focus: {
             ...v.focus,
@@ -84,11 +84,11 @@ export function useGraphView(initialView?: Partial<GraphView>) {
               group,
             ],
           },
-        };
+        });
       }),
 
     removeGroup: (groupId: string) =>
-      setView(v => ({
+      setView(v => markDirty({
         ...v,
         focus: {
           ...v.focus,

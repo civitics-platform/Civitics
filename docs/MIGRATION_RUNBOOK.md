@@ -133,5 +133,5 @@ None were exercised.
 | `packages/data/src/pipelines/congress/bills.ts` | Post-promotion single-write writer |
 | `packages/data/src/pipelines/congress/votes.ts` | Post-promotion vote writer |
 | `packages/data/docs/audits/post-cutover/2026-04-22.md` | Post-cutover integrity audit (green on pipeline checks) |
-| `docs/REBUILD_STATUS.md` | Living stage status |
+| `docs/archive/REBUILD_STATUS.md` | Stage status (archived 2026-04-26 after rebuild closed) |
 | `docs/FIXES.md` §POST-CUTOVER | Reimplementation backlog |

@@ -277,12 +277,14 @@ Run `pnpm build` locally before every push. Vercel uses strict TypeScript. Build
 
 ## Current Phase: Post-cutover cleanup (April 2026)
 
-Phase 1 cutover to Supabase Pro is complete (2026-04-22). Current focus:
-1. Reimplement the 11 RPCs dropped during promotion (FIX-097–FIX-099, FIX-104).
-2. Stand up `rebuild_entity_connections()` derivation (FIX-100).
-3. Re-run the deferred pipelines against Pro — FEC, regulations, OpenStates, CourtListener, Legistar, USASpending, tags, AI (FIX-101).
+Phase 1 cutover to Supabase Pro is complete (2026-04-22). FIX-097 through
+FIX-104 (RPC restoration, derivation rules, deferred pipeline re-runs) all
+closed by 2026-04-25. Current focus is the GRAPH_PLAN backlog and ongoing
+post-cutover refinements tracked in `docs/FIXES.md`.
 
-See `docs/REBUILD_STATUS.md` + `docs/PHASE_GOALS.md` for detailed task tracking.
+See `docs/FIXES.md` + `docs/PHASE_GOALS.md` for live task tracking. The
+Stage 0 → Stage 2 rebuild spec is archived at
+`docs/archive/REBUILD_STATUS.md` for historical reference.
 
 ---
 

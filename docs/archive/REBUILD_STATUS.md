@@ -1,7 +1,18 @@
-# Platform Rebuild — Living Status
+# Platform Rebuild — Status (ARCHIVED 2026-04-26)
 
-_Reference point for current state, decisions, and critical path._
-_Update this file at the end of every session that touches rebuild work._
+> **Archived:** the Stage 0 → Stage 2 rebuild closed cleanly with the
+> 2026-04-22 cutover and the FIX-097 / 098 / 099 / 100 / 101 / 102 / 103 / 104
+> backlog. All Stage 1B pipeline rewrites landed (FEC bulk, USASpending —
+> 841k contracts via FIX-118 bulk archive, Regulations, OpenStates,
+> CourtListener, Legistar, tags, AI). Live work tracking moved to
+> `docs/FIXES.md` and `docs/SESSION_LOG.md`.
+>
+> Remaining ⬜ items below are not rebuild scope — they are future pipeline
+> expansions (cosponsorship / federal register / lobbying stubs, older FEC
+> cycles, NYC Legistar token, Stage 3 local rollout).
+
+_Original purpose: reference point for current state, decisions, and critical path._
+_Updated at the end of every session that touched rebuild work._
 
 ---
 
@@ -103,9 +114,14 @@ The cutover was scoped as "Option C" — rewrite only `congress/bills.ts` + `con
 - ~~**FIX-102** — clean 307 orphan proposals from the early broken ingest runs.~~ **Done 2026-04-22.** Verified zero FK refs (civic_comments / submissions / cosponsors / promises / init_links all 0), then `DELETE FROM proposals WHERE id IN (...)` via direct psql. proposals now 1:1 with bill_details.
 - **FIX-103** — fix `officials_breakdown` chain bug in `/api/claude/status`.
 
-Post-cutover Pro row counts (for reference):
+Post-cutover Pro row counts (snapshot at 2026-04-22, immediately after cutover):
 - 903 officials · 682 proposals · 682 bill_details · 217,548 votes
-- 124,943 entity_connections (FIX-100 ✓) · 0 financial_relationships · 0 financial_entities (FIX-101)
+- 124,943 entity_connections (FIX-100 ✓) · 0 financial_relationships · 0 financial_entities (FIX-101 not yet run)
+
+Post-FIX-101 + FIX-118 (current snapshot, archived 2026-04-26):
+- FEC bulk: 16,263 donations · 1,824 financial_entities (2026-04-23)
+- USASpending bulk: ~841,264 contracts (2026-04-25, FIX-118 archive pipeline)
+- See `docs/SESSION_LOG.md` 2026-04-23 / 2026-04-25 entries for full breakdown.
 
 ---
 

@@ -164,3 +164,4 @@
 2026-04-26 | FIX-136 | 5fad6ecf | feat(graph): by-state drill-down
 2026-04-26 | FIX-137 | e3ed3de4 | feat(graph): by-topic-tag drill-down
 2026-04-26 | FIX-138 | 5d353f4d | feat(graph): home-state shortcut in browse hierarchy
+2026-04-26 | FIX-139 | 50028439 | feat(graph): by-committee drill-down

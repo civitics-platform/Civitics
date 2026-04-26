@@ -148,7 +148,7 @@ The shadow→public promotion migration (`20260422000000_promote_shadow_to_publi
 - [x] 🟠 L — **Five-category browse hierarchy** — People/Money/Government/Legislation/Saved; recursive TreeNode; per GRAPH_PLAN §2.1 <!--id:FIX-135-->
 - [x] 🟡 M — **By-state drill-down** — 50-state expansion under State legislatures and Officials by state; depends on FIX-124; per GRAPH_PLAN §2.2 <!--id:FIX-136-->
 - [x] 🟡 M — **By-topic-tag groups** — `/api/graph/tag-groups` + clickable top-30 tags under Legislation; per GRAPH_PLAN §2.3 <!--id:FIX-137-->
-- [ ] 🟡 M — **By-location** — "My state's reps" row when home_state set; depends on user_preferences; per GRAPH_PLAN §2.4 <!--id:FIX-138-->
+- [x] 🟡 M — **By-location** — "My state's reps" row when home_state set; depends on user_preferences; per GRAPH_PLAN §2.4 <!--id:FIX-138-->
 - [ ] 🟠 L — **By-committee** — investigate `committees` table; file prereq FIXES if missing; per GRAPH_PLAN §2.5 <!--id:FIX-139-->
 - [ ] 🟢 S — **Recently viewed** — localStorage list of last 20 entities; per GRAPH_PLAN §2.6 <!--id:FIX-140-->
 

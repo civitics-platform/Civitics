@@ -163,3 +163,4 @@
 2026-04-26 | FIX-135 | 2c4ac9dd | feat(graph): five-category browse hierarchy
 2026-04-26 | FIX-136 | 5fad6ecf | feat(graph): by-state drill-down
 2026-04-26 | FIX-137 | e3ed3de4 | feat(graph): by-topic-tag drill-down
+2026-04-26 | FIX-138 | 5d353f4d | feat(graph): home-state shortcut in browse hierarchy

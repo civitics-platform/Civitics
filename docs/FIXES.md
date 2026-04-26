@@ -126,7 +126,7 @@ The shadow→public promotion migration (`20260422000000_promote_shadow_to_publi
 
 - [x] 🟠 L — **USER node visible & toggleable** — surface USER node in FocusTree; add `alignment` to DEFAULT_CONNECTION_STATE; per GRAPH_PLAN §1.1 <!--id:FIX-120-->
 - [ ] 🟢 S — **`addGroup`/`removeGroup` markDirty** — mirror addEntity/removeEntity behavior so Save Changes button appears; per GRAPH_PLAN §1.2 <!--id:FIX-121-->
-- [ ] 🟡 M — **AI Explain gated by AI_SUMMARIES_ENABLED** — `/api/graph/narrative` checks flag; header button hides/disables when off; per GRAPH_PLAN §1.3 <!--id:FIX-122-->
+- [x] 🟡 M — **AI Explain gated by AI_SUMMARIES_ENABLED** — `/api/graph/narrative` checks flag; header button hides/disables when off; per GRAPH_PLAN §1.3 <!--id:FIX-122-->
 - [ ] 🟡 M — **Bills show titles, not IDs** — connections API joins proposals.title; force-graph node label uses title; per GRAPH_PLAN §1.4 <!--id:FIX-123-->
 - [ ] 🟠 L — **State data on officials** — populate `officials.metadata.state_abbr` for federal reps; verify treemap by-state works; HIT_LIST flag; per GRAPH_PLAN §1.5 <!--id:FIX-124-->
 - [ ] 🟡 M — **Procedural votes filtered by default** — DEFAULT_VIEW.includeProcedural=false; verify per-roll-call filter end-to-end; HIT_LIST flag; per GRAPH_PLAN §1.6 <!--id:FIX-125-->

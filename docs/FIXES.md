@@ -176,7 +176,7 @@ The shadow→public promotion migration (`20260422000000_promote_shadow_to_publi
 
 ### Prerequisites (discovered in audit)
 
-- [ ] 🟡 M — **Cleanup stale `spending_records` references** — table was dropped at cutover; `pipelines/index.ts:45` still queries it; `apps/civitics/CLAUDE.md` + `docs/PHASE_GOALS.md:202` + root `CLAUDE.md` all reference it as the data store. Replace with `financial_relationships WHERE relationship_type IN ('contract','grant')`. Unblocks FIX-148. <!--id:FIX-151-->
+- [x] 🟡 M — **Cleanup stale `spending_records` references** — table was dropped at cutover; `pipelines/index.ts:45` still queries it; `apps/civitics/CLAUDE.md` + `docs/PHASE_GOALS.md:202` + root `CLAUDE.md` all reference it as the data store. Replace with `financial_relationships WHERE relationship_type IN ('contract','grant')`. Unblocks FIX-148. <!--id:FIX-151-->
 - [ ] 🟠 L — **Committees schema** — no `committees` table; `governing_body_type` enum lacks 'committee' value; `officials.governing_body_id` is single FK so an official can't belong to multiple committees. Add `'committee'` to enum + `official_committee_memberships` join table (official_id, committee_id, role, started_at, ended_at). Prereq for FIX-139. <!--id:FIX-152-->
 - [ ] 🟠 L — **Committees ingestion pipeline** — Congress.gov committees endpoint → backfill `governing_bodies` rows of type='committee' + `official_committee_memberships`. Prereq for FIX-139. Depends on FIX-152. <!--id:FIX-153-->
 

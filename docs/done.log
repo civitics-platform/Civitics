@@ -157,3 +157,4 @@
 2026-04-25 | FIX-132 | b7584cdd | feat(graph): surface PathFinder, cluster header, section-jump icons
 2026-04-25 | FIX-133 | b7584cdd | feat(graph): surface PathFinder, cluster header, section-jump icons
 2026-04-25 | FIX-134 | b7584cdd | feat(graph): surface PathFinder, cluster header, section-jump icons
+2026-04-26 | FIX-151 | 755aa181 | chore(data): drop stale spending_records refs (FIX-151)

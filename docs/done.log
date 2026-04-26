@@ -145,3 +145,5 @@
 2026-04-25 | FIX-120 | f3fdabdc | feat(graph): surface USER node toggle + alignment connection (FIX-120)
 2026-04-25 | FIX-122 | e4279513 | feat(graph): gate AI Explain by AI_SUMMARIES_ENABLED (FIX-122)
 2026-04-25 | FIX-123 | 552a6598 | feat(graph): bills surface bill_number on connection nodes (FIX-123)
+2026-04-25 | FIX-121 | 23fad3c5 | fix(graph): mark view dirty when groups are added or removed (FIX-121)
+2026-04-25 | FIX-125 | 7ea473e1 | feat(graph): runtime filter for procedural votes (FIX-125)

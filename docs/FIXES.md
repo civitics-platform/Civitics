@@ -139,9 +139,9 @@ The shadow→public promotion migration (`20260422000000_promote_shadow_to_publi
 - [x] 🟠 L — **Viz dropdown self-populates** — each VIZ_REGISTRY entry gains `isApplicable()`; header dropdown groups Available vs Not-yet-applicable; per GRAPH_PLAN §3.2 <!--id:FIX-129-->
 - [x] 🟡 M — **Settings panel disables non-applicable controls** — disabledReason prop on form primitives; tooltip explains why; per GRAPH_PLAN §3.3 <!--id:FIX-130-->
 - [x] 🟡 M — **Empty-state preset buttons** — keep search prompt; add 3 visual cards (Force / Treemap / Chord) with thumbnails; per GRAPH_PLAN §3.4 <!--id:FIX-131-->
-- [ ] 🟢 S — **PathFinder surfaced** — header chip opens floating overlay; per GRAPH_PLAN §3.5 <!--id:FIX-132-->
-- [ ] 🟢 S — **Header consolidation** — visual clusters with separators (left/center/right); per GRAPH_PLAN §3.6 <!--id:FIX-133-->
-- [ ] 🟢 S — **Right-panel collapsed icons jump to sections** — also left panel; per GRAPH_PLAN §3.7 <!--id:FIX-134-->
+- [x] 🟢 S — **PathFinder surfaced** — header chip opens floating overlay; per GRAPH_PLAN §3.5 <!--id:FIX-132-->
+- [x] 🟢 S — **Header consolidation** — visual clusters with separators (left/center/right); per GRAPH_PLAN §3.6 <!--id:FIX-133-->
+- [x] 🟢 S — **Right-panel collapsed icons jump to sections** — also left panel; per GRAPH_PLAN §3.7 <!--id:FIX-134-->
 
 ### Direction 2 — Browse like a file system
 

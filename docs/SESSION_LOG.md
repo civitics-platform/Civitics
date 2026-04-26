@@ -2,6 +2,53 @@
 
 ---
 
+## 2026-04-25 (Graph 2.0 plan + FIX-120)
+
+**Done:**
+
+- **Graph audit** — comprehensive read of every panel component, hook, viz, registry, and API route under `packages/graph/` and `apps/civitics/app/api/graph/`. Surfaced ~15 dead-code / inconsistency findings: USER node had no panel affordance, `alignment` missing from `DEFAULT_CONNECTION_STATE`, AlignmentPanel writes to localStorage but never feeds graph state, ConnectionsTree filters by data-presence not focus-type, Browse hierarchy is flat (Congress + Industry PACs only), `addGroup`/`removeGroup` skip `markDirty()`, AI Explain isn't gated by `AI_SUMMARIES_ENABLED`, Spending viz orphaned, custom group builder unwired, PathFinder buried.
+
+- **GRAPH_PLAN.md** — new authoritative plan organised by Direction 1 (cleanup) → Direction 3 (reactive panels) → Direction 2 (file-system browse hierarchy) → new connection types → new viz types → compare upgrade. Cross-cutting principles: never auto-switch viz, disable-don't-hide non-applicable controls, force graph stays universal, custom groups DB-backed, AI flag is the kill switch.
+
+- **FIX-120 → FIX-153 filed** — 34 backlog items in `docs/FIXES.md`, each a one-liner pointing to a `GRAPH_PLAN.md §N.N` section so the FIXES file stays scannable. Includes new viz types (Hierarchy/Matrix/Alignment/Sankey), three new connection types (`appointment`, `revolving_door`, `contract`), and the file-system browse refactor.
+
+- **FIX-120** — *(committed by Craig in `f3fdabdc`)* — surfaced USER node toggle in FocusTree, added `alignment` to `DEFAULT_CONNECTION_STATE`, alignment edge color-coded by ratio.
+
+- **Prereq investigations completed inline:**
+
+  1. **`spending_records` (FIX-148):** table was DROPPED in the cutover migration `20260422000000_promote_shadow_to_public.sql:256`. Data now lives in `financial_relationships` with `relationship_type IN ('contract','grant')`. USASpending pipeline already migrated. RPCs `chord_contract_flows` + `treemap_recipients_by_contracts` restored by FIX-110. **One real bug remains**: `packages/data/src/pipelines/index.ts:45` still queries the dropped table for the status dashboard. **Three docs are stale:** root `CLAUDE.md`, `apps/civitics/CLAUDE.md`, `docs/PHASE_GOALS.md:202`. → **FIX-151** filed.
+
+  2. **Committees (FIX-139):** no `committees` table exists. `governing_body_type` enum has no `'committee'` value. `officials.governing_body_id` is a single FK so multi-committee membership isn't modelable today. No data ingested. → **FIX-152** (schema: enum value + `official_committee_memberships` join table) and **FIX-153** (Congress.gov committees endpoint ingestion) filed as prereqs.
+
+- **Direction & priorities locked with Craig:**
+  - Order: Direction 1 → 3 → 2.
+  - USER node visible/toggleable is enough for now; full alignment-scoring pipeline stays Stage 2.
+  - Custom groups go straight to a `user_custom_groups` DB table — skip localStorage.
+  - Empty-state UX: keep the search prompt; add 2–3 visual preset buttons (Force / Treemap / Chord) so newbies get one-click started.
+  - **Never auto-switch viz on the user.** The viz dropdown should self-populate based on focus + connections; selection stays manual.
+  - AI Explain button must be gated by `FLAGS.AI_SUMMARIES_ENABLED` — the flag is the platform-wide kill switch for Anthropic calls. → **FIX-122** filed.
+  - Custom group builder also embedded on `/agencies` page (Craig's add).
+
+- **packages/graph/CLAUDE.md** — pointer-only update at the top; deeper rewrites land per FIX-150 as each section ships. Saved-session compatibility preserved (BUILT_IN_GROUPS / BUILT_IN_PRESETS IDs unchanged).
+
+**Commits:**
+- `f3fdabdc` (FIX-120 — Craig)
+- `efc07a23` (FIX-120 sync — Craig)
+- `4b87e166` (GRAPH_PLAN + FIX-121..153 backlog)
+- `a6830150` (HIT_LIST session notes)
+
+**⚠️ Action needed — none.** All commits pushed to `main`. No migrations this session.
+
+**Up next:**
+
+1. **FIX-122 (🟡 M)** — Gate `/api/graph/narrative` by `AI_SUMMARIES_ENABLED`; hide ✨ Explain button when off. Small, high signal-to-noise.
+2. **FIX-121 (🟢 S)** — `addGroup`/`removeGroup` call `markDirty()`. Trivial.
+3. **FIX-126 (🟠 L)** — `user_custom_groups` table + `/api/graph/custom-groups` route. Unblocks FIX-127 (custom group builder UI), which itself unblocks the agencies-page sidebar widget.
+4. **FIX-128/129/130** — the reactive-panels trifecta (Connections gates by focus, viz dropdown self-populates, settings disable-don't-hide). Highest UX leverage in the plan.
+5. **FIX-151** — once it lands, FIX-148 (Spending viz wire-up) becomes small.
+
+---
+
 ## 2026-04-25 (USER node in connection graph — FIX-042)
 
 **Done:**

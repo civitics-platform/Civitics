@@ -13,8 +13,8 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import type { GraphView, VizType } from '../types';
-import { VIZ_REGISTRY } from '../visualizations/registry';
+import type { GraphView, VizType, VizApplicabilityMeta } from '../types';
+import { VIZ_REGISTRY, getVizApplicability } from '../visualizations/registry';
 import { AiNarrative } from '../AiNarrative';
 
 export interface GraphHeaderProps {
@@ -27,6 +27,8 @@ export interface GraphHeaderProps {
   onFullscreen: () => void;
   /** When false, ✨ Explain is disabled (kill switch via AI_SUMMARIES_ENABLED). Defaults true. */
   aiEnabled?: boolean;
+  /** Loaded-data summary used to gate the viz dropdown by applicability (FIX-129). */
+  graphMeta?: VizApplicabilityMeta;
 }
 
 interface EntityResult {
@@ -51,6 +53,7 @@ export function GraphHeader({
   onScreenshot,
   onFullscreen,
   aiEnabled = true,
+  graphMeta,
 }: GraphHeaderProps) {
   const activeViz = VIZ_REGISTRY.find(v => v.id === view.style.vizType);
 
@@ -61,6 +64,8 @@ export function GraphHeader({
   const [searching, setSearching]           = useState(false);
   const [isFullscreen, setIsFullscreen]     = useState(false);
   const [narrativeOpen, setNarrativeOpen]   = useState(false);
+  // FIX-129: transient toast shown when the user clicks a non-applicable viz.
+  const [vizToast, setVizToast]             = useState<string | null>(null);
 
   const vizMenuRef = useRef<HTMLDivElement>(null);
   const searchRef  = useRef<HTMLDivElement>(null);
@@ -128,8 +133,22 @@ export function GraphHeader({
   const standardViz    = VIZ_REGISTRY.filter(v => v.group === 'standard');
   const comingSoonViz  = VIZ_REGISTRY.filter(v => v.group === 'coming_soon');
 
+  // FIX-129: split standard viz entries into Available vs Not-yet-applicable
+  // based on each entry's isApplicable() against the current focus + graph data.
+  const standardApplicability = standardViz.map(viz => ({
+    viz,
+    result: getVizApplicability(viz, view.focus, view.connections, graphMeta),
+  }));
+  const availableViz   = standardApplicability.filter(s =>  s.result.applicable);
+  const inapplicableViz = standardApplicability.filter(s => !s.result.applicable);
+
+  function showVizToast(msg: string) {
+    setVizToast(msg);
+    window.setTimeout(() => setVizToast(prev => (prev === msg ? null : prev)), 2400);
+  }
+
   return (
-    <header className="shrink-0 h-12 flex items-center gap-2 px-3 bg-white/95 backdrop-blur-sm border-b border-gray-200 z-50">
+    <header className="relative shrink-0 h-12 flex items-center gap-2 px-3 bg-white/95 backdrop-blur-sm border-b border-gray-200 z-50">
 
       {/* Civitics mark */}
       <a
@@ -155,14 +174,14 @@ export function GraphHeader({
         </button>
 
         {showVizMenu && (
-          <div className="absolute top-full left-0 mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-lg z-50 overflow-hidden">
-            {/* Standard group */}
-            {standardViz.length > 0 && (
+          <div className="absolute top-full left-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-50 overflow-hidden">
+            {/* Available group (FIX-129) */}
+            {availableViz.length > 0 && (
               <>
                 <p className="px-3 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider bg-gray-50 border-b border-gray-100">
-                  Standard
+                  Available
                 </p>
-                {standardViz.map(viz => (
+                {availableViz.map(({ viz }) => (
                   <button
                     key={viz.id}
                     onClick={() => { onVizChange(viz.id); setShowVizMenu(false); }}
@@ -174,6 +193,32 @@ export function GraphHeader({
                     )}
                   </button>
                 ))}
+              </>
+            )}
+
+            {/* Not yet applicable group (FIX-129) — greyed; click surfaces the reason. */}
+            {inapplicableViz.length > 0 && (
+              <>
+                <p className="px-3 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider bg-gray-50 border-t border-b border-gray-100">
+                  Not yet applicable
+                </p>
+                {inapplicableViz.map(({ viz, result }) => {
+                  const reason = result.applicable ? '' : result.reason;
+                  return (
+                    <button
+                      key={viz.id}
+                      onClick={() => {
+                        showVizToast(reason);
+                        setShowVizMenu(false);
+                      }}
+                      title={reason}
+                      className="w-full flex flex-col items-start px-3 py-2 text-xs text-gray-400 hover:bg-gray-50 transition-colors text-left"
+                    >
+                      <span>{viz.label}</span>
+                      <span className="text-[10px] text-gray-400 truncate w-full">{reason}</span>
+                    </button>
+                  );
+                })}
               </>
             )}
 
@@ -329,6 +374,18 @@ export function GraphHeader({
           isVisible={narrativeOpen}
           onClose={() => setNarrativeOpen(false)}
         />
+      )}
+
+      {/* FIX-129: transient toast surfaced when the user clicks a non-applicable
+          viz. Floats below the header so it doesn't displace the layout. */}
+      {vizToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-md shadow-lg pointer-events-none"
+        >
+          {vizToast}
+        </div>
       )}
     </header>
   );

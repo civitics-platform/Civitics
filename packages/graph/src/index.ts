@@ -32,6 +32,7 @@ export type {
   NodeType as NodeTypeV2,
   ConnectionTypeDefinition,
 } from "./types";
+export type { VizApplicability, VizApplicabilityMeta } from "./types";
 export { MAX_FOCUS_ENTITIES, isFocusGroup, isFocusEntity } from "./types";
 
 // ── Presets + connections ───────────────────────────────────────────────────
@@ -47,7 +48,7 @@ export {
 } from "./groups";
 
 // ── Registry ────────────────────────────────────────────────────────────────
-export { VIZ_REGISTRY, vizRegistry } from "./visualizations/registry";
+export { VIZ_REGISTRY, vizRegistry, getVizApplicability } from "./visualizations/registry";
 export type { VizMode, VizRegistryEntry } from "./visualizations/registry";
 
 // ── Hooks ───────────────────────────────────────────────────────────────────

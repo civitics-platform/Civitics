@@ -373,6 +373,7 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
         onScreenshot={handleScreenshot}
         onFullscreen={handleFullscreen}
         aiEnabled={aiEnabled}
+        graphMeta={displayGraphMeta}
       />
 
       {/* ── Three-column body ────────────────────────────────────────────── */}

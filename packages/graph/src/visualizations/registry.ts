@@ -10,7 +10,16 @@
  * Stage 1 — real implementations come in Prompt 3 (interactions).
  */
 
-import type { VizDefinition, VizType, GraphNode, NodeActions } from '../types'
+import type {
+  VizDefinition,
+  VizType,
+  GraphNode,
+  NodeActions,
+  GraphView,
+  VizApplicability,
+  VizApplicabilityMeta,
+} from '../types'
+import { isFocusGroup } from '../types'
 import { CONNECTION_TYPE_REGISTRY } from '../connections'
 
 // Re-export VizType as VizMode for backward compatibility with existing
@@ -50,6 +59,31 @@ function defaultOnNodeClick(node: GraphNode, actions: NodeActions): void {
   actions.openProfile(node.id)
 }
 
+// ── Applicability helpers (FIX-129) ────────────────────────────────────────────
+
+const APPLICABLE: VizApplicability = { applicable: true }
+
+function focusHasEntityType(
+  focus: GraphView['focus'],
+  type: 'official' | 'agency' | 'proposal' | 'financial',
+): boolean {
+  for (const item of focus.entities) {
+    if (isFocusGroup(item)) {
+      // Groups carry a filter-level entity_type. PAC groups count as financial.
+      const et = item.filter.entity_type
+      if (type === 'financial' && et === 'pac') return true
+      if (type === et) return true
+    } else if (item.type === type) {
+      return true
+    }
+  }
+  return false
+}
+
+function donationCount(graphMeta?: VizApplicabilityMeta): number {
+  return graphMeta?.connectionTypes['donation']?.count ?? 0
+}
+
 export const VIZ_REGISTRY: VizRegistryEntry[] = [
   {
     id: 'force',
@@ -76,6 +110,9 @@ export const VIZ_REGISTRY: VizRegistryEntry[] = [
     screenshotPrep: prepScreenshot,
     tooltip: placeholderTooltip,
     onNodeClick: defaultOnNodeClick,
+
+    // Force is the universal canvas — works for any focus + connection mix.
+    isApplicable: () => APPLICABLE,
   },
 
   {
@@ -98,6 +135,16 @@ export const VIZ_REGISTRY: VizRegistryEntry[] = [
     screenshotPrep: prepScreenshot,
     tooltip: placeholderTooltip,
     onNodeClick: defaultOnNodeClick,
+
+    // Treemap renders officials-by-donations OR PACs-by-sector. Either branch
+    // requires either donation data or an official in focus (officials still
+    // populate the treemap by connection-count when no donation data exists).
+    isApplicable: (focus, _connections, graphMeta) => {
+      if (graphMeta?.hasDonations) return APPLICABLE
+      if (focusHasEntityType(focus, 'official')) return APPLICABLE
+      if (focusHasEntityType(focus, 'financial')) return APPLICABLE
+      return { applicable: false, reason: 'Add an official or PAC to enable Treemap' }
+    },
   },
 
   {
@@ -121,6 +168,13 @@ export const VIZ_REGISTRY: VizRegistryEntry[] = [
     screenshotPrep: prepScreenshot,
     tooltip: placeholderTooltip,
     onNodeClick: defaultOnNodeClick,
+
+    // Chord is a flow diagram — needs at least 2 donor edges to draw a useful arc.
+    isApplicable: (_focus, _connections, graphMeta) => {
+      const count = donationCount(graphMeta)
+      if (count >= 2) return APPLICABLE
+      return { applicable: false, reason: 'Add a PAC or donor data to enable Chord' }
+    },
   },
 
   {
@@ -143,6 +197,12 @@ export const VIZ_REGISTRY: VizRegistryEntry[] = [
     screenshotPrep: prepScreenshot,
     tooltip: placeholderTooltip,
     onNodeClick: defaultOnNodeClick,
+
+    // Sunburst is entity-centric — every ring radiates out from one focused entity.
+    isApplicable: (focus) => {
+      if (focus.entities.length >= 1) return APPLICABLE
+      return { applicable: false, reason: 'Add an entity to focus to enable Sunburst' }
+    },
   },
 
   {
@@ -162,8 +222,35 @@ export const VIZ_REGISTRY: VizRegistryEntry[] = [
     screenshotPrep: prepScreenshot,
     tooltip: placeholderTooltip,
     onNodeClick: defaultOnNodeClick,
+
+    // Spending is the agency-contracts viz — needs an agency in focus or
+    // contract data already loaded into the graph.
+    isApplicable: (focus, _connections, graphMeta) => {
+      if (focusHasEntityType(focus, 'agency')) return APPLICABLE
+      if (graphMeta?.entityTypes.has('agency')) return APPLICABLE
+      if ((graphMeta?.connectionTypes['contract']?.count ?? 0) > 0) return APPLICABLE
+      return { applicable: false, reason: 'Add an agency to enable Spending' }
+    },
   },
 ]
+
+// ── Public helper (FIX-129) ────────────────────────────────────────────────────
+
+/**
+ * Compute applicability for any viz entry. Default (entry has no isApplicable)
+ * is `{ applicable: true }`. The right-panel Visualization section and the
+ * header viz dropdown both call this — keep it cheap.
+ */
+export function getVizApplicability(
+  entry: VizDefinition,
+  focus: GraphView['focus'],
+  connections: GraphView['connections'],
+  graphMeta?: VizApplicabilityMeta,
+): VizApplicability {
+  return entry.isApplicable
+    ? entry.isApplicable(focus, connections, graphMeta)
+    : APPLICABLE
+}
 
 export const vizRegistry = new Map<VizType, VizRegistryEntry>(
   VIZ_REGISTRY.map((v) => [v.id, v])

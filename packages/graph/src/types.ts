@@ -404,4 +404,40 @@ export interface VizDefinition {
    * Use NodeActions so the popup stays viz-agnostic.
    */
   onNodeClick: (node: GraphNode, actions: NodeActions) => void
+
+  /**
+   * FIX-129: Whether this viz can produce a meaningful render given the current
+   * focus + connections + loaded graph data. The header dropdown and right-panel
+   * Visualization section group entries by applicability — applicable on top,
+   * non-applicable below (greyed) with the returned `reason` shown to the user.
+   *
+   * Default (omitted) = always applicable. Implementations should be cheap —
+   * they run on every render of the dropdown.
+   */
+  isApplicable?: (
+    focus: GraphView['focus'],
+    connections: GraphView['connections'],
+    graphMeta?: VizApplicabilityMeta,
+  ) => VizApplicability
 }
+
+// ── Viz Applicability (FIX-129) ────────────────────────────────────────────────
+//
+// `VizApplicabilityMeta` is the subset of GraphMeta the registry's
+// `isApplicable` callbacks read. Re-declaring it here (instead of importing
+// from hooks/useGraphData) keeps types.ts free of React-side imports.
+
+export interface VizApplicabilityMeta {
+  connectionTypes: Record<string, { count: number; totalAmount: number }>
+  entityTypes: Set<string>
+  hasVotes: boolean
+  hasDonations: boolean
+  hasOversight: boolean
+  hasNominations: boolean
+  hasGroups: boolean
+  isPacFocus: boolean
+}
+
+export type VizApplicability =
+  | { applicable: true }
+  | { applicable: false; reason: string }

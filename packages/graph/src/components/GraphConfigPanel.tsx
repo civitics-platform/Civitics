@@ -12,7 +12,7 @@
 import type { GraphView, VizType } from '../types';
 import type { UseGraphViewReturn } from '../hooks/useGraphView';
 import type { GraphMeta } from '../hooks/useGraphData';
-import { VIZ_REGISTRY } from '../visualizations/registry';
+import { VIZ_REGISTRY, getVizApplicability } from '../visualizations/registry';
 import { BUILT_IN_PRESETS } from '../presets';
 import { TreeNode, TreeSection } from './TreeNode';
 
@@ -458,23 +458,61 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto overscroll-contain">
 
-        {/* Visualization picker */}
+        {/* Visualization picker — FIX-129: split by applicability against current focus + data. */}
         <TreeSection label="Visualization" separator={false} defaultExpanded>
-          {STD_VIZ.map(v => (
-            <TreeNode
-              key={v.id}
-              label={v.label}
-              variant="item"
-              collapsible={false}
-              active={vizType === v.id}
-              separator={false}
-              depth={1}
-              icon={undefined}
-              onClick={() => hooks.setVizType(v.id as VizType)}
-            >
-              {null}
-            </TreeNode>
-          ))}
+          {(() => {
+            const partitioned = STD_VIZ.map(v => ({
+              v,
+              app: getVizApplicability(v, view.focus, view.connections, graphMeta),
+            }));
+            const available    = partitioned.filter(p =>  p.app.applicable);
+            const inapplicable = partitioned.filter(p => !p.app.applicable);
+            return (
+              <>
+                {available.map(({ v }) => (
+                  <TreeNode
+                    key={v.id}
+                    label={v.label}
+                    variant="item"
+                    collapsible={false}
+                    active={vizType === v.id}
+                    separator={false}
+                    depth={1}
+                    icon={undefined}
+                    onClick={() => hooks.setVizType(v.id as VizType)}
+                  >
+                    {null}
+                  </TreeNode>
+                ))}
+                {inapplicable.length > 0 && (
+                  <TreeSection
+                    label="Not yet applicable"
+                    count={inapplicable.length}
+                    defaultExpanded={false}
+                    separator={false}
+                    depth={1}
+                  >
+                    {inapplicable.map(({ v, app }) => {
+                      const reason = app.applicable ? '' : app.reason;
+                      return (
+                        <div
+                          key={v.id}
+                          title={reason}
+                          className="flex flex-col px-3 py-2 text-xs text-gray-400 cursor-not-allowed"
+                          style={{ paddingLeft: '32px' }}
+                        >
+                          <span>{v.label}</span>
+                          <span className="text-[10px] text-gray-400 leading-tight truncate">
+                            {reason}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </TreeSection>
+                )}
+              </>
+            );
+          })()}
           {COMING_VIZ.length > 0 && (
             <TreeSection label="Coming Soon" defaultExpanded={false} separator={false} depth={1}>
               {COMING_VIZ.map(v => (

@@ -19,14 +19,19 @@ import {
   createCustomGroup,
   type GroupTreeNode,
 } from '../groups';
-import type { FocusGroup, GroupFilter } from '../types';
+import type { FocusEntity, FocusGroup, GroupFilter } from '../types';
+import { loadRecent, clearRecent, type RecentEntity } from '../recently-viewed';
 import { TreeSection } from './TreeNode';
 import { CustomGroupForm } from './CustomGroupForm';
 
 export interface GroupBrowserProps {
   onAddGroup: (group: FocusGroup) => void;
+  /** Optional. When provided, the Recently-viewed slot becomes interactive. */
+  onAddEntity?: (entity: FocusEntity) => void;
   /** IDs of groups already in focus so we can show them as active */
   activeGroupIds?: string[];
+  /** IDs of focus entities (non-group) already in focus */
+  activeEntityIds?: string[];
 }
 
 // Alphabetical by full name so the drill-down reads naturally.
@@ -147,7 +152,9 @@ function buildStateGroup(abbr: string, name: string): FocusGroup {
 
 export function GroupBrowser({
   onAddGroup,
+  onAddEntity,
   activeGroupIds = [],
+  activeEntityIds = [],
 }: GroupBrowserProps) {
 
   // Build lookup map for quick access by ID
@@ -257,6 +264,17 @@ export function GroupBrowser({
           depth={depth}
           activeIds={activeGroupIds}
           onSelect={handleCommitteeSelect}
+        />
+      );
+    }
+
+    if (node.kind === 'recent-list') {
+      return (
+        <RecentList
+          key={key}
+          depth={depth}
+          activeIds={activeEntityIds}
+          onSelect={onAddEntity}
         />
       );
     }
@@ -480,6 +498,119 @@ function CommitteeList({
   );
 }
 
+function RecentList({
+  depth,
+  activeIds,
+  onSelect,
+}: {
+  depth: number;
+  activeIds: string[];
+  onSelect?: (entity: FocusEntity) => void;
+}) {
+  const [recent, setRecent] = useState<RecentEntity[] | null>(null);
+
+  // Defer the localStorage read to mount so SSR/CSR markup matches.
+  useEffect(() => {
+    setRecent(loadRecent());
+  }, []);
+
+  function handleClear() {
+    clearRecent();
+    setRecent([]);
+  }
+
+  function handleClick(r: RecentEntity) {
+    if (!onSelect) return;
+    onSelect({
+      id:        r.id,
+      name:      r.name,
+      type:      r.type,
+      ...(r.role     ? { role:     r.role }     : {}),
+      ...(r.party    ? { party:    r.party }    : {}),
+      ...(r.photoUrl ? { photoUrl: r.photoUrl } : {}),
+    });
+  }
+
+  const padding = `${8 + depth * 12}px`;
+
+  if (recent === null) {
+    return (
+      <div className="py-2 text-[10px] text-gray-400" style={{ paddingLeft: padding, paddingRight: '12px' }}>
+        Loading recent entities…
+      </div>
+    );
+  }
+
+  if (recent.length === 0) {
+    return (
+      <div className="py-2 text-[10px] text-gray-400" style={{ paddingLeft: padding, paddingRight: '12px' }}>
+        Entities you focus will appear here.
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div
+        className="flex items-center justify-between pt-1 pb-1"
+        style={{ paddingLeft: padding, paddingRight: '12px' }}
+      >
+        <span className="text-[10px] text-gray-400">{recent.length} of 20</span>
+        <button
+          type="button"
+          onClick={handleClear}
+          className="text-[10px] text-gray-400 hover:text-red-500 transition-colors"
+        >
+          Clear
+        </button>
+      </div>
+      {recent.map(r => {
+        const isActive = activeIds.includes(r.id);
+        return (
+          <div
+            key={r.id}
+            className="flex items-center justify-between py-1.5 hover:bg-gray-50 group/row"
+            style={{ paddingLeft: padding, paddingRight: '12px' }}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-sm shrink-0">{ICON_BY_TYPE[r.type] ?? '◦'}</span>
+              <div className="min-w-0">
+                <div className="text-xs font-medium text-gray-700 truncate">
+                  {r.name}
+                </div>
+                {r.role && (
+                  <div className="text-[10px] text-gray-400 truncate">
+                    {r.role}
+                  </div>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={() => handleClick(r)}
+              disabled={isActive || !onSelect}
+              title={isActive ? 'Already in focus' : `Add ${r.name} back to focus`}
+              className={`shrink-0 ml-2 w-5 h-5 rounded text-xs font-bold transition-colors flex items-center justify-center ${
+                isActive
+                  ? 'bg-indigo-100 text-indigo-400 cursor-default'
+                  : 'bg-gray-100 text-gray-500 hover:bg-indigo-600 hover:text-white group-hover/row:bg-indigo-50 group-hover/row:text-indigo-600'
+              }`}
+            >
+              {isActive ? '✓' : '+'}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const ICON_BY_TYPE: Record<string, string> = {
+  official:  '👤',
+  agency:    '🏛',
+  proposal:  '📜',
+  financial: '💰',
+};
+
 function HomeLocationRow({
   depth,
   activeIds,
@@ -646,6 +777,7 @@ function isLeafRenderable(
   if (node.kind === 'topic-tag-list') return true;
   if (node.kind === 'committee-list') return true;
   if (node.kind === 'home-location')  return true;
+  if (node.kind === 'recent-list')    return true;
   if (node.kind === 'custom-form')    return true;
   return node.children.some(c => isLeafRenderable(c, groupMap));
 }

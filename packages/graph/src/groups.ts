@@ -239,6 +239,7 @@ export type GroupTreeNode =
   | { kind: 'topic-tag-list' }
   | { kind: 'committee-list' }
   | { kind: 'home-location' }
+  | { kind: 'recent-list' }
   | { kind: 'custom-form' }
   | {
       kind: 'category'
@@ -332,6 +333,13 @@ export const GROUP_TREE: GroupTreeNode[] = [
     icon: '⭐',
     defaultExpanded: false,
     children: [
+      {
+        kind: 'category',
+        label: 'Recently viewed',
+        icon: '🕒',
+        defaultExpanded: false,
+        children: [{ kind: 'recent-list' }],
+      },
       {
         kind: 'category',
         label: 'Build custom group',

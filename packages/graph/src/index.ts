@@ -48,6 +48,10 @@ export {
 } from "./groups";
 export type { GroupTreeNode } from "./groups";
 
+// ── Recently viewed (FIX-140) ───────────────────────────────────────────────
+export { recordRecent, loadRecent, clearRecent } from "./recently-viewed";
+export type { RecentEntity } from "./recently-viewed";
+
 // ── Registry ────────────────────────────────────────────────────────────────
 export { VIZ_REGISTRY, vizRegistry, getVizApplicability } from "./visualizations/registry";
 export type { VizMode, VizRegistryEntry } from "./visualizations/registry";

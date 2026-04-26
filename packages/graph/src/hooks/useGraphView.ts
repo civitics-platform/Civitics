@@ -15,6 +15,7 @@ import { useState } from 'react';
 import type { FocusEntity, FocusGroup, FocusItem, GraphView, GraphViewPreset, VizType } from '../types';
 import { isFocusEntity, isFocusGroup, MAX_FOCUS_ENTITIES } from '../types';
 import { DEFAULT_GRAPH_VIEW, applyPreset as applyPresetUtil, markDirty } from '../presets';
+import { recordRecent } from '../recently-viewed';
 
 export function useGraphView(initialView?: Partial<GraphView>) {
   const [view, setView] = useState<GraphView>({
@@ -27,7 +28,7 @@ export function useGraphView(initialView?: Partial<GraphView>) {
 
     // ── Layer 1: Focus ──────────────────────────────────────────────────────
 
-    addEntity: (entity: FocusEntity) =>
+    addEntity: (entity: FocusEntity) => {
       setView(v => {
         if (v.focus.entities.length >= MAX_FOCUS_ENTITIES) return v; // caller shows warning
         return markDirty({
@@ -40,7 +41,11 @@ export function useGraphView(initialView?: Partial<GraphView>) {
             ],
           },
         });
-      }),
+      });
+      // Recently-viewed history (FIX-140) — record outside the setState updater so
+      // StrictMode's double-invocation doesn't double-record.
+      recordRecent(entity);
+    },
 
     removeEntity: (id: string) =>
       setView(v => markDirty({

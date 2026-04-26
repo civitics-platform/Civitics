@@ -230,10 +230,19 @@ export function FocusTree({
       >
         <GroupBrowser
           onAddGroup={group => hooks.addGroup(group)}
+          onAddEntity={entity => {
+            if (hooks.atMaxFocus) return;
+            hooks.addEntity(entity);
+          }}
           activeGroupIds={
             focus.entities
               .filter(isFocusGroup)
               .map(g => g.id)
+          }
+          activeEntityIds={
+            focus.entities
+              .filter(isFocusEntity)
+              .map(e => e.id)
           }
         />
       </TreeSection>

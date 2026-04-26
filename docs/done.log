@@ -144,3 +144,4 @@
 2026-04-25 | FIX-042 | 44829221 | feat(graph): add USER node with alignment scoring (FIX-042)
 2026-04-25 | FIX-120 | f3fdabdc | feat(graph): surface USER node toggle + alignment connection (FIX-120)
 2026-04-25 | FIX-122 | e4279513 | feat(graph): gate AI Explain by AI_SUMMARIES_ENABLED (FIX-122)
+2026-04-25 | FIX-123 | 552a6598 | feat(graph): bills surface bill_number on connection nodes (FIX-123)

@@ -42,10 +42,11 @@ export { CONNECTION_TYPE_REGISTRY, DEFAULT_CONNECTION_STATE } from "./connection
 // ── Groups ──────────────────────────────────────────────────────────────────
 export {
   BUILT_IN_GROUPS,
-  GROUP_CATEGORIES,
+  GROUP_TREE,
   getGroupById,
   createCustomGroup,
 } from "./groups";
+export type { GroupTreeNode } from "./groups";
 
 // ── Registry ────────────────────────────────────────────────────────────────
 export { VIZ_REGISTRY, vizRegistry, getVizApplicability } from "./visualizations/registry";

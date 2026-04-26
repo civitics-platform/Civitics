@@ -221,29 +221,101 @@ export const BUILT_IN_GROUPS: FocusGroup[] = [
   },
 ]
 
-// Group definitions by category for display in GroupBrowser:
+// ── Browse hierarchy (FIX-135) ─────────────────────────────────────────────────
+//
+// Recursive 5-category tree rendered by GroupBrowser.
+// `kind: 'group'` leaves point at BUILT_IN_GROUPS by id.
+// `kind: 'state-picker'` / `kind: 'custom-form'` are slots GroupBrowser
+//   renders as the existing By-State dropdown and Build-custom-group form.
+// `kind: 'category'` is a recursive section header.
+//
+// Empty categories (Government, Legislation) are intentionally omitted until
+// FIX-137 (topic tags), FIX-139 (committees), FIX-143 (contracts) etc. land
+// — per app rule, no placeholder data.
 
-export const GROUP_CATEGORIES: Record<string, string[]> = {
-  'Congress': [
-    'group-full-senate',
-    'group-full-house',
-    'group-senate-dems',
-    'group-senate-reps',
-    'group-house-dems',
-    'group-house-reps',
-    'group-federal-judges',
-  ],
-  'Industry PACs': [
-    'group-pac-finance',
-    'group-pac-energy',
-    'group-pac-healthcare',
-    'group-pac-defense',
-    'group-pac-labor',
-    'group-pac-tech',
-    'group-pac-agriculture',
-    'group-pac-realestate',
-  ],
-}
+export type GroupTreeNode =
+  | { kind: 'group'; id: string }
+  | { kind: 'state-picker' }
+  | { kind: 'custom-form' }
+  | {
+      kind: 'category'
+      label: string
+      icon?: string
+      defaultExpanded?: boolean
+      children: GroupTreeNode[]
+    }
+
+export const GROUP_TREE: GroupTreeNode[] = [
+  {
+    kind: 'category',
+    label: 'People',
+    icon: '👥',
+    defaultExpanded: true,
+    children: [
+      {
+        kind: 'category',
+        label: 'Federal',
+        icon: '🏛',
+        defaultExpanded: true,
+        children: [
+          { kind: 'group', id: 'group-full-senate' },
+          { kind: 'group', id: 'group-senate-dems' },
+          { kind: 'group', id: 'group-senate-reps' },
+          { kind: 'group', id: 'group-full-house' },
+          { kind: 'group', id: 'group-house-dems' },
+          { kind: 'group', id: 'group-house-reps' },
+          { kind: 'group', id: 'group-federal-judges' },
+        ],
+      },
+      {
+        kind: 'category',
+        label: 'By state',
+        icon: '🗺',
+        defaultExpanded: false,
+        children: [{ kind: 'state-picker' }],
+      },
+    ],
+  },
+  {
+    kind: 'category',
+    label: 'Money',
+    icon: '💰',
+    defaultExpanded: true,
+    children: [
+      {
+        kind: 'category',
+        label: 'PACs by industry',
+        icon: '💼',
+        defaultExpanded: true,
+        children: [
+          { kind: 'group', id: 'group-pac-finance' },
+          { kind: 'group', id: 'group-pac-energy' },
+          { kind: 'group', id: 'group-pac-healthcare' },
+          { kind: 'group', id: 'group-pac-defense' },
+          { kind: 'group', id: 'group-pac-labor' },
+          { kind: 'group', id: 'group-pac-tech' },
+          { kind: 'group', id: 'group-pac-agriculture' },
+          { kind: 'group', id: 'group-pac-realestate' },
+        ],
+      },
+    ],
+  },
+  {
+    kind: 'category',
+    label: 'Saved',
+    icon: '⭐',
+    defaultExpanded: false,
+    children: [
+      {
+        kind: 'category',
+        label: 'Build custom group',
+        icon: '✏️',
+        defaultExpanded: false,
+        children: [{ kind: 'custom-form' }],
+      },
+    ],
+  },
+]
 
 // Helper to look up a group by ID:
 

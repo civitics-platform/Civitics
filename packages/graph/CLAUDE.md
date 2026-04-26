@@ -36,9 +36,11 @@ Cross-cutting principles being introduced:
 - **USER node Stage 1** — visible and toggleable in FocusTree; alignment edges
   render. Full alignment-scoring pipeline (AlignmentPanel ↔ edge weighting) is
   Stage 2. See FIX-120.
-- **Browse hierarchy** — flat `GROUP_CATEGORIES` (Congress + Industry PACs) is
-  being replaced by a 5-category tree (People / Money / Government / Legislation /
-  Saved). See FIX-135.
+- **Browse hierarchy** — recursive `GROUP_TREE` (5 root categories: People /
+  Money / Government / Legislation / Saved) rendered by `GroupBrowser`.
+  Government and Legislation render only after their leaves land
+  (FIX-137 topic tags, FIX-139 committees, etc.) — empty categories are hidden.
+  Per FIX-135.
 
 When updating this file as FIX items land, prefer surgical edits over rewrites —
 saved sessions reference IDs in `BUILT_IN_GROUPS` and `BUILT_IN_PRESETS`.

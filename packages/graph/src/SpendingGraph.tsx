@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
+import type { SpendingOptions } from "./types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -113,26 +114,41 @@ function sectorColor(sector: string): string {
 export interface SpendingGraphProps {
   className?: string;
   svgRef?: React.RefObject<SVGSVGElement>;
+  vizOptions?: Partial<SpendingOptions>;
 }
 
-export function SpendingGraph({ className = "" }: SpendingGraphProps) {
+const DEFAULTS: SpendingOptions = {
+  topAgencies: 8,
+  topRecipients: 20,
+  minFlowUsd: 0,
+  showSectors: true,
+};
+
+export function SpendingGraph({ className = "", vizOptions }: SpendingGraphProps) {
   const [chord, setChord]           = useState<ChordData | null>(null);
   const [recipients, setRecipients] = useState<RecipientRow[]>([]);
   const [loading, setLoading]       = useState(true);
   const panelRef = useRef<HTMLDivElement>(null);
 
+  const topAgenciesN  = vizOptions?.topAgencies   ?? DEFAULTS.topAgencies;
+  const topRecipientsN = vizOptions?.topRecipients ?? DEFAULTS.topRecipients;
+  const minFlowUsd    = vizOptions?.minFlowUsd    ?? DEFAULTS.minFlowUsd;
+  const showSectors   = vizOptions?.showSectors   ?? DEFAULTS.showSectors ?? true;
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
 
+    // Pull a generous slice from the API so the user can re-rank client-side
+    // via topN sliders without refetching.
     Promise.all([
       fetch("/api/graph/spending?type=chord").then(r => r.json()),
-      fetch("/api/graph/spending?type=treemap&lim=20").then(r => r.json()),
+      fetch("/api/graph/spending?type=treemap&lim=100").then(r => r.json()),
     ])
       .then(([chordData, treemapData]) => {
         if (cancelled) return;
         setChord(chordData as ChordData);
-        setRecipients((treemapData as RecipientRow[]).slice(0, 20));
+        setRecipients((treemapData as RecipientRow[]) ?? []);
       })
       .catch(console.error)
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -140,13 +156,36 @@ export function SpendingGraph({ className = "" }: SpendingGraphProps) {
     return () => { cancelled = true; };
   }, []);
 
-  const hasData = !loading && chord && (chord.agencies.length > 0 || recipients.length > 0);
+  // Apply min-flow + topN filters client-side. minFlowUsd applies to each row's
+  // aggregate total_cents (i.e. agency total, sector total, recipient total) —
+  // it's a "hide small buckets" filter, not a per-contract filter.
+  const minFlowCents = minFlowUsd * 100;
 
-  const topAgencies = chord?.agencies.slice(0, 8) ?? [];
-  const topSectors  = chord?.sectors.slice(0, 8) ?? [];
+  const topAgencies = useMemo(() => {
+    if (!chord) return [];
+    return chord.agencies
+      .filter(a => a.total_cents >= minFlowCents)
+      .slice(0, topAgenciesN);
+  }, [chord, minFlowCents, topAgenciesN]);
+
+  const topSectors = useMemo(() => {
+    if (!chord || !showSectors) return [];
+    return chord.sectors
+      .filter(s => s.total_cents >= minFlowCents)
+      .slice(0, topAgenciesN);
+  }, [chord, minFlowCents, topAgenciesN, showSectors]);
+
+  const visibleRecipients = useMemo(() => {
+    return recipients
+      .filter(r => r.total_cents >= minFlowCents)
+      .slice(0, topRecipientsN);
+  }, [recipients, minFlowCents, topRecipientsN]);
+
+  const hasData = !loading && chord && (topAgencies.length > 0 || visibleRecipients.length > 0);
+
   const maxAgency   = topAgencies[0]?.total_cents ?? 1;
   const maxSector   = topSectors[0]?.total_cents ?? 1;
-  const maxRecipient = recipients[0]?.total_cents ?? 1;
+  const maxRecipient = visibleRecipients[0]?.total_cents ?? 1;
 
   return (
     <div
@@ -201,7 +240,7 @@ export function SpendingGraph({ className = "" }: SpendingGraphProps) {
               )}
 
               {/* By Sector */}
-              {topSectors.length > 0 && (
+              {showSectors && topSectors.length > 0 && (
                 <section>
                   <h3 className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-3">
                     By Sector (NAICS)
@@ -228,11 +267,11 @@ export function SpendingGraph({ className = "" }: SpendingGraphProps) {
               <h3 className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-3">
                 Top Recipients
               </h3>
-              {recipients.length === 0 ? (
+              {visibleRecipients.length === 0 ? (
                 <p className="text-xs text-gray-500">No recipient data yet.</p>
               ) : (
                 <div className="space-y-2">
-                  {recipients.map((r, i) => (
+                  {visibleRecipients.map((r, i) => (
                     <div key={r.entity_id} className="flex items-center gap-3">
                       <span className="text-[10px] text-gray-600 w-4 shrink-0 tabular-nums">{i + 1}</span>
                       <div className="flex-1 min-w-0">

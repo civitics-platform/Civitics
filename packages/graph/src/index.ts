@@ -32,6 +32,7 @@ export type {
   MatrixOptions,
   AlignmentOptions,
   SankeyOptions,
+  SpendingOptions,
   NodeActions,
   NodeType as NodeTypeV2,
   ConnectionTypeDefinition,

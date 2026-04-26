@@ -531,7 +531,10 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
             className="absolute inset-0 transition-opacity duration-300"
             style={{ opacity: vizType === "spending" ? 1 : 0, pointerEvents: vizType === "spending" ? "auto" : "none" }}
           >
-            <SpendingGraph className="w-full h-full" />
+            <SpendingGraph
+              className="w-full h-full"
+              vizOptions={view.style.vizOptions.spending}
+            />
           </div>
 
           {/* Hierarchy */}

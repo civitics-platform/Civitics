@@ -157,6 +157,17 @@ export interface MatrixOptions {
   labelLimit?: number
 }
 
+export interface SpendingOptions {
+  /** Number of top agencies shown in the agency breakdown. */
+  topAgencies: number
+  /** Number of top recipients shown in the right pane. */
+  topRecipients: number
+  /** Hide flows / recipients with aggregate spend below this dollar amount. */
+  minFlowUsd: number
+  /** Render the sector breakdown panel. False shrinks the left pane to agencies only. */
+  showSectors?: boolean
+}
+
 export interface SankeyOptions {
   /** How many flow tiers to show: 2 = Federal→Agency, 3 = +Sector, 4 = +Vendor. */
   levels: 2 | 3 | 4
@@ -329,7 +340,7 @@ export interface GraphView {
       chord?: ChordOptions
       treemap?: TreemapOptions
       sunburst?: SunburstOptions
-      spending?: Record<string, never>
+      spending?: SpendingOptions
       hierarchy?: HierarchyOptions
       matrix?: MatrixOptions
       alignment?: AlignmentOptions

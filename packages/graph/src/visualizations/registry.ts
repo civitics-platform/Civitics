@@ -255,8 +255,13 @@ export const VIZ_REGISTRY: VizRegistryEntry[] = [
     icon: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z',
 
     requiresEntity: false,
-    supportedConnectionTypes: ['contract'],
-    defaultOptions: {},
+    supportedConnectionTypes: ['contract_award'],
+    defaultOptions: {
+      topAgencies: 8,
+      topRecipients: 20,
+      minFlowUsd: 0,
+      showSectors: true,
+    },
 
     screenshotTarget: '#spending-panel',
     screenshotPrep: prepScreenshot,
@@ -268,7 +273,7 @@ export const VIZ_REGISTRY: VizRegistryEntry[] = [
     isApplicable: (focus, _connections, graphMeta) => {
       if (focusHasEntityType(focus, 'agency')) return APPLICABLE
       if (graphMeta?.entityTypes.has('agency')) return APPLICABLE
-      if ((graphMeta?.connectionTypes['contract']?.count ?? 0) > 0) return APPLICABLE
+      if ((graphMeta?.connectionTypes['contract_award']?.count ?? 0) > 0) return APPLICABLE
       return { applicable: false, reason: 'Add an agency to enable Spending' }
     },
   },
@@ -346,7 +351,7 @@ export const VIZ_REGISTRY: VizRegistryEntry[] = [
     icon: 'M3 6h18M3 12h12m-12 6h6',
 
     requiresEntity: false,
-    supportedConnectionTypes: ['contract'],
+    supportedConnectionTypes: ['contract_award'],
     defaultOptions: {
       levels: 4,
       minFlowUsd: 0,

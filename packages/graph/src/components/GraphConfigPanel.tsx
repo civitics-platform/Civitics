@@ -605,6 +605,57 @@ function AlignmentSettings({ view, hooks }: { view: GraphView; hooks: UseGraphVi
   );
 }
 
+// ── Spending settings ──────────────────────────────────────────────────────────
+
+function SpendingSettings({ view, hooks }: { view: GraphView; hooks: UseGraphViewReturn }) {
+  const opts = view.style.vizOptions.spending;
+  function set(key: string, value: unknown) { hooks.setVizOption('spending', key, value); }
+
+  return (
+    <>
+      <LabeledSelect
+        label="Top agencies"
+        value={String(opts?.topAgencies ?? 8)}
+        options={[
+          { value: '5',  label: 'Top 5'  },
+          { value: '8',  label: 'Top 8'  },
+          { value: '12', label: 'Top 12' },
+          { value: '20', label: 'Top 20' },
+        ]}
+        onChange={v => set('topAgencies', parseInt(v))}
+      />
+      <LabeledSelect
+        label="Top recipients"
+        value={String(opts?.topRecipients ?? 20)}
+        options={[
+          { value: '10', label: 'Top 10' },
+          { value: '20', label: 'Top 20' },
+          { value: '50', label: 'Top 50' },
+          { value: '100', label: 'Top 100' },
+        ]}
+        onChange={v => set('topRecipients', parseInt(v))}
+      />
+      <LabeledSelect
+        label="Min flow"
+        value={String(opts?.minFlowUsd ?? 0)}
+        options={[
+          { value: '0',         label: 'No min'  },
+          { value: '1000000',   label: '$1M+'    },
+          { value: '10000000',  label: '$10M+'   },
+          { value: '100000000', label: '$100M+'  },
+          { value: '1000000000', label: '$1B+'   },
+        ]}
+        onChange={v => set('minFlowUsd', parseInt(v))}
+      />
+      <LabeledToggle
+        label="Sector breakdown"
+        value={opts?.showSectors ?? true}
+        onChange={v => set('showSectors', v)}
+      />
+    </>
+  );
+}
+
 // ── Sankey settings ────────────────────────────────────────────────────────────
 
 function SankeySettings({ view, hooks }: { view: GraphView; hooks: UseGraphViewReturn }) {
@@ -895,6 +946,7 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
           {vizType === 'matrix'    && <MatrixSettings    view={view} hooks={hooks} />}
           {vizType === 'alignment' && <AlignmentSettings view={view} hooks={hooks} />}
           {vizType === 'sankey'    && <SankeySettings    view={view} hooks={hooks} />}
+          {vizType === 'spending'  && <SpendingSettings  view={view} hooks={hooks} />}
         </TreeSection>
         </div>
 

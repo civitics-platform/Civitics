@@ -153,3 +153,4 @@
 2026-04-25 | FIX-128 | 89d34ad2 | feat(graph): gate ConnectionsTree by focus applicability (FIX-128)
 2026-04-25 | FIX-129 | 60203c93 | feat(graph): viz dropdown self-populates by applicability (FIX-129)
 2026-04-25 | FIX-130 | 63e53de1 | feat(graph): disable non-applicable settings controls (FIX-130)
+2026-04-25 | FIX-131 | e8722456 | feat(graph): empty-state preset cards for newcomers (FIX-131)

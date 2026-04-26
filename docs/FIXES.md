@@ -155,7 +155,7 @@ The shadow→public promotion migration (`20260422000000_promote_shadow_to_publi
 ### New connection types
 
 - [x] 🟡 M — **`appointment` connection type** — registry + DEFAULT_CONNECTION_STATE + pipeline derivation; per GRAPH_PLAN §4.1 <!--id:FIX-141-->
-- [ ] 🟡 M — **`revolving_door` connection type** — registry + DEFAULT_CONNECTION_STATE + career_history derivation; per GRAPH_PLAN §4.2 <!--id:FIX-142-->
+- [x] 🟡 M — **`revolving_door` connection type** — registry + DEFAULT_CONNECTION_STATE + career_history derivation; per GRAPH_PLAN §4.2 <!--id:FIX-142-->
 - [ ] 🟠 L — **`contract` connection type** — registry + USASpending derivation into entity_connections; per GRAPH_PLAN §4.3 <!--id:FIX-143-->
 
 ### New visualization types

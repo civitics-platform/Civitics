@@ -172,3 +172,4 @@
 2026-04-26 | FIX-144 | 7546aa92 | feat(graph): hierarchy viz (D3 tree/dendrogram)
 2026-04-26 | FIX-145 | 0d56d381 | feat(graph): matrix viz (NxN vote-agreement heatmap)
 2026-04-26 | FIX-146 | 16c6e661 | feat(graph): alignment viz (USER-centric radial bar chart)
+2026-04-26 | FIX-147 | bca7209e | feat(graph): sankey budget flow viz (Treasury -> agency -> sector -> vendor)

@@ -147,3 +147,4 @@
 2026-04-25 | FIX-123 | 552a6598 | feat(graph): bills surface bill_number on connection nodes (FIX-123)
 2026-04-25 | FIX-121 | 23fad3c5 | fix(graph): mark view dirty when groups are added or removed (FIX-121)
 2026-04-25 | FIX-125 | 7ea473e1 | feat(graph): runtime filter for procedural votes (FIX-125)
+2026-04-25 | FIX-124 | 8b4df934 | feat(officials): backfill state_abbr + treemap state derivation (FIX-124)

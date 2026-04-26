@@ -4,12 +4,13 @@
  * Derives entity_connections from existing structured data — no external API calls.
  * Run after all data ingestion pipelines have populated the DB.
  *
- * Derives 4 connection types:
+ * Derives 5 connection-type families:
  *   donation            — financial_relationships → financial_entity → official
  *   vote_yes/no/abstain — votes table → official → proposal
  *   nomination_vote_yes/no — votes on nomination proposals → official → proposal
  *   oversight           — agencies.governing_body_id → governing_body → agency
  *   appointment         — officials with agency-leadership role titles → agency
+ *   revolving_door      — career_history corp-side rows → financial_entity (corporation)
  *
  * All phases use batch upserts (500 rows/call) — never sequential per-row calls.
  * Supabase free-tier statement timeout: ~8s. 500 rows × ~10ms = ~5s (safe margin).
@@ -50,6 +51,7 @@ interface ConnectionCounts {
   nomination_vote_no:  number;
   oversight:           number;
   appointment:         number;
+  revolving_door:      number;
   failed:              number;
 }
 
@@ -571,7 +573,7 @@ async function deriveAppointmentConnections(
   db: any,
   counts: ConnectionCounts
 ): Promise<void> {
-  console.log("\n  [4/4] Appointment connections...");
+  console.log("\n  [4/5] Appointment connections...");
 
   const { data: officials, error: offErr } = await db
     .from("officials")
@@ -632,6 +634,104 @@ async function deriveAppointmentConnections(
 }
 
 // ---------------------------------------------------------------------------
+// 5. Revolving-door connections (official → corporation)  — FIX-142
+// Reads career_history rows where revolving_door_flag=true AND is_government=false
+// (the corporate side of the door) and matches organization name to a
+// financial_entities corporation row. Produces 0 results until career_history
+// is ingested — the code is correct and ready for that data.
+// ---------------------------------------------------------------------------
+
+function normalizeOrgName(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[.,]/g, '')
+    .replace(/\b(inc|llc|llp|ltd|corp|corporation|company|co|group|holdings)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function deriveRevolvingDoorConnections(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db: any,
+  counts: ConnectionCounts,
+): Promise<void> {
+  console.log("\n  [5/5] Revolving-door connections...");
+
+  const { data: history, error: hErr } = await db
+    .from("career_history")
+    .select("official_id, organization, role_title, started_at, ended_at")
+    .eq("revolving_door_flag", true)
+    .eq("is_government", false);
+
+  if (hErr) { console.error("    Error fetching career_history:", hErr.message); return; }
+
+  const rows = history ?? [];
+  if (rows.length === 0) {
+    console.log(
+      "    No revolving-door career rows found (career_history not yet ingested). Skipping.",
+    );
+    return;
+  }
+  console.log(`    Found ${rows.length} corporate-side revolving-door career rows`);
+
+  const { data: corps, error: cErr } = await db
+    .from("financial_entities")
+    .select("id, display_name")
+    .eq("entity_type", "corporation");
+
+  if (cErr) { console.error("    Error fetching corporations:", cErr.message); return; }
+
+  // Multiple corp aliases (e.g. parent + subsidiary) can collapse to the same
+  // normalized key. Last-write-wins is fine — we just need *one* candidate.
+  const corpsByName = new Map<string, string>();
+  for (const c of (corps ?? []) as Array<{ id: string; display_name: string }>) {
+    corpsByName.set(normalizeOrgName(c.display_name), c.id);
+  }
+
+  let unmatched = 0;
+  const batch: Record<string, unknown>[] = [];
+  for (const row of rows as Array<{
+    official_id: string;
+    organization: string;
+    role_title: string | null;
+    started_at: string | null;
+    ended_at: string | null;
+  }>) {
+    const corpId = corpsByName.get(normalizeOrgName(row.organization));
+    if (!corpId) { unmatched++; continue; }
+
+    batch.push({
+      from_type:       "official",
+      from_id:         row.official_id,
+      to_type:         "financial_entity",
+      to_id:           corpId,
+      connection_type: "revolving_door",
+      strength:        1.0,
+      occurred_at:     row.started_at ?? row.ended_at ?? null,
+      evidence: [{
+        source:       "career_history",
+        organization: row.organization,
+        role_title:   row.role_title,
+        started_at:   row.started_at,
+        ended_at:     row.ended_at,
+      }],
+    });
+  }
+
+  if (unmatched > 0) {
+    console.log(`    Unmatched corporate orgs (no name match): ${unmatched}`);
+  }
+
+  if (batch.length === 0) {
+    console.log("    No matchable revolving-door pairs to upsert.");
+    return;
+  }
+
+  await batchUpsertConnections(db, batch, counts, "revolving_door", 1);
+  console.log(`    Created/updated: ${counts.revolving_door} revolving-door connections`);
+}
+
+// ---------------------------------------------------------------------------
 // Main pipeline
 // ---------------------------------------------------------------------------
 
@@ -674,6 +774,7 @@ export async function runConnectionsPipeline(): Promise<PipelineResult> {
     nomination_vote_no:  0,
     oversight:           0,
     appointment:         0,
+    revolving_door:      0,
     failed:              0,
   };
 
@@ -719,6 +820,7 @@ export async function runConnectionsPipeline(): Promise<PipelineResult> {
       await deriveVoteConnections(db, counts, resumeVoteId);
     await deriveOversightConnections(db, counts, force);
     await deriveAppointmentConnections(db, counts);
+    await deriveRevolvingDoorConnections(db, counts);
 
     const total =
       counts.donation +
@@ -728,7 +830,8 @@ export async function runConnectionsPipeline(): Promise<PipelineResult> {
       counts.nomination_vote_yes +
       counts.nomination_vote_no +
       counts.oversight +
-      counts.appointment;
+      counts.appointment +
+      counts.revolving_door;
 
     // Egress estimate: ~500 bytes per vote row fetched
     const egress_mb = Math.round((totalVotesFetched * 500) / 1_000_000 * 10) / 10;
@@ -789,6 +892,7 @@ export async function runConnectionsPipeline(): Promise<PipelineResult> {
     console.log(`  ${"nomination_vote_no:".padEnd(36)} ${counts.nomination_vote_no}`);
     console.log(`  ${"oversight:".padEnd(36)} ${counts.oversight}`);
     console.log(`  ${"appointment:".padEnd(36)} ${counts.appointment}`);
+    console.log(`  ${"revolving_door:".padEnd(36)} ${counts.revolving_door}`);
     console.log(`  ${"failed:".padEnd(36)} ${counts.failed}`);
 
     const { data: sample } = await db

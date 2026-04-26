@@ -165,7 +165,7 @@ export async function GET(request: Request) {
         "vote_yes", "vote_no", "vote_abstain",
         "nomination_vote_yes", "nomination_vote_no",
       ] as const;
-      const OVERSIGHT_TYPES = ["oversight", "appointment", "co_sponsorship"] as const;
+      const OVERSIGHT_TYPES = ["oversight", "appointment", "co_sponsorship", "revolving_door"] as const;
 
       const [donationsRes, votesRes, oversightRes] = await Promise.all([
         withDbTimeout(

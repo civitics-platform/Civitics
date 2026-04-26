@@ -78,6 +78,13 @@ export const CONNECTION_TYPE_REGISTRY: Record<string, ConnectionTypeDefinition> 
     description: 'Cabinet- and agency-leadership appointments (official → agency)',
     hasAmount: false,
   },
+  revolving_door: {
+    label: 'Revolving Door',
+    icon: '🔁',
+    color: '#ec4899',
+    description: 'Official ↔ corporation movement via career history',
+    hasAmount: false,
+  },
   alignment: {
     label: 'Alignment',
     icon: '≈',
@@ -150,6 +157,12 @@ export const DEFAULT_CONNECTION_STATE: GraphView['connections'] = {
     color: CONNECTION_TYPE_REGISTRY.appointment!.color,
     opacity: 0.7,
     thickness: 0.4,
+  },
+  revolving_door: {
+    enabled: true,
+    color: CONNECTION_TYPE_REGISTRY.revolving_door!.color,
+    opacity: 0.75,
+    thickness: 0.5,
   },
   alignment: {
     enabled: true,
@@ -224,6 +237,8 @@ export function applicableConnectionTypes(
     out.add('appointment');
   }
 
+  if (hasOfficial || hasFinancial) out.add('revolving_door');
+
   if (userNodeVisible) out.add('alignment');
 
   return out;
@@ -249,6 +264,9 @@ export function inapplicableReason(connectionType: string): string {
   }
   if (connectionType === 'oversight' || connectionType === 'appointment') {
     return 'Add an official or agency to enable';
+  }
+  if (connectionType === 'revolving_door') {
+    return 'Add an official or corporation to enable';
   }
   if (connectionType === 'alignment') {
     return 'Show YOU node to enable';

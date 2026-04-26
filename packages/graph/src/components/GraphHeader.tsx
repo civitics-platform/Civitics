@@ -16,6 +16,7 @@ import { useState, useEffect, useRef } from 'react';
 import type { GraphView, VizType, VizApplicabilityMeta } from '../types';
 import { VIZ_REGISTRY, getVizApplicability } from '../visualizations/registry';
 import { AiNarrative } from '../AiNarrative';
+import { PathFinder } from '../PathFinder';
 
 export interface GraphHeaderProps {
   view: GraphView;
@@ -66,6 +67,8 @@ export function GraphHeader({
   const [narrativeOpen, setNarrativeOpen]   = useState(false);
   // FIX-129: transient toast shown when the user clicks a non-applicable viz.
   const [vizToast, setVizToast]             = useState<string | null>(null);
+  // FIX-132: PathFinder floats as an overlay (same pattern as AiNarrative).
+  const [pathOpen, setPathOpen]             = useState(false);
 
   const vizMenuRef = useRef<HTMLDivElement>(null);
   const searchRef  = useRef<HTMLDivElement>(null);
@@ -148,7 +151,10 @@ export function GraphHeader({
   }
 
   return (
-    <header className="relative shrink-0 h-12 flex items-center gap-2 px-3 bg-white/95 backdrop-blur-sm border-b border-gray-200 z-50">
+    <header className="shrink-0 h-12 flex items-center px-3 bg-white/95 backdrop-blur-sm border-b border-gray-200 z-50">
+
+      {/* ── Left cluster: logo + viz dropdown (FIX-133) ─────────────────── */}
+      <div className="flex items-center gap-2 shrink-0 pr-3 border-r border-gray-200">
 
       {/* Civitics mark */}
       <a
@@ -157,8 +163,6 @@ export function GraphHeader({
       >
         Civitics
       </a>
-
-      <span className="text-gray-300">|</span>
 
       {/* Viz dropdown + entity focus indicator */}
       <div className="flex items-center gap-1.5 shrink-0">
@@ -271,6 +275,10 @@ export function GraphHeader({
         </span>
       )}
       </div>
+      </div>
+
+      {/* ── Center cluster: search + Path + AI Explain (FIX-133) ─────────── */}
+      <div className="flex items-center gap-1.5 flex-1 px-3 border-r border-gray-200 min-w-0">
 
       {/* Entity search */}
       <div className="relative flex-1 max-w-72" ref={searchRef}>
@@ -320,22 +328,30 @@ export function GraphHeader({
         )}
       </div>
 
-      {/* Spacer */}
-      <div className="flex-1" />
+      {/* FIX-132: Path button — toggles PathFinder overlay. */}
+      <button
+        onClick={() => setPathOpen(p => !p)}
+        title="Find shortest path between two entities"
+        className={`shrink-0 px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors ${pathOpen ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-gray-100 text-gray-600'}`}
+      >
+        🔗 Path
+      </button>
 
-      {/* Action buttons */}
-      <div className="flex items-center gap-1 shrink-0">
-        <button
-          onClick={() => aiEnabled && setNarrativeOpen(true)}
-          disabled={!aiEnabled}
-          title={aiEnabled
-            ? "AI-generated summary of the current graph"
-            : "AI summaries are temporarily disabled"}
-          className="px-2.5 py-1.5 text-xs font-medium rounded-md hover:bg-gray-100 transition-colors text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-        >
-          ✨ Explain
-        </button>
+      <button
+        onClick={() => aiEnabled && setNarrativeOpen(true)}
+        disabled={!aiEnabled}
+        title={aiEnabled
+          ? "AI-generated summary of the current graph"
+          : "AI summaries are temporarily disabled"}
+        className="shrink-0 px-2.5 py-1.5 text-xs font-medium rounded-md hover:bg-gray-100 transition-colors text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+      >
+        ✨ Explain
+      </button>
 
+      </div>
+
+      {/* ── Right cluster: share + screenshot + fullscreen (FIX-133) ────── */}
+      <div className="flex items-center gap-1 shrink-0 pl-3">
         <button
           onClick={onShare}
           className="px-2.5 py-1.5 text-xs font-medium rounded-md hover:bg-gray-100 transition-colors text-gray-600"
@@ -376,13 +392,46 @@ export function GraphHeader({
         />
       )}
 
+      {/* FIX-132: PathFinder overlay — same floating pattern as AiNarrative.
+          Positions relative to viewport (no positioned ancestor in this header
+          — the overlay needs to escape the 48px-tall header). */}
+      {pathOpen && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 w-full max-w-md px-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">🔗</span>
+                <span className="text-xs font-semibold text-gray-200">Path Finder</span>
+              </div>
+              <button
+                onClick={() => setPathOpen(false)}
+                className="text-gray-500 hover:text-white transition-colors text-sm leading-none"
+                title="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="px-4 py-3">
+              <PathFinder />
+            </div>
+            <div className="px-4 py-2 border-t border-gray-800 bg-gray-950/60">
+              <p className="text-[10px] text-gray-600">
+                Path edges highlight on the Force graph.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* FIX-129: transient toast surfaced when the user clicks a non-applicable
-          viz. Floats below the header so it doesn't displace the layout. */}
+          viz. Fixed-positioned so it floats relative to the viewport (the header
+          itself isn't a positioned ancestor — that would clip floating overlays
+          like AiNarrative which expect to escape the header). */}
       {vizToast && (
         <div
           role="status"
           aria-live="polite"
-          className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-md shadow-lg pointer-events-none"
+          className="fixed top-14 left-1/2 -translate-x-1/2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-md shadow-lg pointer-events-none z-50"
         >
           {vizToast}
         </div>

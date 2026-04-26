@@ -9,7 +9,7 @@
  * Keyboard shortcut: [ toggles left panel (managed by GraphPage)
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { GraphView } from '../types';
 import type { UseGraphViewReturn } from '../hooks/useGraphView';
 import type { GraphMeta } from '../hooks/useGraphData';
@@ -42,6 +42,11 @@ const SECTION_ICONS: Record<Section, string> = {
 export function DataExplorerPanel({ view, hooks, collapsed, onCollapse, graphMeta, userNode, onToggleUserNode }: DataExplorerPanelProps) {
   const [savedAlignment, setSavedAlignment] = useState(null);
 
+  // FIX-134: section-jump — collapsed strip icons set a target before expanding,
+  // and an effect scrolls the matching section into view once the panel is open.
+  const [targetSection, setTargetSection] = useState<Section | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     try {
       const saved = localStorage.getItem('civic-alignment');
@@ -49,15 +54,27 @@ export function DataExplorerPanel({ view, hooks, collapsed, onCollapse, graphMet
     } catch {}
   }, []);
 
-  // Collapsed: 40px icon strip
+  useEffect(() => {
+    if (collapsed || !targetSection || !bodyRef.current) return;
+    const el = bodyRef.current.querySelector<HTMLElement>(`[data-section="${targetSection}"]`);
+    if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    setTargetSection(null);
+  }, [collapsed, targetSection]);
+
+  function jumpTo(section: Section) {
+    setTargetSection(section);
+    if (collapsed) onCollapse();
+  }
+
+  // Collapsed: 40px icon strip — FIX-134: each icon expands and scrolls to its section.
   if (collapsed) {
     return (
       <div className="h-full w-10 flex flex-col items-center py-2 gap-3 border-r border-gray-200 bg-white shrink-0">
         {(['focus', 'connections'] as Section[]).map(section => (
           <button
             key={section}
-            title={section === 'focus' ? 'Data Explorer — Focus' : 'Data Explorer — Connections'}
-            onClick={onCollapse}
+            title={section === 'focus' ? 'Open Focus section' : 'Open Connections section'}
+            onClick={() => jumpTo(section)}
             className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 transition-colors text-base"
           >
             {SECTION_ICONS[section]}
@@ -88,7 +105,8 @@ export function DataExplorerPanel({ view, hooks, collapsed, onCollapse, graphMet
       </div>
 
       {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto overscroll-contain">
+      <div ref={bodyRef} className="flex-1 overflow-y-auto overscroll-contain">
+        <div data-section="focus">
         <FocusTree
           focus={view.focus}
           hooks={hooks}
@@ -96,6 +114,8 @@ export function DataExplorerPanel({ view, hooks, collapsed, onCollapse, graphMet
           userNode={userNode}
           onToggleUserNode={onToggleUserNode}
         />
+        </div>
+        <div data-section="connections">
         <ConnectionsTree
           connections={view.connections}
           vizType={view.style.vizType}
@@ -105,6 +125,7 @@ export function DataExplorerPanel({ view, hooks, collapsed, onCollapse, graphMet
           userNodeVisible={userNodeIsVisible(userNode)}
           includeProcedural={view.focus.includeProcedural}
         />
+        </div>
         <AlignmentPanel
           initialIssues={savedAlignment}
           onAlignmentChange={(issues) => {

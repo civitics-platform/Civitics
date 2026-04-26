@@ -9,12 +9,16 @@
  * Keyboard shortcut: ] toggles right panel (managed by GraphPage)
  */
 
+import { useEffect, useRef, useState } from 'react';
 import type { GraphView, VizType } from '../types';
 import type { UseGraphViewReturn } from '../hooks/useGraphView';
 import type { GraphMeta } from '../hooks/useGraphData';
 import { VIZ_REGISTRY, getVizApplicability } from '../visualizations/registry';
 import { BUILT_IN_PRESETS } from '../presets';
 import { TreeNode, TreeSection } from './TreeNode';
+
+// FIX-134: section-jump targets the right-panel collapsed icons can scroll to.
+type ConfigSection = 'viz' | 'presets' | 'settings';
 
 export interface GraphConfigPanelProps {
   view: GraphView;
@@ -492,6 +496,24 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
   const activePreset  = view.meta?.presetId ?? null;
   const isDirty       = view.meta?.isDirty  ?? false;
 
+  // FIX-134: each collapsed-strip icon sets a pending scroll target before
+  // calling onCollapse. When the panel becomes expanded the effect below
+  // scrolls the matching section into view, then clears the target.
+  const [targetSection, setTargetSection] = useState<ConfigSection | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (collapsed || !targetSection || !bodyRef.current) return;
+    const el = bodyRef.current.querySelector<HTMLElement>(`[data-section="${targetSection}"]`);
+    if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    setTargetSection(null);
+  }, [collapsed, targetSection]);
+
+  function jumpTo(section: ConfigSection) {
+    setTargetSection(section);
+    if (collapsed) onCollapse();
+  }
+
   // Only show presets that match the active viz type (or 'any') and have relevant data.
   const relevantPresets = BUILT_IN_PRESETS.filter(p => {
     // Must match viz type
@@ -509,24 +531,33 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
     return true;
   });
 
-  // Collapsed: 40px icon strip
+  // Collapsed: 40px icon strip — FIX-134: each icon expands and scrolls to its section.
   if (collapsed) {
     return (
       <div className="h-full w-10 flex flex-col items-center py-2 gap-3 border-l border-gray-200 bg-white shrink-0">
         <button
           type="button"
-          title="Graph Config — Visualization"
+          title="Open Visualization section"
           aria-label="Open graph config — visualization"
-          onClick={onCollapse}
+          onClick={() => jumpTo('viz')}
           className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 transition-colors text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         >
           <span aria-hidden="true">⬡</span>
         </button>
         <button
           type="button"
-          title="Graph Config — Settings"
+          title="Open Presets section"
+          aria-label="Open graph config — presets"
+          onClick={() => jumpTo('presets')}
+          className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 transition-colors text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          <span aria-hidden="true">📋</span>
+        </button>
+        <button
+          type="button"
+          title="Open Settings section"
           aria-label="Open graph config — settings"
-          onClick={onCollapse}
+          onClick={() => jumpTo('settings')}
           className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 transition-colors text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         >
           <span aria-hidden="true">⚙</span>
@@ -558,9 +589,10 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
       </div>
 
       {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto overscroll-contain">
+      <div ref={bodyRef} className="flex-1 overflow-y-auto overscroll-contain">
 
         {/* Visualization picker — FIX-129: split by applicability against current focus + data. */}
+        <div data-section="viz">
         <TreeSection label="Visualization" separator={false} defaultExpanded>
           {(() => {
             const partitioned = STD_VIZ.map(v => ({
@@ -633,8 +665,10 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
             </TreeSection>
           )}
         </TreeSection>
+        </div>
 
         {/* Presets — filtered to active viz type */}
+        <div data-section="presets">
         <TreeSection label="Presets" defaultExpanded separator>
           {relevantPresets.length > 0
             ? relevantPresets.map(preset => (
@@ -673,8 +707,10 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
             {null}
           </TreeNode>
         </TreeSection>
+        </div>
 
         {/* Type-specific settings */}
+        <div data-section="settings">
         <TreeSection
           label={
             <span className="flex items-center gap-2">
@@ -689,6 +725,7 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
           {vizType === 'treemap'  && <TreemapSettings  view={view} hooks={hooks} graphMeta={graphMeta} />}
           {vizType === 'sunburst' && <SunburstSettings view={view} hooks={hooks} graphMeta={graphMeta} />}
         </TreeSection>
+        </div>
 
         {/* Display section removed — per-viz settings now live inside each viz's Settings section */}
 

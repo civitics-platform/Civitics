@@ -104,16 +104,23 @@ export async function GET(request: Request) {
 
   // treemap_officials_by_donations RPC was retired in the shadow→public promotion.
   // Query the filtered officials + aggregate their donations app-side.
+  // FIX-124: select source_ids + jurisdictions.short_name so we can derive
+  // state with the same fallback chain the old RPC used. Pure metadata lookups
+  // missed every federal Senator/Rep before the state_abbr backfill.
   let officialsQuery = supabase
     .from("officials")
-    .select("id, full_name, party, role_title, metadata")
+    .select("id, full_name, party, role_title, metadata, source_ids, jurisdictions:jurisdiction_id(short_name)")
     .eq("is_active", true);
 
   if (chamber === "senate") officialsQuery = officialsQuery.eq("role_title", "Senator");
   else if (chamber === "house") officialsQuery = officialsQuery.eq("role_title", "Representative");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   if (party) officialsQuery = officialsQuery.eq("party", party as any);
-  if (state) officialsQuery = officialsQuery.filter("metadata->>state", "eq", state);
+  if (state) {
+    // Match either metadata field — they're kept in sync by the FIX-124 backfill
+    // but accept both for robustness.
+    officialsQuery = officialsQuery.or(`metadata->>state.eq.${state},metadata->>state_abbr.eq.${state}`);
+  }
 
   const { data: officials, error: officialsErr } = await officialsQuery.limit(1000);
   if (officialsErr) {
@@ -121,13 +128,49 @@ export async function GET(request: Request) {
     return Response.json({ error: officialsErr.message }, { status: 500 });
   }
 
-  const officialById = new Map<string, { full_name: string; party: string | null; role_title: string | null; metadata: Record<string, unknown> | null }>();
+  const VALID_STATES = new Set([
+    "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
+    "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+    "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+    "VA","WA","WV","WI","WY","DC","PR","GU","VI","AS","MP",
+  ]);
+  function deriveState(
+    metadata: Record<string, unknown> | null,
+    sourceIds: Record<string, unknown> | null,
+    jurShortName: string | null,
+  ): string {
+    const meta = metadata ?? {};
+    if (typeof meta["state_abbr"] === "string" && meta["state_abbr"]) return meta["state_abbr"] as string;
+    if (typeof meta["state"]      === "string" && meta["state"])      return meta["state"]      as string;
+    if (jurShortName && jurShortName.length === 2 && VALID_STATES.has(jurShortName)) return jurShortName;
+    const cand = (sourceIds?.["fec_candidate_id"] as string | undefined) ?? "";
+    if (/^[SH][0-9][A-Z]{2}/.test(cand)) {
+      const code = cand.substring(2, 4);
+      if (VALID_STATES.has(code)) return code;
+    }
+    return "";
+  }
+
+  const officialById = new Map<string, {
+    full_name: string;
+    party: string | null;
+    role_title: string | null;
+    state: string;
+  }>();
   for (const o of officials ?? []) {
+    // jurisdictions:jurisdiction_id(short_name) collapses to a single object
+    // because jurisdiction_id is a singular FK.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const jur = (o as any).jurisdictions as { short_name: string | null } | null;
     officialById.set(o.id, {
       full_name: o.full_name,
       party: o.party,
       role_title: o.role_title,
-      metadata: o.metadata as Record<string, unknown> | null,
+      state: deriveState(
+        o.metadata as Record<string, unknown> | null,
+        o.source_ids as Record<string, unknown> | null,
+        jur?.short_name ?? null,
+      ),
     });
   }
 
@@ -153,12 +196,11 @@ export async function GET(request: Request) {
   for (const [officialId, totalCents] of totalByOfficial) {
     const o = officialById.get(officialId);
     if (!o) continue;
-    const meta = o.metadata ?? {};
     rows.push({
       official_id: officialId,
       official_name: o.full_name,
       party: o.party ?? "Unknown",
-      state: (meta["state"] as string) ?? "",
+      state: o.state,
       chamber: o.role_title === "Senator" ? "senate" : o.role_title === "Representative" ? "house" : (o.role_title ?? ""),
       total_donated_cents: totalCents,
     });

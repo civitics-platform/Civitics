@@ -60,18 +60,80 @@ function mapEdgeType(dbType: string): EdgeType {
 }
 
 /**
- * Procedural/substantive distinction now lives on votes.vote_question (per-roll-call),
- * not on proposals as a whole. entity_connections aggregates officials↔bill edges, so
- * there is no longer a 1:1 way to filter "procedural" at the graph level. Kept as a
- * no-op so the ?include_procedural=true flag still parses; revisit when the votes
- * pipeline exposes aggregate procedural/substantive flags on connections.
+ * FIX-125: drop vote-type connections whose underlying votes are all procedural.
+ *
+ * The connections pipeline already skips procedural votes at derivation
+ * (voteToConnectionType returns null), so most entity_connections rows are clean.
+ * This runtime filter handles legacy rows derived before the procedural skip
+ * was tightened, and lets the pipeline's procedural list grow without a re-run.
+ *
+ * For each vote-type connection (official ↔ proposal), look up the underlying
+ * votes by (official_id, proposal_id) and drop the connection only if every
+ * matching vote has a procedural vote_question. Connections with no matching
+ * vote rows are kept (trust the existing edge).
  */
+const PROCEDURAL_PREFIXES = [
+  "on the cloture motion",
+  "on the motion to proceed",
+  "on the motion to table",
+  "on the motion to recommit",
+  "on ordering the previous question",
+  "on agreeing to the amendment",
+  "on the conference report",
+  "on the joint resolution",
+  "on the resolution",
+  "on the motion",
+];
+
+const VOTE_CONN_TYPES = new Set([
+  "vote_yes", "vote_no", "vote_abstain",
+  "nomination_vote_yes", "nomination_vote_no",
+]);
+
 async function filterProceduralConnections(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  _supabase: any,
+  supabase: any,
   connections: ConnectionRow[],
 ): Promise<ConnectionRow[]> {
-  return connections;
+  const voteConns = connections.filter(c => VOTE_CONN_TYPES.has(c.connection_type));
+  if (voteConns.length === 0) return connections;
+
+  const officialIds = new Set<string>();
+  const proposalIds = new Set<string>();
+  for (const c of voteConns) {
+    const officialId = c.from_type === "official" ? c.from_id : c.to_id;
+    const proposalId = c.from_type === "proposal" ? c.from_id : c.to_id;
+    officialIds.add(officialId);
+    proposalIds.add(proposalId);
+  }
+
+  const { data: votes, error } = await supabase
+    .from("votes")
+    .select("official_id, proposal_id, metadata")
+    .in("official_id", [...officialIds])
+    .in("proposal_id", [...proposalIds]);
+
+  if (error || !votes) return connections; // fail open — never hide data on lookup error
+
+  // For each (official, proposal) pair: true if at least one non-procedural vote exists,
+  // false if we saw votes but they were all procedural, missing if no votes were found.
+  const hasSubstantive = new Map<string, boolean>();
+  for (const v of votes as { official_id: string; proposal_id: string; metadata: { vote_question?: string } | null }[]) {
+    const key = `${v.official_id}|${v.proposal_id}`;
+    const q = String(v.metadata?.vote_question ?? "").toLowerCase();
+    const isProcedural = PROCEDURAL_PREFIXES.some(p => q.startsWith(p));
+    if (!isProcedural) hasSubstantive.set(key, true);
+    else if (!hasSubstantive.has(key)) hasSubstantive.set(key, false);
+  }
+
+  return connections.filter(c => {
+    if (!VOTE_CONN_TYPES.has(c.connection_type)) return true;
+    const officialId = c.from_type === "official" ? c.from_id : c.to_id;
+    const proposalId = c.from_type === "proposal" ? c.from_id : c.to_id;
+    const flag = hasSubstantive.get(`${officialId}|${proposalId}`);
+    // missing → no vote rows found, keep edge; false → all procedural, drop; true → keep
+    return flag !== false;
+  });
 }
 
 export async function GET(request: Request) {

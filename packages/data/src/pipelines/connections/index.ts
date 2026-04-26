@@ -78,6 +78,7 @@ const PROCEDURAL_QUESTIONS = [
   "on the motion to table",
   "on the motion to recommit",
   "on agreeing to the amendment",
+  "on ordering the previous question",
 ];
 
 /**

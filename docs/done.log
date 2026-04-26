@@ -168,3 +168,4 @@
 2026-04-26 | FIX-140 | 2a2de8fd | feat(graph): recently-viewed entities
 2026-04-26 | FIX-141 | 1c71b93b | feat(graph): appointment connection type
 2026-04-26 | FIX-142 | 0f583c87 | feat(graph): revolving_door connection type
+2026-04-26 | FIX-143 | 556bc268 | feat(graph): contract connection type

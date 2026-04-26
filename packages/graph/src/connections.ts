@@ -7,6 +7,7 @@
  */
 
 import type { ConnectionTypeDefinition, GraphView } from './types'
+import { isFocusGroup } from './types'
 
 // ── Registry ───────────────────────────────────────────────────────────────────
 
@@ -143,4 +144,97 @@ export const DEFAULT_CONNECTION_STATE: GraphView['connections'] = {
     opacity: 0.7,
     thickness: 0.5,
   },
+}
+
+// ── Focus-aware applicability (FIX-128) ────────────────────────────────────────
+//
+// Returns the set of connection types that *could* produce edges given the
+// current focus. Types outside the set are still reachable (shown under a
+// collapsed "Not applicable" sub-tree in ConnectionsTree) but the UI signals
+// why toggling them won't render anything until the focus changes.
+//
+// Rules — see GRAPH_PLAN.md §3.1:
+//   donation             — official OR pac/financial in focus
+//   vote_* / nomination_ — official OR proposal in focus
+//   co_sponsorship       — same as vote_*
+//   oversight            — official OR agency in focus
+//   alignment            — USER node visible
+//
+// Empty focus + no USER node → all types applicable (don't pre-disable a
+// freshly-loaded panel before the user has done anything).
+
+export function applicableConnectionTypes(
+  focus: GraphView['focus'],
+  userNodeVisible: boolean = false,
+): Set<string> {
+  const items = focus.entities;
+
+  if (items.length === 0 && !userNodeVisible) {
+    return new Set(Object.keys(CONNECTION_TYPE_REGISTRY));
+  }
+
+  let hasOfficial = false;
+  let hasAgency = false;
+  let hasFinancial = false;
+  let hasProposal = false;
+
+  for (const item of items) {
+    if (isFocusGroup(item)) {
+      const et = item.filter.entity_type;
+      if (et === 'official') hasOfficial = true;
+      else if (et === 'agency') hasAgency = true;
+      else if (et === 'pac') hasFinancial = true;
+    } else {
+      if (item.type === 'official') hasOfficial = true;
+      else if (item.type === 'agency') hasAgency = true;
+      else if (item.type === 'financial') hasFinancial = true;
+      else if (item.type === 'proposal') hasProposal = true;
+    }
+  }
+
+  const out = new Set<string>();
+
+  if (hasOfficial || hasFinancial) out.add('donation');
+
+  if (hasOfficial || hasProposal) {
+    out.add('vote_yes');
+    out.add('vote_no');
+    out.add('vote_abstain');
+    out.add('nomination_vote_yes');
+    out.add('nomination_vote_no');
+    out.add('co_sponsorship');
+  }
+
+  if (hasOfficial || hasAgency) out.add('oversight');
+
+  if (userNodeVisible) out.add('alignment');
+
+  return out;
+}
+
+/**
+ * One-line explanation of *why* a connection type is not applicable to the
+ * current focus. Returned reason is short enough to fit as a row subtitle.
+ */
+export function inapplicableReason(connectionType: string): string {
+  if (connectionType === 'donation') {
+    return 'Add an official or PAC to enable';
+  }
+  if (
+    connectionType === 'vote_yes' ||
+    connectionType === 'vote_no' ||
+    connectionType === 'vote_abstain' ||
+    connectionType === 'nomination_vote_yes' ||
+    connectionType === 'nomination_vote_no' ||
+    connectionType === 'co_sponsorship'
+  ) {
+    return 'Add an official or proposal to enable';
+  }
+  if (connectionType === 'oversight') {
+    return 'Add an official or agency to enable';
+  }
+  if (connectionType === 'alignment') {
+    return 'Show YOU node to enable';
+  }
+  return 'Not applicable to current focus';
 }

@@ -5,12 +5,18 @@
  *
  * Renders the CONNECTIONS section of DataExplorerPanel.
  * Shows enabled types with full style controls and disabled types in an "Add" list.
+ * FIX-128: types not applicable to the current focus fall under a collapsed
+ * "Not applicable to current focus" sub-tree (still reachable).
  */
 
 import type { GraphView, VizType } from '../types';
 import type { UseGraphViewReturn } from '../hooks/useGraphView';
 import type { GraphMeta } from '../hooks/useGraphData';
-import { CONNECTION_TYPE_REGISTRY } from '../connections';
+import {
+  CONNECTION_TYPE_REGISTRY,
+  applicableConnectionTypes,
+  inapplicableReason,
+} from '../connections';
 import { TreeNode, TreeSection } from './TreeNode';
 import { ConnectionStyleRow } from './ConnectionStyleRow';
 
@@ -19,6 +25,10 @@ export interface ConnectionsTreeProps {
   vizType: VizType;
   hooks: UseGraphViewReturn;
   graphMeta?: GraphMeta;
+  /** Current focus — used to gate connection types by applicability (FIX-128). */
+  focus: GraphView['focus'];
+  /** Whether the USER node is on the canvas — gates the alignment type (FIX-128). */
+  userNodeVisible?: boolean;
   /** Current procedural-vote filter state — surfaced here as a vote-type filter. */
   includeProcedural?: boolean;
 }
@@ -26,7 +36,15 @@ export interface ConnectionsTreeProps {
 // Viz types that only support donations
 const DONATION_ONLY_VIZ = new Set<VizType>(['chord', 'treemap']);
 
-export function ConnectionsTree({ connections, vizType, hooks, graphMeta, includeProcedural }: ConnectionsTreeProps) {
+export function ConnectionsTree({
+  connections,
+  vizType,
+  hooks,
+  graphMeta,
+  focus,
+  userNodeVisible = false,
+  includeProcedural,
+}: ConnectionsTreeProps) {
   // All known types
   const allTypes = Object.keys(CONNECTION_TYPE_REGISTRY);
 
@@ -43,8 +61,13 @@ export function ConnectionsTree({ connections, vizType, hooks, graphMeta, includ
       )
     : allTypes;
 
-  const enabledTypes  = visibleTypes.filter(t =>  connections[t]?.enabled);
-  const disabledTypes = visibleTypes.filter(t => !connections[t]?.enabled);
+  // FIX-128: partition by applicability against the current focus.
+  const applicable = applicableConnectionTypes(focus, userNodeVisible);
+  const applicableTypes    = visibleTypes.filter(t =>  applicable.has(t));
+  const inapplicableTypes  = visibleTypes.filter(t => !applicable.has(t));
+
+  const enabledTypes  = applicableTypes.filter(t =>  connections[t]?.enabled);
+  const disabledTypes = applicableTypes.filter(t => !connections[t]?.enabled);
 
   const donationOnlyViz = DONATION_ONLY_VIZ.has(vizType);
 
@@ -82,7 +105,7 @@ export function ConnectionsTree({ connections, vizType, hooks, graphMeta, includ
         )}
       </TreeSection>
 
-      {/* Disabled types — can be added */}
+      {/* Disabled but applicable types — can be added */}
       {disabledTypes.length > 0 && (
         <TreeSection
           label="Add Types"
@@ -113,6 +136,58 @@ export function ConnectionsTree({ connections, vizType, hooks, graphMeta, includ
                 actions={[{
                   icon: '+',
                   label: 'Enable',
+                  onClick: () => hooks.toggleConnection(type),
+                }]}
+              >
+                {null}
+              </TreeNode>
+            );
+          })}
+        </TreeSection>
+      )}
+
+      {/* FIX-128: types that don't apply to the current focus.
+          Collapsed by default but still reachable; each row carries a one-line
+          reason so the user knows what to add to focus to make it applicable. */}
+      {inapplicableTypes.length > 0 && (
+        <TreeSection
+          label="Not applicable to current focus"
+          count={inapplicableTypes.length}
+          defaultExpanded={false}
+          separator={false}
+          depth={1}
+        >
+          {inapplicableTypes.map(type => {
+            const def      = CONNECTION_TYPE_REGISTRY[type];
+            const settings = connections[type];
+            const count    = graphMeta?.connectionTypes[type]?.count;
+            if (!def) return null;
+            const reason  = inapplicableReason(type);
+            const enabled = !!settings?.enabled;
+            return (
+              <TreeNode
+                key={type}
+                label={
+                  <span className="flex flex-col gap-0.5 flex-1 min-w-0">
+                    <span className="flex items-center gap-1 min-w-0">
+                      <span className="truncate text-gray-500">{def.label}</span>
+                      {count != null && count > 0 && (
+                        <span className="text-[9px] text-gray-400 ml-auto shrink-0">{count}</span>
+                      )}
+                    </span>
+                    <span className="text-[9px] text-gray-400 leading-tight truncate">
+                      {reason}
+                    </span>
+                  </span>
+                }
+                variant="connection"
+                connectionColor={def.color}
+                collapsible={false}
+                depth={2}
+                separator={false}
+                actions={[{
+                  icon: enabled ? '×' : '+',
+                  label: enabled ? 'Disable' : 'Enable anyway',
                   onClick: () => hooks.toggleConnection(type),
                 }]}
               >

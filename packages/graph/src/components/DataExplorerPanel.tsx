@@ -29,6 +29,9 @@ export interface DataExplorerPanelProps {
   onToggleUserNode?: () => void;
 }
 
+const userNodeIsVisible = (info?: UserNodeInfo | null): boolean =>
+  !!info && info.visible;
+
 type Section = 'focus' | 'connections';
 
 const SECTION_ICONS: Record<Section, string> = {
@@ -98,6 +101,8 @@ export function DataExplorerPanel({ view, hooks, collapsed, onCollapse, graphMet
           vizType={view.style.vizType}
           hooks={hooks}
           graphMeta={graphMeta}
+          focus={view.focus}
+          userNodeVisible={userNodeIsVisible(userNode)}
           includeProcedural={view.focus.includeProcedural}
         />
         <AlignmentPanel

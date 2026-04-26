@@ -25,6 +25,8 @@ export interface GraphHeaderProps {
   onShare: () => void;
   onScreenshot: () => void;
   onFullscreen: () => void;
+  /** When false, ✨ Explain is disabled (kill switch via AI_SUMMARIES_ENABLED). Defaults true. */
+  aiEnabled?: boolean;
 }
 
 interface EntityResult {
@@ -48,6 +50,7 @@ export function GraphHeader({
   onShare,
   onScreenshot,
   onFullscreen,
+  aiEnabled = true,
 }: GraphHeaderProps) {
   const activeViz = VIZ_REGISTRY.find(v => v.id === view.style.vizType);
 
@@ -278,9 +281,12 @@ export function GraphHeader({
       {/* Action buttons */}
       <div className="flex items-center gap-1 shrink-0">
         <button
-          onClick={() => setNarrativeOpen(true)}
-          title="AI-generated summary of the current graph"
-          className="px-2.5 py-1.5 text-xs font-medium rounded-md hover:bg-gray-100 transition-colors text-gray-600"
+          onClick={() => aiEnabled && setNarrativeOpen(true)}
+          disabled={!aiEnabled}
+          title={aiEnabled
+            ? "AI-generated summary of the current graph"
+            : "AI summaries are temporarily disabled"}
+          className="px-2.5 py-1.5 text-xs font-medium rounded-md hover:bg-gray-100 transition-colors text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
         >
           ✨ Explain
         </button>
@@ -315,7 +321,7 @@ export function GraphHeader({
           )}
         </button>
       </div>
-      {narrativeOpen && (
+      {narrativeOpen && aiEnabled && (
         <AiNarrative
           vizType={view.style.vizType}
           entityNames={view.focus.entities.map(e => e.name)}

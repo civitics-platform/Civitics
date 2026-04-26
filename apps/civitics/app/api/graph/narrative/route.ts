@@ -5,6 +5,14 @@ import { createAiClient, MODELS } from "@civitics/ai";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
+  // Kill switch: when AI_SUMMARIES_ENABLED=false, refuse before calling
+  // Anthropic. Mirrors the guard in /api/officials/[id]/summary and
+  // packages/ai/src/client.ts#generateSummary. See FLAGS in
+  // packages/data/src/feature-flags.ts.
+  if (process.env["AI_SUMMARIES_ENABLED"] === "false") {
+    return NextResponse.json({ disabled: true }, { status: 503 });
+  }
+
   try {
     const { vizType, entityNames, activeFilters } = await req.json() as {
       vizType: string;

@@ -422,7 +422,7 @@ Set these in Vercel Dashboard → Settings → Environment Variables (no code de
 | `CRON_DISABLED` | `true` | Stops nightly cron from running |
 | `SUPABASE_AVAILABLE` | `false` | Prevents 10-second timeout burns when Supabase is paused |
 | `CONNECTIONS_PIPELINE_ENABLED` | `false` | Disables connections pipeline |
-| `AI_SUMMARIES_ENABLED` | `false` | Disables AI summary generation |
+| `AI_SUMMARIES_ENABLED` | `false` | Disables AI summary generation (officials/proposals summaries, ai-tagger pipeline, ai-summaries pipeline, and `/api/graph/narrative` — the graph header ✨ Explain button hides) |
 | `CHORD_DATA_ENABLED` | `false` | Disables chord diagram data queries |
 
 **When pausing Supabase:** Always set `SUPABASE_AVAILABLE=false` in Vercel first to prevent functions from timing out on dead DB connections.

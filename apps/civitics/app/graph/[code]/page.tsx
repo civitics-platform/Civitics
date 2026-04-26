@@ -42,10 +42,13 @@ export default async function SharedGraphPage({ params }: Props) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   void (supabase as any).rpc("increment_snapshot_view", { p_code: code });
 
+  const aiEnabled = process.env["AI_SUMMARIES_ENABLED"] !== "false";
+
   return (
     <GraphPage
       initialCode={code}
       initialState={data.state as Record<string, unknown>}
+      aiEnabled={aiEnabled}
     />
   );
 }

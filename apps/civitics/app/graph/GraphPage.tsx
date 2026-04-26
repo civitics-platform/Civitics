@@ -29,9 +29,11 @@ interface GraphPageProps {
   initialCode?: string;
   /** Serialized snapshot state (old arch or v2 JSON). Stage 2: restore full GraphView. */
   initialState?: Record<string, unknown>;
+  /** AI_SUMMARIES_ENABLED kill switch — read server-side and threaded down. Defaults true. */
+  aiEnabled?: boolean;
 }
 
-export function GraphPage({ initialCode }: GraphPageProps = {}) {
+export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}) {
   // ── Graph view state (three-layer model) ──────────────────────────────────
   const graphHooks = useGraphView();
   const { view }   = graphHooks;
@@ -331,6 +333,7 @@ export function GraphPage({ initialCode }: GraphPageProps = {}) {
         onShare={() => setShowShare(true)}
         onScreenshot={handleScreenshot}
         onFullscreen={handleFullscreen}
+        aiEnabled={aiEnabled}
       />
 
       {/* ── Three-column body ────────────────────────────────────────────── */}

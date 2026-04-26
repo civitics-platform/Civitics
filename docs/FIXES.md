@@ -168,7 +168,7 @@ The shadow→public promotion migration (`20260422000000_promote_shadow_to_publi
 
 ### Compare mode upgrade
 
-- [ ] 🟡 M — **Shared connections pill list** — floating pill bar above canvas when ≥2 entities focused; per GRAPH_PLAN §6.1 <!--id:FIX-149-->
+- [x] 🟡 M — **Shared connections pill list** — floating pill bar above canvas when ≥2 entities focused; per GRAPH_PLAN §6.1 <!--id:FIX-149-->
 
 ### Documentation
 

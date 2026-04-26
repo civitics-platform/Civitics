@@ -174,3 +174,4 @@
 2026-04-26 | FIX-146 | 16c6e661 | feat(graph): alignment viz (USER-centric radial bar chart)
 2026-04-26 | FIX-147 | bca7209e | feat(graph): sankey budget flow viz (Treasury -> agency -> sector -> vendor)
 2026-04-26 | FIX-148 | cd8e7ee3 | feat(graph): wire SpendingGraph options + fix contract connection-type drift
+2026-04-26 | FIX-149 | aea46680 | feat(graph): shared-connections pill bar (compare mode)

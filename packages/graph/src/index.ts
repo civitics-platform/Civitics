@@ -88,7 +88,7 @@ export { TreeNode, TreeSection } from "./components/TreeNode";
 export type { TreeNodeProps, TreeNodeAction, TreeNodeVariant, TreeSectionProps } from "./components/TreeNode";
 
 export { FocusTree } from "./components/FocusTree";
-export type { FocusTreeProps } from "./components/FocusTree";
+export type { FocusTreeProps, UserNodeInfo } from "./components/FocusTree";
 
 export { ConnectionsTree } from "./components/ConnectionsTree";
 export type { ConnectionsTreeProps } from "./components/ConnectionsTree";

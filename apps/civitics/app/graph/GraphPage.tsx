@@ -18,7 +18,7 @@ import {
   isFocusEntity,
   isFocusGroup,
 } from "@civitics/graph";
-import type { VizType, FocusGroup, GraphNodeV2 as GraphNode, GraphEdgeV2 as GraphEdge } from "@civitics/graph";
+import type { VizType, FocusGroup, GraphNodeV2 as GraphNode, GraphEdgeV2 as GraphEdge, GraphMeta, UserNodeInfo } from "@civitics/graph";
 import { SharePanel }      from "./SharePanel";
 import { ScreenshotPanel } from "./ScreenshotPanel";
 import { GhostGraph }      from "./GhostGraph";
@@ -70,11 +70,13 @@ export function GraphPage({ initialCode }: GraphPageProps = {}) {
 
   // ── USER node: fetch representatives + alignment scores ──────────────────
   // Independently of focus entities — always present when home_state is set.
+  // FIX-120: also tracks visibility (toggleable in FocusTree).
   const USER_NODE_ID = "user:me";
   const userRepFetchedRef = useRef(false);
   const [userNode,       setUserNode]       = useState<GraphNode | null>(null);
   const [repNodes,       setRepNodes]       = useState<GraphNode[]>([]);
   const [alignmentEdges, setAlignmentEdges] = useState<GraphEdge[]>([]);
+  const [userNodeVisible, setUserNodeVisible] = useState(true);
 
   useEffect(() => {
     if (userRepFetchedRef.current) return;
@@ -143,17 +145,55 @@ export function GraphPage({ initialCode }: GraphPageProps = {}) {
 
   // Merge user node + rep nodes + alignment edges into the display arrays.
   // repNodes not already in `nodes` are added so alignment edges can render.
+  // FIX-120: when userNodeVisible is false, fall back to the raw focus data.
   const displayNodes = useMemo((): GraphNode[] => {
-    if (!userNode) return nodes;
+    if (!userNode || !userNodeVisible) return nodes;
     const existingIds = new Set(nodes.map(n => n.id));
     const newReps = repNodes.filter(n => !existingIds.has(n.id));
     return [...nodes, ...newReps, userNode];
-  }, [nodes, userNode, repNodes]);
+  }, [nodes, userNode, userNodeVisible, repNodes]);
 
   const displayEdges = useMemo((): GraphEdge[] => {
-    if (!userNode) return allEdges;
+    if (!userNode || !userNodeVisible) return allEdges;
     return [...allEdges, ...alignmentEdges];
-  }, [allEdges, userNode, alignmentEdges]);
+  }, [allEdges, userNode, userNodeVisible, alignmentEdges]);
+
+  // FIX-120: aggregate alignment ratio across the user's reps. Drives both the
+  // FocusTree YOU row badge and (indirectly) the USER node ring color.
+  const overallAlignmentRatio = useMemo((): number | null => {
+    const ratios = alignmentEdges
+      .map(e => e.metadata?.alignmentRatio as number | null | undefined)
+      .filter((v): v is number => typeof v === "number");
+    if (ratios.length === 0) return null;
+    return ratios.reduce((a, b) => a + b, 0) / ratios.length;
+  }, [alignmentEdges]);
+
+  const userNodeInfo: UserNodeInfo | null = useMemo(() => {
+    if (!userNode) return null;
+    return {
+      visible: userNodeVisible,
+      alignmentRatio: overallAlignmentRatio,
+      repCount: repNodes.length,
+    };
+  }, [userNode, userNodeVisible, overallAlignmentRatio, repNodes.length]);
+
+  // FIX-120: surface alignment in graphMeta.connectionTypes so the
+  // ConnectionsTree shows it under "Active Types" with a real count when the
+  // YOU node is rendered.
+  const displayGraphMeta = useMemo((): GraphMeta | undefined => {
+    if (!graphMeta) return graphMeta;
+    if (!userNodeVisible || alignmentEdges.length === 0) return graphMeta;
+    return {
+      ...graphMeta,
+      connectionTypes: {
+        ...graphMeta.connectionTypes,
+        alignment: {
+          count: alignmentEdges.length,
+          totalAmount: 0,
+        },
+      },
+    };
+  }, [graphMeta, userNodeVisible, alignmentEdges.length]);
 
   // ── Panel collapse state ──────────────────────────────────────────────────
   // Auto-collapse both panels on small screens (<768px) — panels are fixed-width
@@ -302,7 +342,9 @@ export function GraphPage({ initialCode }: GraphPageProps = {}) {
           hooks={graphHooks}
           collapsed={leftCollapsed}
           onCollapse={() => setLeftCollapsed(p => !p)}
-          graphMeta={graphMeta}
+          graphMeta={displayGraphMeta}
+          userNode={userNodeInfo}
+          onToggleUserNode={() => setUserNodeVisible(v => !v)}
         />
 
         {/* CANVAS */}
@@ -438,7 +480,7 @@ export function GraphPage({ initialCode }: GraphPageProps = {}) {
           collapsed={rightCollapsed}
           onCollapse={() => setRightCollapsed(p => !p)}
           onSavePreset={handleSavePreset}
-          graphMeta={graphMeta}
+          graphMeta={displayGraphMeta}
         />
 
       </div>

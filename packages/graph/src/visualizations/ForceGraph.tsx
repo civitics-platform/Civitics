@@ -618,7 +618,30 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
             .attr("pointer-events", "none")
             .text(truncate(d.name, 8));
         } else if (d.type === "user") {
-          // YOU node: purple double-ring circle
+          // YOU node: distinct visual (FIX-120)
+          //   - Larger than typical official nodes (baseRadius=28)
+          //   - Outer ring color reflects aggregate alignment across reps:
+          //       green ≥ 0.6, red < 0.4, gray otherwise
+          //   - Inner circle stays purple to read as "this is YOU"
+          const alignmentRatios = simLinks
+            .filter(e => e.fromId === d.id && e.connectionType === "alignment")
+            .map(e => e.metadata?.alignmentRatio as number | null)
+            .filter((v): v is number => typeof v === "number");
+          const avgRatio = alignmentRatios.length > 0
+            ? alignmentRatios.reduce((a, b) => a + b, 0) / alignmentRatios.length
+            : null;
+          const ringColor =
+            avgRatio == null ? "#9ca3af" :  // gray
+            avgRatio >= 0.6  ? "#16a34a" :  // green
+            avgRatio <  0.4  ? "#dc2626" :  // red
+                               "#9ca3af";   // mixed → gray
+          el.append("circle")
+            .attr("r", r + 8)
+            .attr("fill", "none")
+            .attr("stroke", ringColor)
+            .attr("stroke-width", 3)
+            .attr("opacity", 0.85)
+            .attr("pointer-events", "none");
           el.append("circle")
             .attr("r", r + 4)
             .attr("fill", "none")
@@ -822,7 +845,6 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
       link
         .style("display", (d: SimLink) => {
           if (!hasConnectionFilter) return "block";
-          if (d.connectionType === "alignment") return "block"; // always show
           const conn = connections[d.connectionType];
           if (!conn) return "block";           // unknown type: show
           if (conn.enabled === false) return "none"; // explicitly disabled: hide

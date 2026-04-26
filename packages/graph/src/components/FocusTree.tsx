@@ -17,11 +17,29 @@ import { EntitySearchInput } from './EntitySearchInput';
 import { GroupBrowser } from './GroupBrowser';
 import { PathFinder } from '../PathFinder';
 
+/**
+ * USER node summary surfaced in the FocusTree "Active" section.
+ * `null` / undefined when the viewer is unauthenticated or has no home
+ * district configured — in that case the YOU row is hidden entirely.
+ */
+export interface UserNodeInfo {
+  /** Whether the USER node is currently rendered on the canvas. */
+  visible: boolean;
+  /** Aggregate alignment ratio across the user's reps, or null if no overlap yet. */
+  alignmentRatio: number | null;
+  /** Number of representatives wired up to the USER node. */
+  repCount: number;
+}
+
 export interface FocusTreeProps {
   focus: GraphView['focus'];
   hooks: UseGraphViewReturn;
   /** Optional: derived from loaded graph data. Used to gate vote-specific options. */
   graphMeta?: GraphMeta;
+  /** USER node summary — shows the "👤 You" row when present (FIX-120). */
+  userNode?: UserNodeInfo | null;
+  /** Toggle USER node visibility independent of follows (FIX-120). */
+  onToggleUserNode?: () => void;
 }
 
 const DEPTH_LABELS: Record<number, string> = { 1: '1', 2: '2', 3: '3' };
@@ -61,10 +79,18 @@ const SCOPE_OPTIONS = [
 ] as const;
 
 
-export function FocusTree({ focus, hooks, graphMeta: _graphMeta }: FocusTreeProps) {
+export function FocusTree({
+  focus,
+  hooks,
+  graphMeta: _graphMeta,
+  userNode,
+  onToggleUserNode,
+}: FocusTreeProps) {
   const { entities, depth, scope } = focus;
   // Procedural-votes toggle now lives in ConnectionsTree (vote-level filter, not focus-level).
   const atMax = hooks.atMaxFocus;
+  const showUserRow = !!userNode;
+  const activeCount = entities.length + (showUserRow ? 1 : 0);
 
   // Group entities by groupTag ('' = ungrouped). FocusGroups are handled separately.
   const grouped = entities.filter(isFocusEntity).reduce<Record<string, FocusEntity[]>>((acc, e) => {
@@ -92,8 +118,8 @@ export function FocusTree({ focus, hooks, graphMeta: _graphMeta }: FocusTreeProp
         onClick: () => { /* Search section auto-expands on empty */ },
       }}
     >
-      {/* Empty state */}
-      {entities.length === 0 && (
+      {/* Empty state — only when nothing is focused AND the YOU row isn't surfaced */}
+      {entities.length === 0 && !showUserRow && (
         <div className="px-4 py-5 text-center">
           <div className="text-2xl mb-2">🔍</div>
           <p className="text-xs font-medium text-gray-600">Search to add entities</p>
@@ -104,14 +130,18 @@ export function FocusTree({ focus, hooks, graphMeta: _graphMeta }: FocusTreeProp
       )}
 
       {/* Active entities */}
-      {entities.length > 0 && (
+      {activeCount > 0 && (
         <TreeSection
           label="Active"
-          count={entities.length}
+          count={activeCount}
           defaultExpanded
           separator={false}
           depth={1}
         >
+          {/* USER node toggle — top of Active section when authenticated (FIX-120) */}
+          {showUserRow && (
+            <UserNodeRow userNode={userNode} onToggle={onToggleUserNode} />
+          )}
           {/* FocusGroup items */}
           {entities.filter(isFocusGroup).map(item => (
             <div
@@ -255,6 +285,51 @@ export function FocusTree({ focus, hooks, graphMeta: _graphMeta }: FocusTreeProp
 
       </TreeSection>
     </TreeSection>
+  );
+}
+
+// ── UserNodeRow ────────────────────────────────────────────────────────────────
+
+function alignmentBadge(ratio: number | null): { label: string; color: string } {
+  if (ratio == null)  return { label: 'No data', color: 'text-gray-400' };
+  if (ratio >= 0.6)   return { label: `${Math.round(ratio * 100)}% aligned`, color: 'text-green-600' };
+  if (ratio >= 0.4)   return { label: `${Math.round(ratio * 100)}% mixed`,   color: 'text-amber-500' };
+  return                     { label: `${Math.round(ratio * 100)}% misaligned`, color: 'text-red-600' };
+}
+
+function UserNodeRow({
+  userNode,
+  onToggle,
+}: {
+  userNode: UserNodeInfo;
+  onToggle?: () => void;
+}) {
+  const badge = alignmentBadge(userNode.alignmentRatio);
+  return (
+    <div className="flex items-center justify-between px-3 py-2 bg-violet-50/60 border-b border-gray-100">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="w-6 h-6 rounded-full bg-violet-100 border border-violet-300 flex items-center justify-center shrink-0 text-sm">
+          👤
+        </span>
+        <div className="min-w-0">
+          <div className="text-xs font-medium text-gray-800 truncate">You</div>
+          <div className={`text-[10px] ${badge.color}`}>
+            {userNode.repCount > 0 ? badge.label : 'Set home district to score alignment'}
+          </div>
+        </div>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={userNode.visible}
+        aria-label={userNode.visible ? 'Hide YOU node' : 'Show YOU node'}
+        onClick={onToggle}
+        disabled={!onToggle}
+        className={`shrink-0 ml-2 w-7 h-4 rounded-full transition-colors relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 ${userNode.visible ? 'bg-violet-500' : 'bg-gray-300'} ${onToggle ? '' : 'opacity-50 cursor-not-allowed'}`}
+      >
+        <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${userNode.visible ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+      </button>
+    </div>
   );
 }
 

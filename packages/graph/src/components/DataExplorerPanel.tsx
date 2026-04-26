@@ -13,7 +13,7 @@ import { useState, useEffect } from 'react';
 import type { GraphView } from '../types';
 import type { UseGraphViewReturn } from '../hooks/useGraphView';
 import type { GraphMeta } from '../hooks/useGraphData';
-import { FocusTree } from './FocusTree';
+import { FocusTree, type UserNodeInfo } from './FocusTree';
 import { ConnectionsTree } from './ConnectionsTree';
 import { AlignmentPanel } from './AlignmentPanel';
 
@@ -23,6 +23,10 @@ export interface DataExplorerPanelProps {
   collapsed: boolean;
   onCollapse: () => void;
   graphMeta?: GraphMeta;
+  /** USER node summary — surfaces the YOU row in FocusTree (FIX-120). */
+  userNode?: UserNodeInfo | null;
+  /** Toggle USER node visibility (FIX-120). */
+  onToggleUserNode?: () => void;
 }
 
 type Section = 'focus' | 'connections';
@@ -32,7 +36,7 @@ const SECTION_ICONS: Record<Section, string> = {
   connections: '🔗',
 };
 
-export function DataExplorerPanel({ view, hooks, collapsed, onCollapse, graphMeta }: DataExplorerPanelProps) {
+export function DataExplorerPanel({ view, hooks, collapsed, onCollapse, graphMeta, userNode, onToggleUserNode }: DataExplorerPanelProps) {
   const [savedAlignment, setSavedAlignment] = useState(null);
 
   useEffect(() => {
@@ -86,6 +90,8 @@ export function DataExplorerPanel({ view, hooks, collapsed, onCollapse, graphMet
           focus={view.focus}
           hooks={hooks}
           graphMeta={graphMeta}
+          userNode={userNode}
+          onToggleUserNode={onToggleUserNode}
         />
         <ConnectionsTree
           connections={view.connections}

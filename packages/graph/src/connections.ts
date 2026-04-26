@@ -137,4 +137,10 @@ export const DEFAULT_CONNECTION_STATE: GraphView['connections'] = {
     opacity: 0.5,
     thickness: 0.3,
   },
+  alignment: {
+    enabled: true,
+    color: CONNECTION_TYPE_REGISTRY.alignment!.color,
+    opacity: 0.7,
+    thickness: 0.5,
+  },
 }

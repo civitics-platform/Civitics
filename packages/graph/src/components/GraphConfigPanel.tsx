@@ -41,48 +41,106 @@ const STD_VIZ   = VIZ_REGISTRY.filter(v => v.group === 'standard');
 const COMING_VIZ = VIZ_REGISTRY.filter(v => v.group === 'coming_soon');
 
 // ── Sliders ────────────────────────────────────────────────────────────────────
+//
+// FIX-130: each labeled control accepts a `disabledReason` prop. When set the
+// control is greyed and shows a `Not available — {reason}` tooltip. Selects
+// also accept per-option `disabled` + `disabledReason` so non-applicable
+// options stay visible (instead of being filtered out) but cannot be picked.
+
+interface LabeledOption {
+  value: string;
+  label: string;
+  /** When true the option is rendered but cannot be selected. */
+  disabled?: boolean;
+  /** Hover tooltip — appended to the label so its reason is also visible inline. */
+  disabledReason?: string;
+}
+
+function tooltipFor(disabledReason: string | undefined): string | undefined {
+  return disabledReason ? `Not available — ${disabledReason}` : undefined;
+}
 
 function LabeledSlider({
-  label, min, max, step, value, onChange,
+  label, min, max, step, value, onChange, disabledReason,
 }: {
-  label: string; min: number; max: number; step: number; value: number; onChange: (v: number) => void;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onChange: (v: number) => void;
+  disabledReason?: string;
 }) {
+  const disabled = !!disabledReason;
   return (
-    <div className="flex items-center gap-2 px-3 py-1">
+    <div
+      className={`flex items-center gap-2 px-3 py-1 ${disabled ? 'opacity-50' : ''}`}
+      title={tooltipFor(disabledReason)}
+    >
       <span aria-hidden="true" className="text-[10px] text-gray-500 w-20 shrink-0">{label}</span>
       <input
         type="range" min={min} max={max} step={step} value={value}
         aria-label={label}
+        disabled={disabled}
         onChange={e => onChange(parseFloat(e.target.value))}
-        className="flex-1 h-1 accent-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 rounded"
+        className="flex-1 h-1 accent-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 rounded disabled:cursor-not-allowed"
       />
     </div>
   );
 }
 
 function LabeledSelect({
-  label, value, options, onChange,
+  label, value, options, onChange, disabledReason,
 }: {
-  label: string; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void;
+  label: string;
+  value: string;
+  options: LabeledOption[];
+  onChange: (v: string) => void;
+  disabledReason?: string;
 }) {
+  const disabled = !!disabledReason;
   return (
-    <div className="flex items-center gap-2 px-3 py-1">
+    <div
+      className={`flex items-center gap-2 px-3 py-1 ${disabled ? 'opacity-50' : ''}`}
+      title={tooltipFor(disabledReason)}
+    >
       <span aria-hidden="true" className="text-[10px] text-gray-500 w-20 shrink-0">{label}</span>
       <select
         aria-label={label}
         value={value}
+        disabled={disabled}
         onChange={e => onChange(e.target.value)}
-        className="flex-1 text-xs text-gray-900 border border-gray-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-indigo-400 focus-visible:ring-2 focus-visible:ring-indigo-500"
+        className="flex-1 text-xs text-gray-900 border border-gray-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-indigo-400 focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-gray-50"
       >
-        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        {options.map(o => (
+          <option
+            key={o.value}
+            value={o.value}
+            disabled={o.disabled}
+            title={tooltipFor(o.disabledReason)}
+          >
+            {o.label}{o.disabled ? ' (no data)' : ''}
+          </option>
+        ))}
       </select>
     </div>
   );
 }
 
-function LabeledToggle({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
+function LabeledToggle({
+  label, value, onChange, disabledReason,
+}: {
+  label: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+  disabledReason?: string;
+}) {
+  const disabled = !!disabledReason;
   return (
-    <div className="flex items-center justify-between px-3 py-1">
+    <div
+      className={`flex items-center justify-between px-3 py-1 ${disabled ? 'opacity-50' : ''}`}
+      title={tooltipFor(disabledReason)}
+    >
       <span aria-hidden="true" className="text-[10px] text-gray-500">{label}</span>
       <div className="flex items-center gap-1.5">
         <span aria-hidden="true" className="text-[9px] text-gray-400">{value ? 'On' : 'Off'}</span>
@@ -91,8 +149,9 @@ function LabeledToggle({ label, value, onChange }: { label: string; value: boole
           role="switch"
           aria-checked={value}
           aria-label={label}
+          disabled={disabled}
           onClick={() => onChange(!value)}
-          className={`w-7 h-4 rounded-full transition-colors relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 ${value ? 'bg-indigo-500' : 'bg-gray-300'}`}
+          className={`w-7 h-4 rounded-full transition-colors relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 disabled:cursor-not-allowed ${value ? 'bg-indigo-500' : 'bg-gray-300'}`}
         >
           <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${value ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
         </button>
@@ -123,19 +182,34 @@ function ForceSettings({ view, hooks, graphMeta }: { view: GraphView; hooks: Use
   const voteCount     = voteCountFrom(graphMeta);
   const donationCount = donationCountFrom(graphMeta);
 
-  const nodeSizeOptions = [
-    { value: 'connection_count', label: 'Connections',                                                     available: true },
-    { value: 'donation_total',   label: donationCount > 0 ? `Donations (${donationCount})` : 'Donations',  available: graphMeta?.hasDonations ?? true },
-    { value: 'bills_sponsored',  label: voteCount > 0     ? `Bills (${voteCount})`         : 'Bills',      available: graphMeta?.hasVotes ?? true },
-    { value: 'years_in_office',  label: 'Seniority',                                                       available: true },
-    { value: 'uniform',          label: 'Uniform',                                                         available: true },
-  ].filter(o => o.available);
+  // FIX-130: don't filter — disable. Each option that doesn't have backing data
+  // stays in the list (so users can see the full option set) but is marked
+  // disabled with a one-line reason.
+  const hasDonations = graphMeta?.hasDonations ?? true;
+  const hasVotes     = graphMeta?.hasVotes     ?? true;
 
-  // If the current encoding is no longer available (e.g. graph switched to PAC focus), reset to default
+  const nodeSizeOptions: LabeledOption[] = [
+    { value: 'connection_count', label: 'Connections' },
+    {
+      value: 'donation_total',
+      label: donationCount > 0 ? `Donations (${donationCount})` : 'Donations',
+      disabled: !hasDonations,
+      disabledReason: 'No donation data in graph',
+    },
+    {
+      value: 'bills_sponsored',
+      label: voteCount > 0 ? `Bills (${voteCount})` : 'Bills',
+      disabled: !hasVotes,
+      disabledReason: 'No vote data in graph',
+    },
+    { value: 'years_in_office', label: 'Seniority' },
+    { value: 'uniform',         label: 'Uniform' },
+  ];
+
+  // If the current encoding lands on a now-disabled option, fall back to the default.
   const sizeEncoding = opts?.nodeSizeEncoding ?? 'connection_count';
-  const validSizeEncoding = nodeSizeOptions.some(o => o.value === sizeEncoding)
-    ? sizeEncoding
-    : 'connection_count';
+  const currentDisabled = nodeSizeOptions.find(o => o.value === sizeEncoding)?.disabled ?? false;
+  const validSizeEncoding = currentDisabled ? 'connection_count' : sizeEncoding;
 
   return (
     <>
@@ -192,22 +266,33 @@ function ChordSettings({ view, hooks, graphMeta }: { view: GraphView; hooks: Use
   const opts = view.style.vizOptions.chord;
   function set(key: string, value: unknown) { hooks.setVizOption('chord', key, value); }
 
-  // Chord diagram only shows meaningful data when donation connections are present.
-  // When graphMeta is loaded and confirms no donations, show a note instead of useless controls.
+  // FIX-130: chord controls all depend on donation data. When graphMeta has
+  // loaded and confirms no donations, disable each control with a reason
+  // rather than blanking the section. A small banner above explains the
+  // empty-state — keeping the controls present preserves muscle memory and
+  // flips back to enabled the moment donation data arrives.
   const noDonations = graphMeta !== undefined && !graphMeta.hasDonations;
-
-  if (noDonations) {
-    return (
-      <div className="px-3 py-2 text-[10px] text-gray-400 italic">
-        No donation data in this graph — chord diagram will be empty.
-      </div>
-    );
-  }
+  const reason = noDonations ? 'No donation data in graph' : undefined;
 
   return (
     <>
-      <LabeledToggle label="Normalize" value={opts?.normalizeMode ?? false} onChange={v => set('normalizeMode', v)} />
-      <LabeledToggle label="Show labels" value={opts?.showLabels ?? true} onChange={v => set('showLabels', v)} />
+      {noDonations && (
+        <div className="px-3 py-2 text-[10px] text-gray-400 italic">
+          No donation data in this graph — chord diagram will be empty.
+        </div>
+      )}
+      <LabeledToggle
+        label="Normalize"
+        value={opts?.normalizeMode ?? false}
+        onChange={v => set('normalizeMode', v)}
+        disabledReason={reason}
+      />
+      <LabeledToggle
+        label="Show labels"
+        value={opts?.showLabels ?? true}
+        onChange={v => set('showLabels', v)}
+        disabledReason={reason}
+      />
       <LabeledSelect
         label="Min flow"
         value={String(opts?.minFlowUsd ?? 0)}
@@ -218,6 +303,7 @@ function ChordSettings({ view, hooks, graphMeta }: { view: GraphView; hooks: Use
           { value: '10000000', label: '$10M+'    },
         ]}
         onChange={v => set('minFlowUsd', parseInt(v))}
+        disabledReason={reason}
       />
     </>
   );
@@ -234,20 +320,34 @@ function TreemapSettings({ view, hooks, graphMeta }: { view: GraphView; hooks: U
   const dataMode = opts?.dataMode ?? defaultDataMode;
   const isPacMode = dataMode === 'pac_sector' || dataMode === 'pac_party';
 
-  // Filter size options by available data
+  // FIX-130: don't filter — disable. Show every size encoding; mark the ones
+  // that lack backing data as disabled with a per-option reason.
   const voteCount     = voteCountFrom(graphMeta);
   const donationCount = donationCountFrom(graphMeta);
+  const hasDonations  = graphMeta?.hasDonations ?? true;
+  const hasVotes      = graphMeta?.hasVotes     ?? true;
 
-  const sizeByOptions = [
-    { value: 'donation_total',   label: donationCount > 0 ? `Donations (${donationCount})` : 'Donations',  available: graphMeta?.hasDonations ?? true },
-    { value: 'connection_count', label: 'Connections',                                                       available: true },
-    { value: 'vote_count',       label: voteCount > 0     ? `Votes cast (${voteCount})`    : 'Votes cast',  available: graphMeta?.hasVotes ?? true },
-  ].filter(o => o.available);
+  const sizeByOptions: LabeledOption[] = [
+    {
+      value: 'donation_total',
+      label: donationCount > 0 ? `Donations (${donationCount})` : 'Donations',
+      disabled: !hasDonations,
+      disabledReason: 'No donation data in graph',
+    },
+    { value: 'connection_count', label: 'Connections' },
+    {
+      value: 'vote_count',
+      label: voteCount > 0 ? `Votes cast (${voteCount})` : 'Votes cast',
+      disabled: !hasVotes,
+      disabledReason: 'No vote data in graph',
+    },
+  ];
 
   const sizeBy = opts?.sizeBy ?? 'donation_total';
-  const validSizeBy = sizeByOptions.some(o => o.value === sizeBy)
-    ? sizeBy
-    : (sizeByOptions[0]?.value ?? 'connection_count');
+  const sizeByDisabled = sizeByOptions.find(o => o.value === sizeBy)?.disabled ?? false;
+  const validSizeBy = sizeByDisabled
+    ? (sizeByOptions.find(o => !o.disabled)?.value ?? 'connection_count')
+    : sizeBy;
 
   return (
     <>
@@ -306,36 +406,38 @@ function SunburstSettings({
   const opts = view.style.vizOptions.sunburst;
   function set(key: string, value: unknown) { hooks.setVizOption('sunburst', key, value); }
 
-  // Build ring1 options based on available data.
-  // Default true (show option) when graphMeta not yet available.
-  // Compute counts from graphMeta.connectionTypes for informative labels.
+  // FIX-130: don't filter — disable. Build the full ring1 option list and
+  // mark each entry that lacks backing data as disabled with a per-option
+  // reason; defaults stay valid by falling back when the current pick gets
+  // disabled mid-session.
   const voteCount     = voteCountFrom(graphMeta);
   const donationCount = donationCountFrom(graphMeta);
+  const hasDonations  = graphMeta?.hasDonations ?? true;
+  const hasVotes      = graphMeta?.hasVotes     ?? true;
+  const isPacFocus    = graphMeta?.isPacFocus   ?? false;
 
-  const ring1Options = [
-    {
-      value: 'connection_types',
-      label: 'All connections',
-      available: true, // always available
-    },
+  const ring1Options: LabeledOption[] = [
+    { value: 'connection_types', label: 'All connections' },
     {
       value: 'donation_industries',
       label: donationCount > 0 ? `Donor industries (${donationCount})` : 'Donor industries',
-      available: graphMeta?.hasDonations ?? true,
+      disabled: !hasDonations,
+      disabledReason: 'No donation data in graph',
     },
     {
       value: 'vote_categories',
       label: voteCount > 0 ? `Vote record (${voteCount})` : 'Vote record',
-      // Hide for PAC groups (they don't vote). Show if votes exist.
-      available: !(graphMeta?.isPacFocus ?? false) && (graphMeta?.hasVotes ?? true),
+      // PAC groups don't vote — disable rather than hide so the option stays discoverable.
+      disabled: isPacFocus || !hasVotes,
+      disabledReason: isPacFocus ? 'PACs do not vote' : 'No vote data in graph',
     },
-  ].filter(o => o.available);
+  ];
 
-  // If the current ring1 selection is no longer in the available list, reset to default.
   const ring1 = opts?.ring1 ?? 'connection_types';
-  const validRing1 = ring1Options.some(o => o.value === ring1)
-    ? ring1
-    : (ring1Options[0]?.value ?? 'connection_types');
+  const ring1Disabled = ring1Options.find(o => o.value === ring1)?.disabled ?? false;
+  const validRing1 = ring1Disabled
+    ? (ring1Options.find(o => !o.disabled)?.value ?? 'connection_types')
+    : ring1;
 
   return (
     <>

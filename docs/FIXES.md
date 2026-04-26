@@ -164,7 +164,7 @@ The shadow→public promotion migration (`20260422000000_promote_shadow_to_publi
 - [x] 🟠 L — **Matrix viz (N×N heatmap)** — vote agreement matrix; sortable, clusterable; per GRAPH_PLAN §5.2 <!--id:FIX-145-->
 - [x] 🟠 L — **Alignment viz (USER-centric radial)** — bespoke for USER node; depends on FIX-120; per GRAPH_PLAN §5.3 <!--id:FIX-146-->
 - [x] 🟠 L — **Sankey budget flow** — d3-sankey for Treasury→agency→vendor; depends on FIX-143; per GRAPH_PLAN §5.4 <!--id:FIX-147-->
-- [ ] 🟡 M — **SpendingGraph wire-up + USASpending column drift investigation** — finish orphaned viz; verify schema post-cutover; per GRAPH_PLAN §5.5 <!--id:FIX-148-->
+- [x] 🟡 M — **SpendingGraph wire-up + USASpending column drift investigation** — finish orphaned viz; verify schema post-cutover; per GRAPH_PLAN §5.5 <!--id:FIX-148-->
 
 ### Compare mode upgrade
 

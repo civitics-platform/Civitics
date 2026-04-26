@@ -152,3 +152,4 @@
 2026-04-25 | FIX-127 | 52dde25a | feat(graph): custom group builder with live count + agencies handoff (FIX-127)
 2026-04-25 | FIX-128 | 89d34ad2 | feat(graph): gate ConnectionsTree by focus applicability (FIX-128)
 2026-04-25 | FIX-129 | 60203c93 | feat(graph): viz dropdown self-populates by applicability (FIX-129)
+2026-04-25 | FIX-130 | 63e53de1 | feat(graph): disable non-applicable settings controls (FIX-130)

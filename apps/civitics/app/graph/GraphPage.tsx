@@ -8,6 +8,7 @@ import {
   SunburstGraph,
   SpendingGraph,
   HierarchyGraph,
+  MatrixGraph,
   AiNarrative,
   EmbedModal,
   useGraphView,
@@ -91,7 +92,7 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
 
     const params = new URL(window.location.href).searchParams;
     const vizParam = params.get("viz");
-    const validVizTypes: VizType[] = ["force", "chord", "treemap", "sunburst", "spending", "hierarchy"];
+    const validVizTypes: VizType[] = ["force", "chord", "treemap", "sunburst", "spending", "hierarchy", "matrix"];
     if (!vizParam || !validVizTypes.includes(vizParam as VizType)) return;
 
     vizHandoffRef.current = true;
@@ -281,6 +282,7 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
   const treemapSvgRef   = useRef<SVGSVGElement>(null);
   const sunburstSvgRef  = useRef<SVGSVGElement>(null);
   const hierarchySvgRef = useRef<SVGSVGElement>(null);
+  const matrixSvgRef    = useRef<SVGSVGElement>(null);
 
   // ── Keyboard: [ = left panel, ] = right panel ─────────────────────────────
   useEffect(() => {
@@ -338,6 +340,7 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
       case "treemap":   return treemapSvgRef;
       case "sunburst":  return sunburstSvgRef;
       case "hierarchy": return hierarchySvgRef;
+      case "matrix":    return matrixSvgRef;
       default:          return null; // force uses #force-graph-canvas via registry
     }
   }
@@ -387,6 +390,14 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
     (view.focus.entities.find(isFocusGroup) as FocusGroup | undefined) ?? null;
   const focusGroups =
     view.focus.entities.filter(isFocusGroup) as FocusGroup[];
+
+  // ── Matrix viz props — UUID-validated official IDs in focus ───────────────
+  const matrixOfficialIds = useMemo(() => {
+    return view.focus.entities
+      .filter(isFocusEntity)
+      .filter(e => e.type === "official" && UUID_RE.test(e.id))
+      .map(e => e.id);
+  }, [view.focus.entities]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -527,6 +538,19 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
               svgRef={hierarchySvgRef}
               vizOptions={view.style.vizOptions.hierarchy}
               rootEntityId={primaryEntity?.type === "agency" ? primaryEntity.id : null}
+            />
+          </div>
+
+          {/* Matrix */}
+          <div
+            className="absolute inset-0 transition-opacity duration-300"
+            style={{ opacity: vizType === "matrix" ? 1 : 0, pointerEvents: vizType === "matrix" ? "auto" : "none" }}
+          >
+            <MatrixGraph
+              className="w-full h-full"
+              svgRef={matrixSvgRef}
+              vizOptions={view.style.vizOptions.matrix}
+              officialIds={matrixOfficialIds}
             />
           </div>
 

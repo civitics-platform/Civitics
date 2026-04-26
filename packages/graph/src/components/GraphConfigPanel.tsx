@@ -537,6 +537,37 @@ function HierarchySettings({ view, hooks }: { view: GraphView; hooks: UseGraphVi
   );
 }
 
+// ── Matrix settings ────────────────────────────────────────────────────────────
+
+function MatrixSettings({ view, hooks }: { view: GraphView; hooks: UseGraphViewReturn }) {
+  const opts = view.style.vizOptions.matrix;
+  function set(key: string, value: unknown) { hooks.setVizOption('matrix', key, value); }
+
+  return (
+    <>
+      <LabeledSelect
+        label="Sort"
+        value={opts?.sortBy ?? 'party'}
+        options={[
+          { value: 'party',        label: 'By party'     },
+          { value: 'alphabetical', label: 'Alphabetical' },
+          { value: 'cluster',      label: 'By cluster'   },
+        ]}
+        onChange={v => set('sortBy', v)}
+      />
+      <LabeledSelect
+        label="Metric"
+        value={opts?.metric ?? 'agreement'}
+        options={[
+          { value: 'agreement', label: 'Agreement %'   },
+          { value: 'kappa',     label: "Cohen's kappa" },
+        ]}
+        onChange={v => set('metric', v)}
+      />
+    </>
+  );
+}
+
 // ── Main panel ─────────────────────────────────────────────────────────────────
 
 export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePreset, graphMeta }: GraphConfigPanelProps) {
@@ -773,6 +804,7 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
           {vizType === 'treemap'   && <TreemapSettings   view={view} hooks={hooks} graphMeta={graphMeta} />}
           {vizType === 'sunburst'  && <SunburstSettings  view={view} hooks={hooks} graphMeta={graphMeta} />}
           {vizType === 'hierarchy' && <HierarchySettings view={view} hooks={hooks} />}
+          {vizType === 'matrix'    && <MatrixSettings    view={view} hooks={hooks} />}
         </TreeSection>
         </div>
 

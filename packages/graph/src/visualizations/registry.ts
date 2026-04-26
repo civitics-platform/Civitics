@@ -80,6 +80,18 @@ function focusHasEntityType(
   return false
 }
 
+/**
+ * Count officials directly in focus (entities only — does not expand groups).
+ * Matrix viz needs ≥2 individual officials, since group expansion is async.
+ */
+function focusedOfficialCount(focus: GraphView['focus']): number {
+  let n = 0
+  for (const item of focus.entities) {
+    if (!isFocusGroup(item) && item.type === 'official') n++
+  }
+  return n
+}
+
 function donationCount(graphMeta?: VizApplicabilityMeta): number {
   return graphMeta?.connectionTypes['donation']?.count ?? 0
 }
@@ -258,6 +270,36 @@ export const VIZ_REGISTRY: VizRegistryEntry[] = [
       if (graphMeta?.entityTypes.has('agency')) return APPLICABLE
       if ((graphMeta?.connectionTypes['contract']?.count ?? 0) > 0) return APPLICABLE
       return { applicable: false, reason: 'Add an agency to enable Spending' }
+    },
+  },
+
+  {
+    id: 'matrix',
+    label: 'Matrix',
+    civicQuestion: 'Which officials vote together — and which break ranks?',
+    description: 'N×N heatmap of pairwise vote agreement; sortable, clusterable',
+    group: 'standard',
+    status: 'active',
+    icon: 'M3 3h6v6H3zm0 8h6v6H3zm0 8h6v2H3zm8-16h6v6h-6zm0 8h6v6h-6zm0 8h6v2h-6zm8-16h2v6h-2zm0 8h2v6h-2zm0 8h2v2h-2z',
+
+    requiresEntity: true,
+    supportedConnectionTypes: ['vote_yes', 'vote_no'],
+    defaultOptions: {
+      sortBy: 'party',
+      metric: 'agreement',
+      labelLimit: 12,
+    },
+
+    screenshotTarget: '#matrix-svg',
+    screenshotPrep: prepScreenshot,
+    tooltip: placeholderTooltip,
+    onNodeClick: defaultOnNodeClick,
+
+    // Matrix needs at least two officials in focus to be meaningful — the
+    // single-cell self-agreement matrix carries no information.
+    isApplicable: (focus) => {
+      if (focusedOfficialCount(focus) >= 2) return APPLICABLE
+      return { applicable: false, reason: 'Add at least 2 officials to enable Matrix' }
     },
   },
 ]

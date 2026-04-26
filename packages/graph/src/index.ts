@@ -29,6 +29,7 @@ export type {
   TreemapOptions,
   SunburstOptions,
   HierarchyOptions,
+  MatrixOptions,
   NodeActions,
   NodeType as NodeTypeV2,
   ConnectionTypeDefinition,
@@ -82,6 +83,9 @@ export type { SpendingGraphProps } from "./SpendingGraph";
 
 export { HierarchyGraph } from "./HierarchyGraph";
 export type { HierarchyGraphProps } from "./HierarchyGraph";
+
+export { MatrixGraph } from "./MatrixGraph";
+export type { MatrixGraphProps } from "./MatrixGraph";
 
 // ── Components — panels ─────────────────────────────────────────────────────
 export { GraphHeader } from "./components/GraphHeader";

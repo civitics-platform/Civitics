@@ -13,7 +13,7 @@ import type { ComponentType, ReactNode } from 'react'
 
 // ── Viz Type ───────────────────────────────────────────────────────────────────
 
-export type VizType = 'force' | 'chord' | 'treemap' | 'sunburst' | 'spending' | 'hierarchy'
+export type VizType = 'force' | 'chord' | 'treemap' | 'sunburst' | 'spending' | 'hierarchy' | 'matrix'
 
 // ── Node ───────────────────────────────────────────────────────────────────────
 
@@ -143,6 +143,18 @@ export interface HierarchyOptions {
   collapseDepth: number
   /** When true, render leaf labels even at deep levels. */
   showLabels?: boolean
+}
+
+export interface MatrixOptions {
+  /** Row/column ordering. 'cluster' uses a simple greedy nearest-neighbour reorder. */
+  sortBy: 'alphabetical' | 'party' | 'cluster'
+  /**
+   * 'agreement' — % of shared votes where both cast the same yes/no
+   * 'kappa'     — Cohen's kappa, agreement corrected for chance
+   */
+  metric: 'agreement' | 'kappa'
+  /** Hide cell labels when officials > N. Default 12. */
+  labelLimit?: number
 }
 
 export interface SunburstOptions {
@@ -295,6 +307,7 @@ export interface GraphView {
       sunburst?: SunburstOptions
       spending?: Record<string, never>
       hierarchy?: HierarchyOptions
+      matrix?: MatrixOptions
     }
   }
 

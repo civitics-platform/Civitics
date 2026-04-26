@@ -71,6 +71,13 @@ export const CONNECTION_TYPE_REGISTRY: Record<string, ConnectionTypeDefinition> 
     description: 'Bill co-sponsorship',
     hasAmount: false,
   },
+  appointment: {
+    label: 'Appointment',
+    icon: '🪪',
+    color: '#d97706',
+    description: 'Cabinet- and agency-leadership appointments (official → agency)',
+    hasAmount: false,
+  },
   alignment: {
     label: 'Alignment',
     icon: '≈',
@@ -137,6 +144,12 @@ export const DEFAULT_CONNECTION_STATE: GraphView['connections'] = {
     color: CONNECTION_TYPE_REGISTRY.co_sponsorship!.color,
     opacity: 0.5,
     thickness: 0.3,
+  },
+  appointment: {
+    enabled: true,
+    color: CONNECTION_TYPE_REGISTRY.appointment!.color,
+    opacity: 0.7,
+    thickness: 0.4,
   },
   alignment: {
     enabled: true,
@@ -206,7 +219,10 @@ export function applicableConnectionTypes(
     out.add('co_sponsorship');
   }
 
-  if (hasOfficial || hasAgency) out.add('oversight');
+  if (hasOfficial || hasAgency) {
+    out.add('oversight');
+    out.add('appointment');
+  }
 
   if (userNodeVisible) out.add('alignment');
 
@@ -231,7 +247,7 @@ export function inapplicableReason(connectionType: string): string {
   ) {
     return 'Add an official or proposal to enable';
   }
-  if (connectionType === 'oversight') {
+  if (connectionType === 'oversight' || connectionType === 'appointment') {
     return 'Add an official or agency to enable';
   }
   if (connectionType === 'alignment') {

@@ -159,3 +159,4 @@
 2026-04-25 | FIX-134 | b7584cdd | feat(graph): surface PathFinder, cluster header, section-jump icons
 2026-04-26 | FIX-151 | 755aa181 | chore(data): drop stale spending_records refs (FIX-151)
 2026-04-26 | FIX-152 | 4e55c5da | feat(db): committees schema — enum value + memberships join (FIX-152)
+2026-04-26 | FIX-153 | 7c160635 | feat(data): congressional committees ingestion pipeline (FIX-153)

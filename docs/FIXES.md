@@ -120,6 +120,66 @@ The shadow→public promotion migration (`20260422000000_promote_shadow_to_publi
 - [x] 🟠 L — **USER node** — show the signed-in user as a node; connect to their district's representatives; visually indicate alignment score (votes/priorities match). **Blocked by data pipeline:** federal officials (US Senators / US Reps) have empty `metadata` and blank `district_name`; state is only encoded inside `source_ids->>'fec_candidate_id'` (positions 2–3). Also requires the Phase 2 `user_preferences` table (CLAUDE.md: "not yet created") for `home_state` / `home_district` / `district_jurisdiction_id`. Prereqs: (a) populate `officials.metadata.state_abbr` for federal reps via FEC ID parsing or a dedicated column; (b) create `user_preferences`; (c) profile editor UI; (d) graph injection hook; (e) alignment-score computation against `civic_comments.position` × `votes.vote`. <!--id:FIX-042-->
 - [x] 🟡 M — **Procedural vote filter in graph panel** — toggle to hide/show procedural votes in the connection graph (the toggle exists in FocusTree; verify it's also surfaced in the main graph filter UI and working end-to-end) <!--id:FIX-044-->
 
+> Refinement plan: see [`docs/GRAPH_PLAN.md`](GRAPH_PLAN.md). FIX-120 → FIX-150 each map to a section there.
+
+### Direction 1 — Tighten what's there
+
+- [x] 🟠 L — **USER node visible & toggleable** — surface USER node in FocusTree; add `alignment` to DEFAULT_CONNECTION_STATE; per GRAPH_PLAN §1.1 <!--id:FIX-120-->
+- [ ] 🟢 S — **`addGroup`/`removeGroup` markDirty** — mirror addEntity/removeEntity behavior so Save Changes button appears; per GRAPH_PLAN §1.2 <!--id:FIX-121-->
+- [ ] 🟡 M — **AI Explain gated by AI_SUMMARIES_ENABLED** — `/api/graph/narrative` checks flag; header button hides/disables when off; per GRAPH_PLAN §1.3 <!--id:FIX-122-->
+- [ ] 🟡 M — **Bills show titles, not IDs** — connections API joins proposals.title; force-graph node label uses title; per GRAPH_PLAN §1.4 <!--id:FIX-123-->
+- [ ] 🟠 L — **State data on officials** — populate `officials.metadata.state_abbr` for federal reps; verify treemap by-state works; HIT_LIST flag; per GRAPH_PLAN §1.5 <!--id:FIX-124-->
+- [ ] 🟡 M — **Procedural votes filtered by default** — DEFAULT_VIEW.includeProcedural=false; verify per-roll-call filter end-to-end; HIT_LIST flag; per GRAPH_PLAN §1.6 <!--id:FIX-125-->
+- [ ] 🟠 L — **`user_custom_groups` DB table** — schema + RLS + `/api/graph/custom-groups`; per GRAPH_PLAN §1.7 <!--id:FIX-126-->
+- [ ] 🟠 L — **Custom group builder UI** — inline form in GroupBrowser + sidebar widget on `/agencies`; per GRAPH_PLAN §1.8 <!--id:FIX-127-->
+
+### Direction 3 — Reactive panels
+
+- [ ] 🟠 L — **Connections tree gates by focus type** — `applicableConnectionTypes(focus)` helper; non-applicable rows fall under collapsed sub-tree; per GRAPH_PLAN §3.1 <!--id:FIX-128-->
+- [ ] 🟠 L — **Viz dropdown self-populates** — each VIZ_REGISTRY entry gains `isApplicable()`; header dropdown groups Available vs Not-yet-applicable; per GRAPH_PLAN §3.2 <!--id:FIX-129-->
+- [ ] 🟡 M — **Settings panel disables non-applicable controls** — disabledReason prop on form primitives; tooltip explains why; per GRAPH_PLAN §3.3 <!--id:FIX-130-->
+- [ ] 🟡 M — **Empty-state preset buttons** — keep search prompt; add 3 visual cards (Force / Treemap / Chord) with thumbnails; per GRAPH_PLAN §3.4 <!--id:FIX-131-->
+- [ ] 🟢 S — **PathFinder surfaced** — header chip opens floating overlay; per GRAPH_PLAN §3.5 <!--id:FIX-132-->
+- [ ] 🟢 S — **Header consolidation** — visual clusters with separators (left/center/right); per GRAPH_PLAN §3.6 <!--id:FIX-133-->
+- [ ] 🟢 S — **Right-panel collapsed icons jump to sections** — also left panel; per GRAPH_PLAN §3.7 <!--id:FIX-134-->
+
+### Direction 2 — Browse like a file system
+
+- [ ] 🟠 L — **Five-category browse hierarchy** — People/Money/Government/Legislation/Saved; recursive TreeNode; per GRAPH_PLAN §2.1 <!--id:FIX-135-->
+- [ ] 🟡 M — **By-state drill-down** — 50-state expansion under State legislatures and Officials by state; depends on FIX-124; per GRAPH_PLAN §2.2 <!--id:FIX-136-->
+- [ ] 🟡 M — **By-topic-tag groups** — `/api/graph/tag-groups` + clickable top-30 tags under Legislation; per GRAPH_PLAN §2.3 <!--id:FIX-137-->
+- [ ] 🟡 M — **By-location** — "My state's reps" row when home_state set; depends on user_preferences; per GRAPH_PLAN §2.4 <!--id:FIX-138-->
+- [ ] 🟠 L — **By-committee** — investigate `committees` table; file prereq FIXES if missing; per GRAPH_PLAN §2.5 <!--id:FIX-139-->
+- [ ] 🟢 S — **Recently viewed** — localStorage list of last 20 entities; per GRAPH_PLAN §2.6 <!--id:FIX-140-->
+
+### New connection types
+
+- [ ] 🟡 M — **`appointment` connection type** — registry + DEFAULT_CONNECTION_STATE + pipeline derivation; per GRAPH_PLAN §4.1 <!--id:FIX-141-->
+- [ ] 🟡 M — **`revolving_door` connection type** — registry + DEFAULT_CONNECTION_STATE + career_history derivation; per GRAPH_PLAN §4.2 <!--id:FIX-142-->
+- [ ] 🟠 L — **`contract` connection type** — registry + USASpending derivation into entity_connections; per GRAPH_PLAN §4.3 <!--id:FIX-143-->
+
+### New visualization types
+
+- [ ] 🟠 L — **Hierarchy viz (D3 tree/dendrogram)** — agency org chart, budget-weighted; embed compact variant on `/agencies`; per GRAPH_PLAN §5.1 <!--id:FIX-144-->
+- [ ] 🟠 L — **Matrix viz (N×N heatmap)** — vote agreement matrix; sortable, clusterable; per GRAPH_PLAN §5.2 <!--id:FIX-145-->
+- [ ] 🟠 L — **Alignment viz (USER-centric radial)** — bespoke for USER node; depends on FIX-120; per GRAPH_PLAN §5.3 <!--id:FIX-146-->
+- [ ] 🟠 L — **Sankey budget flow** — d3-sankey for Treasury→agency→vendor; depends on FIX-143; per GRAPH_PLAN §5.4 <!--id:FIX-147-->
+- [ ] 🟡 M — **SpendingGraph wire-up + USASpending column drift investigation** — finish orphaned viz; verify schema post-cutover; per GRAPH_PLAN §5.5 <!--id:FIX-148-->
+
+### Compare mode upgrade
+
+- [ ] 🟡 M — **Shared connections pill list** — floating pill bar above canvas when ≥2 entities focused; per GRAPH_PLAN §6.1 <!--id:FIX-149-->
+
+### Documentation
+
+- [ ] 🟢 S — **Update packages/graph/CLAUDE.md** — reflect new vision; reference GRAPH_PLAN.md; per GRAPH_PLAN §7.1 <!--id:FIX-150-->
+
+### Prerequisites (discovered in audit)
+
+- [ ] 🟡 M — **Cleanup stale `spending_records` references** — table was dropped at cutover; `pipelines/index.ts:45` still queries it; `apps/civitics/CLAUDE.md` + `docs/PHASE_GOALS.md:202` + root `CLAUDE.md` all reference it as the data store. Replace with `financial_relationships WHERE relationship_type IN ('contract','grant')`. Unblocks FIX-148. <!--id:FIX-151-->
+- [ ] 🟠 L — **Committees schema** — no `committees` table; `governing_body_type` enum lacks 'committee' value; `officials.governing_body_id` is single FK so an official can't belong to multiple committees. Add `'committee'` to enum + `official_committee_memberships` join table (official_id, committee_id, role, started_at, ended_at). Prereq for FIX-139. <!--id:FIX-152-->
+- [ ] 🟠 L — **Committees ingestion pipeline** — Congress.gov committees endpoint → backfill `governing_bodies` rows of type='committee' + `official_committee_memberships`. Prereq for FIX-139. Depends on FIX-152. <!--id:FIX-153-->
+
 ---
 
 ## DASHBOARD

@@ -12,6 +12,39 @@ investigate, simple enough for anyone, and deep enough for experts.
 
 ---
 
+## Active Refinement Plan (April 2026)
+
+The graph is under structured refinement. Read [`docs/GRAPH_PLAN.md`](../../docs/GRAPH_PLAN.md)
+before opening any FIX-120 → FIX-150 item — that's the live workplan with full
+context for each. The bullets in `docs/FIXES.md` are intentionally one-liners that
+point back to plan sections.
+
+Order of work: **Direction 1 (cleanup) → Direction 3 (reactive panels) → Direction 2
+(file-system browse) → new connection types → new viz types → compare upgrade.**
+
+Cross-cutting principles being introduced:
+
+- **Reactive panels** — the Connections tree gates by focused entity types; the viz
+  dropdown self-populates by applicable types; settings disable (don't hide)
+  non-applicable controls. Force graph remains universal.
+- **Never auto-switch viz on the user.** Suggest via toast at most.
+- **Custom groups are DB-backed** — `user_custom_groups` table, not localStorage.
+  See FIX-126.
+- **AI gate** — every Anthropic call site (including `/api/graph/narrative`) checks
+  `FLAGS.AI_SUMMARIES_ENABLED` from `packages/data/src/feature-flags.ts`. The flag
+  is the platform-wide kill switch. See FIX-122.
+- **USER node Stage 1** — visible and toggleable in FocusTree; alignment edges
+  render. Full alignment-scoring pipeline (AlignmentPanel ↔ edge weighting) is
+  Stage 2. See FIX-120.
+- **Browse hierarchy** — flat `GROUP_CATEGORIES` (Congress + Industry PACs) is
+  being replaced by a 5-category tree (People / Money / Government / Legislation /
+  Saved). See FIX-135.
+
+When updating this file as FIX items land, prefer surgical edits over rewrites —
+saved sessions reference IDs in `BUILT_IN_GROUPS` and `BUILT_IN_PRESETS`.
+
+---
+
 ## The Three-Layer Model
 
 Every graph state is a `GraphView`. This is the single source of truth

@@ -131,6 +131,9 @@ export type { ConnectionStyleRowProps, ConnectionTypeSettings } from "./componen
 export { AlignmentPanel } from "./components/AlignmentPanel";
 export type { AlignmentPanelProps } from "./components/AlignmentPanel";
 
+export { SharedConnectionsBar, findSharedConnections } from "./components/SharedConnectionsBar";
+export type { SharedConnectionsBarProps, SharedConnection } from "./components/SharedConnectionsBar";
+
 // ── Components — shared overlays ────────────────────────────────────────────
 export { NodePopup } from "./components/NodePopup";
 export type { NodePopupProps } from "./components/NodePopup";

@@ -11,6 +11,7 @@ import {
   MatrixGraph,
   AlignmentGraph,
   SankeyGraph,
+  SharedConnectionsBar,
   AiNarrative,
   EmbedModal,
   useGraphView,
@@ -278,6 +279,14 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
   const [showScreenshot,  setShowScreenshot]  = useState(false);
   const [showEmbed,       setShowEmbed]       = useState(false);
 
+  // FIX-149: shared-connections pill bar selection — null when nothing pinned.
+  const [highlightedSharedId, setHighlightedSharedId] = useState<string | null>(null);
+
+  // Clear pin whenever the focus set changes — old pin probably no longer makes sense.
+  useEffect(() => {
+    setHighlightedSharedId(null);
+  }, [view.focus.entities]);
+
   // ── SVG refs for screenshot (chord / treemap / sunburst) ─────────────────
   // Force graph uses id="force-graph-canvas" via registry selector
   const chordSvgRef     = useRef<SVGSVGElement>(null);
@@ -472,12 +481,26 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
                 focusEntities={view.focus.entities.filter(isFocusEntity)}
                 connections={view.connections}
                 vizOptions={view.style.vizOptions?.force}
+                highlightedNodeId={highlightedSharedId}
                 className="w-full h-full"
                 onViewGroupAsTreemap={handleViewGroupAsTreemap}
                 onViewGroupAsChord={handleViewGroupAsChord}
                 onViewGroupAsSunburst={handleViewGroupAsSunburst}
                 onRemoveGroup={handleRemoveGroup}
               />
+            )}
+
+            {/* FIX-149: shared-connections pill bar */}
+            {vizType === "force" && view.focus.entities.filter(isFocusEntity).length >= 2 && (
+              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 max-w-[90%]">
+                <SharedConnectionsBar
+                  focusItems={view.focus.entities}
+                  nodes={displayNodes}
+                  edges={displayEdges}
+                  highlightedNodeId={highlightedSharedId}
+                  onHighlight={setHighlightedSharedId}
+                />
+              </div>
             )}
           </div>
 

@@ -39,6 +39,11 @@ export interface ForceGraphProps {
   connections?: GraphView["connections"];
   /** Viz-type-specific rendering options */
   vizOptions?: ForceOptions;
+  /**
+   * FIX-149: when set, the matching node gets a glowing emerald ring and its
+   * incident edges are highlighted. Driven by SharedConnectionsBar pill clicks.
+   */
+  highlightedNodeId?: string | null;
   onNodeClick?: (node: GraphNode) => void;
   onNodeHover?: (node: GraphNode | null, x: number, y: number) => void;
   className?: string;
@@ -213,6 +218,7 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
       focusEntities = [],
       connections = {},
       vizOptions,
+      highlightedNodeId = null,
       onNodeClick,
       onNodeHover,
       className,
@@ -927,6 +933,44 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
           d.id === loadingEntityId ? "block" : "none"
         );
     }, [loadingEntityId]);
+
+    // ── Category A — Shared-connections highlight (FIX-149) ────────────────────
+    // Driven by SharedConnectionsBar pill clicks. Pulls focus to one node + its
+    // edges to the focused entities, fading everything else.
+    useEffect(() => {
+      const svgEl = svgRef.current;
+      const link = linkSelRef.current;
+      if (!svgEl) return;
+
+      const root = d3.select(svgEl);
+
+      if (!highlightedNodeId) {
+        // Clear: restore everyone to normal opacity. Stroke style is owned by
+        // the focus-entities effect, so we only touch what we changed.
+        root.selectAll<SVGGElement, SimNode>("g.node").style("opacity", 1);
+        link?.style("opacity", null);
+        return;
+      }
+
+      const focusIds = new Set(focusEntities.map((fe) => fe.id));
+      // Edges incident to the highlighted node + at least one focused entity:
+      // those are the "shared" edges we want to spotlight.
+      const isIncidentSharedEdge = (d: SimLink): boolean => {
+        const srcId = (d.source as SimNode).id ?? d.fromId;
+        const tgtId = (d.target as SimNode).id ?? d.toId;
+        if (srcId === highlightedNodeId && focusIds.has(tgtId)) return true;
+        if (tgtId === highlightedNodeId && focusIds.has(srcId)) return true;
+        return false;
+      };
+      const isIncidentNode = (d: SimNode): boolean =>
+        d.id === highlightedNodeId || focusIds.has(d.id);
+
+      root
+        .selectAll<SVGGElement, SimNode>("g.node")
+        .style("opacity", (d: SimNode) => (isIncidentNode(d) ? 1 : 0.2));
+
+      link?.style("opacity", (d: SimLink) => (isIncidentSharedEdge(d) ? 1 : 0.1));
+    }, [highlightedNodeId, focusEntities]);
 
     // ── Category B — Physics options ──────────────────────────────────────────
     useEffect(() => {

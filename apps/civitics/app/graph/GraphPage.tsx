@@ -10,6 +10,7 @@ import {
   HierarchyGraph,
   MatrixGraph,
   AlignmentGraph,
+  SankeyGraph,
   AiNarrative,
   EmbedModal,
   useGraphView,
@@ -93,7 +94,7 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
 
     const params = new URL(window.location.href).searchParams;
     const vizParam = params.get("viz");
-    const validVizTypes: VizType[] = ["force", "chord", "treemap", "sunburst", "spending", "hierarchy", "matrix", "alignment"];
+    const validVizTypes: VizType[] = ["force", "chord", "treemap", "sunburst", "spending", "hierarchy", "matrix", "alignment", "sankey"];
     if (!vizParam || !validVizTypes.includes(vizParam as VizType)) return;
 
     vizHandoffRef.current = true;
@@ -285,6 +286,7 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
   const hierarchySvgRef = useRef<SVGSVGElement>(null);
   const matrixSvgRef    = useRef<SVGSVGElement>(null);
   const alignmentSvgRef = useRef<SVGSVGElement>(null);
+  const sankeySvgRef    = useRef<SVGSVGElement>(null);
 
   // ── Keyboard: [ = left panel, ] = right panel ─────────────────────────────
   useEffect(() => {
@@ -344,6 +346,7 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
       case "hierarchy": return hierarchySvgRef;
       case "matrix":    return matrixSvgRef;
       case "alignment": return alignmentSvgRef;
+      case "sankey":    return sankeySvgRef;
       default:          return null; // force uses #force-graph-canvas via registry
     }
   }
@@ -569,6 +572,18 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
               userNode={userNodeVisible ? userNode : null}
               repNodes={repNodes}
               alignmentEdges={alignmentEdges}
+            />
+          </div>
+
+          {/* Sankey */}
+          <div
+            className="absolute inset-0 transition-opacity duration-300"
+            style={{ opacity: vizType === "sankey" ? 1 : 0, pointerEvents: vizType === "sankey" ? "auto" : "none" }}
+          >
+            <SankeyGraph
+              className="w-full h-full"
+              svgRef={sankeySvgRef}
+              vizOptions={view.style.vizOptions.sankey}
             />
           </div>
 

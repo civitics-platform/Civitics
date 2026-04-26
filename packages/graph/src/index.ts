@@ -31,6 +31,7 @@ export type {
   HierarchyOptions,
   MatrixOptions,
   AlignmentOptions,
+  SankeyOptions,
   NodeActions,
   NodeType as NodeTypeV2,
   ConnectionTypeDefinition,
@@ -90,6 +91,9 @@ export type { MatrixGraphProps } from "./MatrixGraph";
 
 export { AlignmentGraph } from "./AlignmentGraph";
 export type { AlignmentGraphProps } from "./AlignmentGraph";
+
+export { SankeyGraph } from "./SankeyGraph";
+export type { SankeyGraphProps } from "./SankeyGraph";
 
 // ── Components — panels ─────────────────────────────────────────────────────
 export { GraphHeader } from "./components/GraphHeader";

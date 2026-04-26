@@ -605,6 +605,57 @@ function AlignmentSettings({ view, hooks }: { view: GraphView; hooks: UseGraphVi
   );
 }
 
+// ── Sankey settings ────────────────────────────────────────────────────────────
+
+function SankeySettings({ view, hooks }: { view: GraphView; hooks: UseGraphViewReturn }) {
+  const opts = view.style.vizOptions.sankey;
+  function set(key: string, value: unknown) { hooks.setVizOption('sankey', key, value); }
+
+  return (
+    <>
+      <LabeledSelect
+        label="Tiers"
+        value={String(opts?.levels ?? 4)}
+        options={[
+          { value: '2', label: 'Treasury → Agency' },
+          { value: '3', label: '+ Sector' },
+          { value: '4', label: '+ Vendor' },
+        ]}
+        onChange={v => set('levels', parseInt(v))}
+      />
+      <LabeledSelect
+        label="Top per tier"
+        value={String(opts?.topN ?? 12)}
+        options={[
+          { value: '6',  label: 'Top 6'  },
+          { value: '12', label: 'Top 12' },
+          { value: '20', label: 'Top 20' },
+          { value: '50', label: 'Top 50' },
+          { value: '0',  label: 'No cap' },
+        ]}
+        onChange={v => set('topN', parseInt(v))}
+      />
+      <LabeledSelect
+        label="Min flow"
+        value={String(opts?.minFlowUsd ?? 0)}
+        options={[
+          { value: '0',          label: 'No min'      },
+          { value: '100000',     label: '$100K+'      },
+          { value: '1000000',    label: '$1M+'        },
+          { value: '10000000',   label: '$10M+'       },
+          { value: '100000000',  label: '$100M+'      },
+        ]}
+        onChange={v => set('minFlowUsd', parseInt(v))}
+      />
+      <LabeledToggle
+        label="Labels"
+        value={opts?.showLabels ?? true}
+        onChange={v => set('showLabels', v)}
+      />
+    </>
+  );
+}
+
 // ── Main panel ─────────────────────────────────────────────────────────────────
 
 export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePreset, graphMeta }: GraphConfigPanelProps) {
@@ -843,6 +894,7 @@ export function GraphConfigPanel({ view, hooks, collapsed, onCollapse, onSavePre
           {vizType === 'hierarchy' && <HierarchySettings view={view} hooks={hooks} />}
           {vizType === 'matrix'    && <MatrixSettings    view={view} hooks={hooks} />}
           {vizType === 'alignment' && <AlignmentSettings view={view} hooks={hooks} />}
+          {vizType === 'sankey'    && <SankeySettings    view={view} hooks={hooks} />}
         </TreeSection>
         </div>
 

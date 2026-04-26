@@ -13,7 +13,7 @@ import type { ComponentType, ReactNode } from 'react'
 
 // ── Viz Type ───────────────────────────────────────────────────────────────────
 
-export type VizType = 'force' | 'chord' | 'treemap' | 'sunburst' | 'spending' | 'hierarchy' | 'matrix' | 'alignment'
+export type VizType = 'force' | 'chord' | 'treemap' | 'sunburst' | 'spending' | 'hierarchy' | 'matrix' | 'alignment' | 'sankey'
 
 // ── Node ───────────────────────────────────────────────────────────────────────
 
@@ -155,6 +155,17 @@ export interface MatrixOptions {
   metric: 'agreement' | 'kappa'
   /** Hide cell labels when officials > N. Default 12. */
   labelLimit?: number
+}
+
+export interface SankeyOptions {
+  /** How many flow tiers to show: 2 = Federal→Agency, 3 = +Sector, 4 = +Vendor. */
+  levels: 2 | 3 | 4
+  /** Hide flows below this dollar amount. 0 = show all. */
+  minFlowUsd: number
+  /** Top-N at each tier (Agency / Sector / Vendor). 0 = no cap. */
+  topN: number
+  /** When true, render numeric labels on nodes. */
+  showLabels?: boolean
 }
 
 export interface AlignmentOptions {
@@ -322,6 +333,7 @@ export interface GraphView {
       hierarchy?: HierarchyOptions
       matrix?: MatrixOptions
       alignment?: AlignmentOptions
+      sankey?: SankeyOptions
     }
   }
 

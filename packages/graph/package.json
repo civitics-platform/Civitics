@@ -4,7 +4,9 @@
   "private": true,
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
@@ -13,12 +15,14 @@
   "devDependencies": {
     "@civitics/config": "workspace:*",
     "@types/d3": "^7.4.0",
+    "@types/d3-sankey": "^0.12.5",
     "@types/react": "^18.0.0",
     "react": "^18.0.0",
     "typescript": "^5.4.0"
   },
   "dependencies": {
-    "d3": "^7.9.0"
+    "d3": "^7.9.0",
+    "d3-sankey": "^0.12.3"
   },
   "peerDependencies": {
     "react": "^18.0.0"

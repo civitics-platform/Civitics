@@ -335,6 +335,34 @@ export const VIZ_REGISTRY: VizRegistryEntry[] = [
       return { applicable: false, reason: 'Set your home district to enable Alignment' }
     },
   },
+
+  {
+    id: 'sankey',
+    label: 'Sankey',
+    civicQuestion: 'Where does federal contract money flow — Treasury → agency → sector → vendor?',
+    description: 'Multi-tier flow diagram of contract budget down to top vendors',
+    group: 'standard',
+    status: 'active',
+    icon: 'M3 6h18M3 12h12m-12 6h6',
+
+    requiresEntity: false,
+    supportedConnectionTypes: ['contract'],
+    defaultOptions: {
+      levels: 4,
+      minFlowUsd: 0,
+      topN: 12,
+      showLabels: true,
+    },
+
+    screenshotTarget: '#sankey-svg',
+    screenshotPrep: prepScreenshot,
+    tooltip: placeholderTooltip,
+    onNodeClick: defaultOnNodeClick,
+
+    // Sankey reads from the global contract flow set — no focus required.
+    // It always has data to draw against in Pro since USASpending is loaded.
+    isApplicable: () => APPLICABLE,
+  },
 ]
 
 // ── Public helper (FIX-129) ────────────────────────────────────────────────────

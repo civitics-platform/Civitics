@@ -85,6 +85,13 @@ export const CONNECTION_TYPE_REGISTRY: Record<string, ConnectionTypeDefinition> 
     description: 'Official ↔ corporation movement via career history',
     hasAmount: false,
   },
+  contract_award: {
+    label: 'Contracts',
+    icon: '💵',
+    color: '#14b8a6',
+    description: 'Federal contracts and grants flowing from agencies to vendors',
+    hasAmount: true,
+  },
   alignment: {
     label: 'Alignment',
     icon: '≈',
@@ -164,6 +171,13 @@ export const DEFAULT_CONNECTION_STATE: GraphView['connections'] = {
     opacity: 0.75,
     thickness: 0.5,
   },
+  contract_award: {
+    enabled: true,
+    color: CONNECTION_TYPE_REGISTRY.contract_award!.color,
+    opacity: 0.75,
+    thickness: 0.6,
+    minAmount: 0,
+  },
   alignment: {
     enabled: true,
     color: CONNECTION_TYPE_REGISTRY.alignment!.color,
@@ -239,6 +253,8 @@ export function applicableConnectionTypes(
 
   if (hasOfficial || hasFinancial) out.add('revolving_door');
 
+  if (hasAgency || hasFinancial) out.add('contract_award');
+
   if (userNodeVisible) out.add('alignment');
 
   return out;
@@ -267,6 +283,9 @@ export function inapplicableReason(connectionType: string): string {
   }
   if (connectionType === 'revolving_door') {
     return 'Add an official or corporation to enable';
+  }
+  if (connectionType === 'contract_award') {
+    return 'Add an agency or corporation to enable';
   }
   if (connectionType === 'alignment') {
     return 'Show YOU node to enable';

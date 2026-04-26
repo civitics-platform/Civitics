@@ -157,7 +157,8 @@ export type EdgeType =
   | "revolving_door"
   | "oversight"
   | "lobbying"
-  | "co_sponsorship";
+  | "co_sponsorship"
+  | "contract_award";
 
 export interface GraphNode {
   id: string;
@@ -213,6 +214,7 @@ export const EDGE_COLORS: Record<EdgeType, string> = {
   oversight:           "#94a3b8",
   lobbying:            "#eab308",
   co_sponsorship:      "#06b6d4",
+  contract_award:      "#14b8a6",
 };
 
 export function edgeWidth(edge: Pick<GraphEdge, "type" | "amountCents">): number {

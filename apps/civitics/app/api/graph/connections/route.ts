@@ -47,10 +47,10 @@ function mapEdgeType(dbType: string): EdgeType {
     "donation", "vote_yes", "vote_no", "vote_abstain",
     "nomination_vote_yes", "nomination_vote_no",
     "appointment", "revolving_door", "oversight", "lobbying", "co_sponsorship",
+    "contract_award",
   ];
   if (valid.includes(dbType as EdgeType)) return dbType as EdgeType;
   switch (dbType) {
-    case "contract_award": return "donation";
     case "business_partner": return "oversight";
     case "endorsement": return "oversight";
     case "family": return "appointment";
@@ -165,7 +165,7 @@ export async function GET(request: Request) {
         "vote_yes", "vote_no", "vote_abstain",
         "nomination_vote_yes", "nomination_vote_no",
       ] as const;
-      const OVERSIGHT_TYPES = ["oversight", "appointment", "co_sponsorship", "revolving_door"] as const;
+      const OVERSIGHT_TYPES = ["oversight", "appointment", "co_sponsorship", "revolving_door", "contract_award"] as const;
 
       const [donationsRes, votesRes, oversightRes] = await Promise.all([
         withDbTimeout(

@@ -185,10 +185,11 @@ export function useGraphData(
           groupColor: group.color,
         });
 
-        if (group.filter.chamber) params.set('chamber', group.filter.chamber);
-        if (group.filter.party)   params.set('party',   group.filter.party);
-        if (group.filter.state)   params.set('state',   group.filter.state);
+        if (group.filter.chamber)  params.set('chamber',  group.filter.chamber);
+        if (group.filter.party)    params.set('party',    group.filter.party);
+        if (group.filter.state)    params.set('state',    group.filter.state);
         if (group.filter.industry) params.set('industry', group.filter.industry);
+        if (group.filter.tag)      params.set('tag',      group.filter.tag);
 
         const res  = await fetch(`/api/graph/group?` + params);
         const data = await res.json();

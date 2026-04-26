@@ -4,11 +4,13 @@
  * GroupBrowser
  *
  * Recursive 5-category browse hierarchy (FIX-135) with by-state drill-down
- * (FIX-136). Walks GROUP_TREE — each category is a TreeSection, each leaf is
- * a premade-group row, a state-list row, or the custom-group form.
+ * (FIX-136) and by-topic-tag drill-down (FIX-137). Walks GROUP_TREE — each
+ * category is a TreeSection, each leaf is either a premade group, a
+ * state-list row, a topic-tag row, or the custom-group form.
  * Groups are queries, not lists — adding one stores a filter, not entity IDs.
  */
 
+import { useEffect, useState } from 'react';
 import {
   BUILT_IN_GROUPS,
   GROUP_TREE,
@@ -55,6 +57,33 @@ const US_STATES: Array<{ abbr: string; name: string }> = [
   { abbr: 'WA', name: 'Washington' },     { abbr: 'WV', name: 'West Virginia' },
   { abbr: 'WI', name: 'Wisconsin' },      { abbr: 'WY', name: 'Wyoming' },
 ];
+
+// ── Topic tag (FIX-137) ───────────────────────────────────────────────────────
+
+interface TagGroupItem {
+  tag: string;
+  label: string;
+  icon: string | null;
+  count: number;
+}
+
+function tagGroupId(tag: string): string {
+  return `group-tag-${tag}`;
+}
+
+function buildTagGroup(t: TagGroupItem): FocusGroup {
+  return {
+    id: tagGroupId(t.tag),
+    name: `${t.label} bills`,
+    type: 'group',
+    icon: t.icon ?? '🏷',
+    color: '#a855f7',
+    filter: { entity_type: 'proposal', tag: t.tag },
+    isPremade: false,
+    description: `${t.count.toLocaleString()} proposals tagged ${t.label}`,
+    count: t.count,
+  };
+}
 
 // Deterministic id so a state delegation already in focus shows as active.
 function stateGroupId(abbr: string): string {
@@ -105,6 +134,10 @@ export function GroupBrowser({
     onAddGroup(buildStateGroup(abbr, name));
   }
 
+  function handleTagSelect(t: TagGroupItem) {
+    onAddGroup(buildTagGroup(t));
+  }
+
   function renderNode(node: GroupTreeNode, depth: number, key: string): React.ReactNode {
     if (node.kind === 'category') {
       const hasContent = node.children.some(c => isLeafRenderable(c, groupMap));
@@ -145,6 +178,17 @@ export function GroupBrowser({
           depth={depth}
           activeIds={activeGroupIds}
           onSelect={handleStateSelect}
+        />
+      );
+    }
+
+    if (node.kind === 'topic-tag-list') {
+      return (
+        <TopicTagList
+          key={key}
+          depth={depth}
+          activeIds={activeGroupIds}
+          onSelect={handleTagSelect}
         />
       );
     }
@@ -260,6 +304,91 @@ function StateList({
   );
 }
 
+function TopicTagList({
+  depth,
+  activeIds,
+  onSelect,
+}: {
+  depth: number;
+  activeIds: string[];
+  onSelect: (t: TagGroupItem) => void;
+}) {
+  const [tags, setTags] = useState<TagGroupItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/graph/tag-groups')
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then(data => { if (!cancelled) setTags(data.tags ?? []); })
+      .catch(err => { if (!cancelled) setError(err.message); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const padding = `${8 + depth * 12}px`;
+
+  if (error) {
+    return (
+      <div className="py-2 text-[10px] text-red-500" style={{ paddingLeft: padding, paddingRight: '12px' }}>
+        Couldn’t load tags: {error}
+      </div>
+    );
+  }
+
+  if (tags === null) {
+    return (
+      <div className="py-2 text-[10px] text-gray-400" style={{ paddingLeft: padding, paddingRight: '12px' }}>
+        Loading topic tags…
+      </div>
+    );
+  }
+
+  if (tags.length === 0) {
+    return (
+      <div className="py-2 text-[10px] text-gray-400" style={{ paddingLeft: padding, paddingRight: '12px' }}>
+        No topic tags available yet.
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {tags.map(t => {
+        const isActive = activeIds.includes(tagGroupId(t.tag));
+        return (
+          <div
+            key={t.tag}
+            className="flex items-center justify-between py-1.5 hover:bg-gray-50 group/row"
+            style={{ paddingLeft: padding, paddingRight: '12px' }}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-sm shrink-0">{t.icon ?? '🏷'}</span>
+              <span className="text-xs font-medium text-gray-700 truncate">
+                {t.label}
+              </span>
+              <span className="shrink-0 text-[10px] text-gray-400 tabular-nums">
+                {t.count}
+              </span>
+            </div>
+            <button
+              onClick={() => onSelect(t)}
+              disabled={isActive}
+              title={isActive ? 'Already in focus' : `Add ${t.label} bills to focus`}
+              className={`shrink-0 ml-2 w-5 h-5 rounded text-xs font-bold transition-colors flex items-center justify-center ${
+                isActive
+                  ? 'bg-indigo-100 text-indigo-400 cursor-default'
+                  : 'bg-gray-100 text-gray-500 hover:bg-indigo-600 hover:text-white group-hover/row:bg-indigo-50 group-hover/row:text-indigo-600'
+              }`}
+            >
+              {isActive ? '✓' : '+'}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 /**
@@ -271,8 +400,9 @@ function isLeafRenderable(
   node: GroupTreeNode,
   groupMap: Map<string, FocusGroup>,
 ): boolean {
-  if (node.kind === 'group')       return groupMap.has(node.id);
-  if (node.kind === 'state-list')  return true;
-  if (node.kind === 'custom-form') return true;
+  if (node.kind === 'group')          return groupMap.has(node.id);
+  if (node.kind === 'state-list')     return true;
+  if (node.kind === 'topic-tag-list') return true;
+  if (node.kind === 'custom-form')    return true;
   return node.children.some(c => isLeafRenderable(c, groupMap));
 }

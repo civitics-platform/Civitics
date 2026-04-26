@@ -184,6 +184,7 @@ export function applicableConnectionTypes(
       if (et === 'official') hasOfficial = true;
       else if (et === 'agency') hasAgency = true;
       else if (et === 'pac') hasFinancial = true;
+      else if (et === 'proposal') hasProposal = true;
     } else {
       if (item.type === 'official') hasOfficial = true;
       else if (item.type === 'agency') hasAgency = true;

@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
   const party      = searchParams.get("party");
   const state      = searchParams.get("state");
   const industry   = searchParams.get("industry");
+  const tag        = searchParams.get("tag");
   const groupName  = searchParams.get("groupName")  ?? "Group";
   const groupIcon  = searchParams.get("groupIcon")  ?? "👥";
   const groupColor = searchParams.get("groupColor") ?? "#6366f1";
@@ -311,6 +312,60 @@ export async function GET(req: NextRequest) {
         topRecipientsShown:  topRecipients.length,
         totalDonatedUsd:     topRecipients.reduce((s, r) => s + r.totalUsd, 0),
       },
+    });
+  }
+
+  // ── Proposal/topic-tag group mode (FIX-137) ───────────────────────────────
+  // Surface a single group node carrying memberCount. Drill-down into the
+  // member proposals and their connections (votes, sponsorships) is a future
+  // enhancement — for now the tag bubble is the visible artifact and the
+  // count is what the user reads.
+
+  if (entityType === "proposal") {
+    if (!tag) {
+      return NextResponse.json(
+        { error: "tag query param required for entity_type=proposal" },
+        { status: 400 },
+      );
+    }
+
+    const { count: rawCount } = await supabase
+      .from("entity_tags")
+      .select("entity_id", { count: "exact", head: true })
+      .eq("entity_type", "proposal")
+      .eq("tag_category", "topic")
+      .eq("tag", tag)
+      .neq("visibility", "internal");
+
+    const memberCount = rawCount ?? 0;
+
+    const groupNode: ResponseNode = {
+      id: groupId,
+      name: groupName,
+      type: "group" as NodeType,
+      collapsed: false,
+      metadata: {
+        icon: groupIcon,
+        color: groupColor,
+        memberCount,
+        isGroup: true,
+        isTagGroup: true,
+        tag,
+      },
+    };
+
+    return NextResponse.json({
+      group: {
+        id: groupId,
+        name: groupName,
+        icon: groupIcon,
+        color: groupColor,
+        count: memberCount,
+        filter: { entity_type: entityType, tag },
+      },
+      nodes: [groupNode],
+      edges: [],
+      meta: { memberCount, tag },
     });
   }
 

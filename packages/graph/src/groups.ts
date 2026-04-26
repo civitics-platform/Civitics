@@ -236,6 +236,7 @@ export const BUILT_IN_GROUPS: FocusGroup[] = [
 export type GroupTreeNode =
   | { kind: 'group'; id: string }
   | { kind: 'state-list' }
+  | { kind: 'topic-tag-list' }
   | { kind: 'custom-form' }
   | {
       kind: 'category'
@@ -302,6 +303,21 @@ export const GROUP_TREE: GroupTreeNode[] = [
   },
   {
     kind: 'category',
+    label: 'Legislation',
+    icon: '📜',
+    defaultExpanded: false,
+    children: [
+      {
+        kind: 'category',
+        label: 'By topic tag',
+        icon: '🏷',
+        defaultExpanded: false,
+        children: [{ kind: 'topic-tag-list' }],
+      },
+    ],
+  },
+  {
+    kind: 'category',
     label: 'Saved',
     icon: '⭐',
     defaultExpanded: false,
@@ -360,6 +376,8 @@ function buildGroupName(filter: GroupFilter): string {
 
   if (filter.entity_type === 'pac' && filter.industry)
     parts.push(filter.industry + ' PACs')
+  else if (filter.entity_type === 'proposal' && filter.tag)
+    parts.push(filter.tag + ' bills')
   else if (filter.entity_type === 'official')
     parts.push('Officials')
 

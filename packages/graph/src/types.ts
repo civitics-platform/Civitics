@@ -172,11 +172,13 @@ export interface FocusEntity {
 // ── Group Filter ───────────────────────────────────────────────────────────────
 
 export interface GroupFilter {
-  entity_type: 'official' | 'pac' | 'agency'
+  entity_type: 'official' | 'pac' | 'agency' | 'proposal'
   chamber?: 'senate' | 'house'
   party?: string
   state?: string
   industry?: string
+  /** Topic-tag slug from entity_tags.tag. proposal groups only. (FIX-137) */
+  tag?: string
 }
 
 // ── Focus Group ────────────────────────────────────────────────────────────────

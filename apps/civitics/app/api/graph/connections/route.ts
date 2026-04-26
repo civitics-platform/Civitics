@@ -281,7 +281,9 @@ export async function GET(request: Request) {
     const financialIds = entities.filter((e) => e.type === "financial").map((e) => e.id);
 
     // ── Batch-fetch names in parallel ──────────────────────────────────────
-    const [officialsRes, agenciesRes, proposalsRes, gbRes, financialRes] = await Promise.all([
+    // FIX-123: bill_number lives in `bill_details` (one-to-one with proposals)
+    // post-cutover, so it's a separate fetch keyed on proposal_id.
+    const [officialsRes, agenciesRes, proposalsRes, billDetailsRes, gbRes, financialRes] = await Promise.all([
       officialIds.length
         ? supabase.from("officials").select("id, full_name, party").in("id", officialIds)
         : Promise.resolve({ data: [] as { id: string; full_name: string; party: string | null }[] }),
@@ -291,6 +293,9 @@ export async function GET(request: Request) {
       proposalIds.length
         ? supabase.from("proposals").select("id, title").in("id", proposalIds)
         : Promise.resolve({ data: [] as { id: string; title: string }[] }),
+      proposalIds.length
+        ? supabase.from("bill_details").select("proposal_id, bill_number").in("proposal_id", proposalIds)
+        : Promise.resolve({ data: [] as { proposal_id: string; bill_number: string }[] }),
       gbIds.length
         ? supabase.from("governing_bodies").select("id, name").in("id", gbIds)
         : Promise.resolve({ data: [] as { id: string; name: string }[] }),
@@ -299,11 +304,25 @@ export async function GET(request: Request) {
         : Promise.resolve({ data: [] as { id: string; display_name: string; entity_type: string }[] }),
     ]);
 
+    const billNumberByProposal = new Map<string, string>();
+    for (const b of billDetailsRes.data ?? []) {
+      if (b.bill_number) billNumberByProposal.set(b.proposal_id, b.bill_number);
+    }
+
     // ── Build name lookup ───────────────────────────────────────────────────
-    const nameMap = new Map<string, { label: string; party?: string; subType?: string }>();
+    const nameMap = new Map<string, { label: string; party?: string; subType?: string; role?: string }>();
     for (const o of officialsRes.data ?? []) nameMap.set(o.id, { label: o.full_name, party: o.party ?? undefined });
     for (const a of agenciesRes.data ?? []) nameMap.set(a.id, { label: a.acronym ?? a.name });
-    for (const p of proposalsRes.data ?? []) nameMap.set(p.id, { label: p.title });
+    for (const p of proposalsRes.data ?? []) {
+      // FIX-123: bill_number ("HR 1234") goes into role so the tooltip subtitle
+      // shows it. Title stays as the primary name. If title is missing, fall
+      // back to bill_number rather than rendering blank.
+      const billNumber = billNumberByProposal.get(p.id);
+      nameMap.set(p.id, {
+        label: p.title || billNumber || "Untitled bill",
+        role: billNumber,
+      });
+    }
     for (const g of gbRes.data ?? []) nameMap.set(g.id, { label: g.name });
     for (const f of financialRes.data ?? []) nameMap.set(f.id, { label: f.display_name, subType: f.entity_type });
 
@@ -317,6 +336,7 @@ export async function GET(request: Request) {
         type: mapNodeType(type, info.subType),
         name: info.label,
         party: info.party as GraphNode["party"],
+        ...(info.role ? { role: info.role } : {}),
         ...(isCollapsed
           ? { collapsed: true, connectionCount: collapsedNodes.get(id) }
           : {}),

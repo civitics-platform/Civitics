@@ -3,9 +3,9 @@
 /**
  * GroupBrowser
  *
- * Recursive 5-category browse hierarchy (FIX-135).
- * Walks GROUP_TREE — each category is a TreeSection, each leaf is either a
- * premade-group row, the By-State dropdown, or the custom-group form.
+ * Recursive 5-category browse hierarchy (FIX-135) with by-state drill-down
+ * (FIX-136). Walks GROUP_TREE — each category is a TreeSection, each leaf is
+ * a premade-group row, a state-list row, or the custom-group form.
  * Groups are queries, not lists — adding one stores a filter, not entity IDs.
  */
 
@@ -25,17 +25,54 @@ export interface GroupBrowserProps {
   activeGroupIds?: string[];
 }
 
-const US_STATES = [
-  'AL','AK','AZ','AR','CA','CO',
-  'CT','DE','FL','GA','HI','ID',
-  'IL','IN','IA','KS','KY','LA',
-  'ME','MD','MA','MI','MN','MS',
-  'MO','MT','NE','NV','NH','NJ',
-  'NM','NY','NC','ND','OH','OK',
-  'OR','PA','RI','SC','SD','TN',
-  'TX','UT','VT','VA','WA','WV',
-  'WI','WY','DC',
+// Alphabetical by full name so the drill-down reads naturally.
+// Abbreviations stay in sync with officials.metadata.state_abbr (FIX-124).
+const US_STATES: Array<{ abbr: string; name: string }> = [
+  { abbr: 'AL', name: 'Alabama' },        { abbr: 'AK', name: 'Alaska' },
+  { abbr: 'AZ', name: 'Arizona' },        { abbr: 'AR', name: 'Arkansas' },
+  { abbr: 'CA', name: 'California' },     { abbr: 'CO', name: 'Colorado' },
+  { abbr: 'CT', name: 'Connecticut' },    { abbr: 'DE', name: 'Delaware' },
+  { abbr: 'DC', name: 'District of Columbia' },
+  { abbr: 'FL', name: 'Florida' },        { abbr: 'GA', name: 'Georgia' },
+  { abbr: 'HI', name: 'Hawaii' },         { abbr: 'ID', name: 'Idaho' },
+  { abbr: 'IL', name: 'Illinois' },       { abbr: 'IN', name: 'Indiana' },
+  { abbr: 'IA', name: 'Iowa' },           { abbr: 'KS', name: 'Kansas' },
+  { abbr: 'KY', name: 'Kentucky' },       { abbr: 'LA', name: 'Louisiana' },
+  { abbr: 'ME', name: 'Maine' },          { abbr: 'MD', name: 'Maryland' },
+  { abbr: 'MA', name: 'Massachusetts' },  { abbr: 'MI', name: 'Michigan' },
+  { abbr: 'MN', name: 'Minnesota' },      { abbr: 'MS', name: 'Mississippi' },
+  { abbr: 'MO', name: 'Missouri' },       { abbr: 'MT', name: 'Montana' },
+  { abbr: 'NE', name: 'Nebraska' },       { abbr: 'NV', name: 'Nevada' },
+  { abbr: 'NH', name: 'New Hampshire' },  { abbr: 'NJ', name: 'New Jersey' },
+  { abbr: 'NM', name: 'New Mexico' },     { abbr: 'NY', name: 'New York' },
+  { abbr: 'NC', name: 'North Carolina' }, { abbr: 'ND', name: 'North Dakota' },
+  { abbr: 'OH', name: 'Ohio' },           { abbr: 'OK', name: 'Oklahoma' },
+  { abbr: 'OR', name: 'Oregon' },         { abbr: 'PA', name: 'Pennsylvania' },
+  { abbr: 'RI', name: 'Rhode Island' },   { abbr: 'SC', name: 'South Carolina' },
+  { abbr: 'SD', name: 'South Dakota' },   { abbr: 'TN', name: 'Tennessee' },
+  { abbr: 'TX', name: 'Texas' },          { abbr: 'UT', name: 'Utah' },
+  { abbr: 'VT', name: 'Vermont' },        { abbr: 'VA', name: 'Virginia' },
+  { abbr: 'WA', name: 'Washington' },     { abbr: 'WV', name: 'West Virginia' },
+  { abbr: 'WI', name: 'Wisconsin' },      { abbr: 'WY', name: 'Wyoming' },
 ];
+
+// Deterministic id so a state delegation already in focus shows as active.
+function stateGroupId(abbr: string): string {
+  return `group-state-${abbr}`;
+}
+
+function buildStateGroup(abbr: string, name: string): FocusGroup {
+  return {
+    id: stateGroupId(abbr),
+    name: `${name} Delegation`,
+    type: 'group',
+    icon: '🗺',
+    color: '#6366f1',
+    filter: { entity_type: 'official', state: abbr },
+    isPremade: false,
+    description: `Officials representing ${name}`,
+  };
+}
 
 export function GroupBrowser({
   onAddGroup,
@@ -64,13 +101,8 @@ export function GroupBrowser({
     onAddGroup(group);
   }
 
-  function handleStateSelect(state: string) {
-    if (!state) return;
-    const group = createCustomGroup(
-      { entity_type: 'official', state },
-      `${state} Delegation`,
-    );
-    onAddGroup(group);
+  function handleStateSelect(abbr: string, name: string) {
+    onAddGroup(buildStateGroup(abbr, name));
   }
 
   function renderNode(node: GroupTreeNode, depth: number, key: string): React.ReactNode {
@@ -106,8 +138,15 @@ export function GroupBrowser({
       );
     }
 
-    if (node.kind === 'state-picker') {
-      return <StatePicker key={key} depth={depth} onSelect={handleStateSelect} />;
+    if (node.kind === 'state-list') {
+      return (
+        <StateList
+          key={key}
+          depth={depth}
+          activeIds={activeGroupIds}
+          onSelect={handleStateSelect}
+        />
+      );
     }
 
     if (node.kind === 'custom-form') {
@@ -175,31 +214,48 @@ function GroupRow({
   );
 }
 
-function StatePicker({
+function StateList({
   depth,
+  activeIds,
   onSelect,
 }: {
   depth: number;
-  onSelect: (state: string) => void;
+  activeIds: string[];
+  onSelect: (abbr: string, name: string) => void;
 }) {
   return (
-    <div className="py-2" style={{ paddingLeft: `${8 + depth * 12}px`, paddingRight: '12px' }}>
-      <select
-        className="w-full text-xs border border-gray-200 rounded px-2 py-1 bg-white text-gray-700 focus:outline-none focus:border-indigo-400"
-        defaultValue=""
-        onChange={e => {
-          onSelect(e.target.value);
-          e.target.value = '';
-        }}
-      >
-        <option value="" disabled>Select a state...</option>
-        {US_STATES.map(s => (
-          <option key={s} value={s}>{s}</option>
-        ))}
-      </select>
-      <p className="text-[10px] text-gray-400 mt-1">
-        Adds all officials from that state to focus
-      </p>
+    <div>
+      {US_STATES.map(s => {
+        const isActive = activeIds.includes(stateGroupId(s.abbr));
+        return (
+          <div
+            key={s.abbr}
+            className="flex items-center justify-between py-1.5 hover:bg-gray-50 group/row"
+            style={{ paddingLeft: `${8 + depth * 12}px`, paddingRight: '12px' }}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-[10px] font-semibold text-gray-400 shrink-0 w-6 tabular-nums">
+                {s.abbr}
+              </span>
+              <span className="text-xs font-medium text-gray-700 truncate">
+                {s.name}
+              </span>
+            </div>
+            <button
+              onClick={() => onSelect(s.abbr, s.name)}
+              disabled={isActive}
+              title={isActive ? 'Already in focus' : `Add ${s.name} delegation to focus`}
+              className={`shrink-0 ml-2 w-5 h-5 rounded text-xs font-bold transition-colors flex items-center justify-center ${
+                isActive
+                  ? 'bg-indigo-100 text-indigo-400 cursor-default'
+                  : 'bg-gray-100 text-gray-500 hover:bg-indigo-600 hover:text-white group-hover/row:bg-indigo-50 group-hover/row:text-indigo-600'
+              }`}
+            >
+              {isActive ? '✓' : '+'}
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -215,8 +271,8 @@ function isLeafRenderable(
   node: GroupTreeNode,
   groupMap: Map<string, FocusGroup>,
 ): boolean {
-  if (node.kind === 'group')        return groupMap.has(node.id);
-  if (node.kind === 'state-picker') return true;
-  if (node.kind === 'custom-form')  return true;
+  if (node.kind === 'group')       return groupMap.has(node.id);
+  if (node.kind === 'state-list')  return true;
+  if (node.kind === 'custom-form') return true;
   return node.children.some(c => isLeafRenderable(c, groupMap));
 }

@@ -225,8 +225,8 @@ export const BUILT_IN_GROUPS: FocusGroup[] = [
 //
 // Recursive 5-category tree rendered by GroupBrowser.
 // `kind: 'group'` leaves point at BUILT_IN_GROUPS by id.
-// `kind: 'state-picker'` / `kind: 'custom-form'` are slots GroupBrowser
-//   renders as the existing By-State dropdown and Build-custom-group form.
+// `kind: 'state-list'` / `kind: 'custom-form'` are slots GroupBrowser
+//   renders as the 50-state drill-down (FIX-136) and Build-custom-group form.
 // `kind: 'category'` is a recursive section header.
 //
 // Empty categories (Government, Legislation) are intentionally omitted until
@@ -235,7 +235,7 @@ export const BUILT_IN_GROUPS: FocusGroup[] = [
 
 export type GroupTreeNode =
   | { kind: 'group'; id: string }
-  | { kind: 'state-picker' }
+  | { kind: 'state-list' }
   | { kind: 'custom-form' }
   | {
       kind: 'category'
@@ -269,10 +269,10 @@ export const GROUP_TREE: GroupTreeNode[] = [
       },
       {
         kind: 'category',
-        label: 'By state',
+        label: 'Officials by state',
         icon: '🗺',
         defaultExpanded: false,
-        children: [{ kind: 'state-picker' }],
+        children: [{ kind: 'state-list' }],
       },
     ],
   },

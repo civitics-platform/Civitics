@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { createServerClient, agencyFullName } from "@civitics/db";
 import { AgenciesList } from "./components/AgenciesList";
 import { AgencyActivityChart } from "./components/AgencyActivityChart";
+import { GroupBuilderWidget } from "./components/GroupBuilderWidget";
 import { PageViewTracker } from "../components/PageViewTracker";
 import { PageHeader } from "@civitics/ui";
 
@@ -110,7 +111,10 @@ export default async function AgenciesPage() {
             { label: "Agencies" },
           ]}
         />
-        <AgencyActivityChart rows={chartRows} />
+        <div className="grid gap-6 lg:grid-cols-[1fr,260px]">
+          <AgencyActivityChart rows={chartRows} />
+          <GroupBuilderWidget />
+        </div>
       </div>
       <AgenciesList agencies={agencies} featuredAgency={featuredAgency} />
     </div>

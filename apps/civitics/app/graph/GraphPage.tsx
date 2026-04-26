@@ -17,8 +17,9 @@ import {
   VIZ_REGISTRY,
   isFocusEntity,
   isFocusGroup,
+  createCustomGroup,
 } from "@civitics/graph";
-import type { VizType, FocusGroup, GraphNodeV2 as GraphNode, GraphEdgeV2 as GraphEdge, GraphMeta, UserNodeInfo } from "@civitics/graph";
+import type { VizType, FocusGroup, GroupFilter, GraphNodeV2 as GraphNode, GraphEdgeV2 as GraphEdge, GraphMeta, UserNodeInfo } from "@civitics/graph";
 import { SharePanel }      from "./SharePanel";
 import { ScreenshotPanel } from "./ScreenshotPanel";
 import { GhostGraph }      from "./GhostGraph";
@@ -37,6 +38,44 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
   // ── Graph view state (three-layer model) ──────────────────────────────────
   const graphHooks = useGraphView();
   const { view }   = graphHooks;
+
+  // ── Group handoff from /agencies (FIX-127) ────────────────────────────────
+  // The /agencies sidebar widget navigates to /graph?groupType=...&groupName=...
+  // with the GroupFilter encoded in URL params. Decode once on mount, add the
+  // group, and strip the params so a refresh doesn't re-add it.
+  const groupHandoffRef = useRef(false);
+  useEffect(() => {
+    if (groupHandoffRef.current) return;
+    if (initialCode) return; // share-code hydration owns focus
+    if (typeof window === "undefined") return;
+
+    const params = new URL(window.location.href).searchParams;
+    const groupType = params.get("groupType");
+    if (!groupType || !["official", "pac", "agency"].includes(groupType)) return;
+
+    groupHandoffRef.current = true;
+
+    const filter: GroupFilter = { entity_type: groupType as GroupFilter["entity_type"] };
+    const chamber = params.get("groupChamber");
+    if (chamber === "senate" || chamber === "house") filter.chamber = chamber;
+    const party = params.get("groupParty");
+    if (party) filter.party = party;
+    const state = params.get("groupState");
+    if (state) filter.state = state;
+    const industry = params.get("groupIndustry");
+    if (industry) filter.industry = industry;
+
+    const name = params.get("groupName") ?? undefined;
+    graphHooks.addGroup(createCustomGroup(filter, name));
+
+    // Strip the group params so refresh / share doesn't re-trigger.
+    const cleaned = new URL(window.location.href);
+    for (const k of ["groupType","groupName","groupChamber","groupParty","groupState","groupIndustry"]) {
+      cleaned.searchParams.delete(k);
+    }
+    window.history.replaceState({}, "", cleaned.toString());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialCode]);
 
   // ── Auto-focus signed-in user's followed entities (FIX-042) ──────────────
   // On first mount, if nothing is focused and nothing is pre-loaded from

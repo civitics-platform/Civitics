@@ -11,14 +11,14 @@
  * not individual entity IDs.
  */
 
-import { useState } from 'react';
 import {
   BUILT_IN_GROUPS,
   GROUP_CATEGORIES,
   createCustomGroup,
 } from '../groups';
-import type { FocusGroup, GroupFilter } from '../types';
+import type { FocusGroup } from '../types';
 import { TreeSection } from './TreeNode';
+import { CustomGroupForm } from './CustomGroupForm';
 
 export interface GroupBrowserProps {
   onAddGroup: (group: FocusGroup) => void;
@@ -46,32 +46,28 @@ export function GroupBrowser({
   // Build lookup map for quick access by ID
   const groupMap = new Map(BUILT_IN_GROUPS.map(g => [g.id, g]));
 
-  // Custom filter state
-  const [customType, setCustomType] = useState<'official' | 'pac'>('official');
-  const [customChamber, setCustomChamber] = useState<string>('');
-  const [customParty, setCustomParty] = useState<string>('');
-  const [customState, setCustomState] = useState<string>('');
-  const [customIndustry, setCustomIndustry] = useState<string>('');
-
-  // Build the custom filter from current state
-  function buildCustomFilter(): GroupFilter {
-    const filter: GroupFilter = { entity_type: customType };
-    if (customChamber) filter.chamber = customChamber as 'senate' | 'house';
-    if (customParty) filter.party = customParty;
-    if (customState) filter.state = customState;
-    if (customType === 'pac' && customIndustry) filter.industry = customIndustry;
-    return filter;
-  }
-
-  // Generate preview name for custom group button
-  function customGroupName(): string {
-    const parts: string[] = [];
-    if (customState) parts.push(customState);
-    if (customParty) parts.push(customParty.charAt(0).toUpperCase() + customParty.slice(1));
-    if (customChamber) parts.push(customChamber.charAt(0).toUpperCase() + customChamber.slice(1));
-    if (customType === 'pac' && customIndustry) parts.push(customIndustry + ' PACs');
-    else parts.push('Officials');
-    return parts.join(' ') || 'All Officials';
+  // Save flow: build a FocusGroup, optionally persist via /api/graph/custom-groups,
+  // then add to the active view. Persistence is best-effort — anonymous users
+  // and network errors fall back to in-memory groups so the user never loses
+  // their selection.
+  async function handleCustomSave({ filter, name }: { filter: import('../types').GroupFilter; name: string }) {
+    let persisted = false;
+    try {
+      const res = await fetch('/api/graph/custom-groups', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ name, filter }),
+        credentials: 'include',
+      });
+      persisted = res.ok;
+    } catch {
+      persisted = false;
+    }
+    const group = createCustomGroup(filter, name);
+    onAddGroup(group);
+    if (!persisted) {
+      // Silent fallback — user's group still works in-session even if persistence fails.
+    }
   }
 
   return (
@@ -163,104 +159,15 @@ export function GroupBrowser({
         </div>
       </TreeSection>
 
-      {/* ── Custom filter ────── */}
+      {/* ── Build custom group ─────────────────────── */}
       <TreeSection
-        label="Custom Filter"
+        label="+ Build custom group"
         defaultExpanded={false}
         separator={false}
         depth={1}
       >
-        <div className="px-3 py-2 space-y-2">
-
-          {/* Type toggle */}
-          <div className="flex gap-1">
-            {(['official', 'pac'] as const).map(t => (
-              <button
-                key={t}
-                onClick={() => {
-                  setCustomType(t);
-                  setCustomIndustry('');
-                  setCustomChamber('');
-                  setCustomParty('');
-                }}
-                className={`flex-1 py-0.5 text-[10px] rounded capitalize transition-colors ${
-                  customType === t
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                }`}
-              >
-                {t === 'official' ? '👤 Officials' : '💼 PACs'}
-              </button>
-            ))}
-          </div>
-
-          {/* Official filters */}
-          {customType === 'official' && (
-            <>
-              <select
-                value={customChamber}
-                onChange={e => setCustomChamber(e.target.value)}
-                className="w-full text-xs border border-gray-200 rounded px-2 py-1 bg-white text-gray-600 focus:outline-none focus:border-indigo-400"
-              >
-                <option value="">Any chamber</option>
-                <option value="senate">Senate</option>
-                <option value="house">House</option>
-              </select>
-
-              <select
-                value={customParty}
-                onChange={e => setCustomParty(e.target.value)}
-                className="w-full text-xs border border-gray-200 rounded px-2 py-1 bg-white text-gray-600 focus:outline-none focus:border-indigo-400"
-              >
-                <option value="">Any party</option>
-                <option value="democrat">Democrat</option>
-                <option value="republican">Republican</option>
-                <option value="independent">Independent</option>
-              </select>
-
-              <select
-                value={customState}
-                onChange={e => setCustomState(e.target.value)}
-                className="w-full text-xs border border-gray-200 rounded px-2 py-1 bg-white text-gray-600 focus:outline-none focus:border-indigo-400"
-              >
-                <option value="">Any state</option>
-                {US_STATES.map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </>
-          )}
-
-          {/* PAC filters */}
-          {customType === 'pac' && (
-            <select
-              value={customIndustry}
-              onChange={e => setCustomIndustry(e.target.value)}
-              className="w-full text-xs border border-gray-200 rounded px-2 py-1 bg-white text-gray-600 focus:outline-none focus:border-indigo-400"
-            >
-              <option value="">Any industry</option>
-              {[
-                'Finance', 'Energy', 'Healthcare', 'Defense',
-                'Labor', 'Tech', 'Agriculture', 'Real Estate',
-                'Transportation', 'Construction', 'Retail & Food',
-                'Education', 'Legal',
-              ].map(ind => (
-                <option key={ind} value={ind}>{ind}</option>
-              ))}
-            </select>
-          )}
-
-          {/* Create button */}
-          <button
-            onClick={() => {
-              const filter = buildCustomFilter();
-              const group = createCustomGroup(filter, customGroupName());
-              onAddGroup(group);
-            }}
-            className="w-full py-1.5 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded transition-colors"
-          >
-            + Add &ldquo;{customGroupName()}&rdquo;
-          </button>
+        <div className="px-3 py-2">
+          <CustomGroupForm onSave={handleCustomSave} />
         </div>
       </TreeSection>
     </div>

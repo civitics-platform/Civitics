@@ -99,6 +99,9 @@ export type { EntitySearchInputProps } from "./components/EntitySearchInput";
 export { GroupBrowser } from "./components/GroupBrowser";
 export type { GroupBrowserProps } from "./components/GroupBrowser";
 
+export { CustomGroupForm } from "./components/CustomGroupForm";
+export type { CustomGroupFormProps, CustomGroupFormPayload } from "./components/CustomGroupForm";
+
 export { ConnectionStyleRow } from "./components/ConnectionStyleRow";
 export type { ConnectionStyleRowProps, ConnectionTypeSettings } from "./components/ConnectionStyleRow";
 

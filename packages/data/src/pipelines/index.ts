@@ -16,7 +16,7 @@ import { runFecBulkPipeline } from "./fec-bulk";
 import { runUsaSpendingPipeline } from "./usaspending";
 import { runCourtListenerPipeline } from "./courtlistener";
 import { runOpenStatesPipeline } from "./openstates";
-import { runOfficialsPipeline, runVotesPipeline } from "./congress";
+import { runOfficialsPipeline, runVotesPipeline, runCommitteesPipeline } from "./congress";
 import { runRuleBasedTagger } from "./tags/rules";
 import { runAiTagger } from "./tags/ai-tagger";
 import { runAiSummariesPipeline } from "./ai-summaries";
@@ -294,6 +294,7 @@ export interface NightlySyncResults {
     openstates?: NightlyPipelineResult;
     agencies_hierarchy?: NightlyPipelineResult;
     elections?: NightlyPipelineResult;
+    congress_committees?: NightlyPipelineResult;
     connections?: NightlyPipelineResult;
   };
   ai: {
@@ -467,6 +468,20 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         console.error("[nightly] elections failed:", msg);
         results.pipelines.elections = { status: "failed", error: msg };
         results.errors.push(`Elections: ${msg}`);
+      }
+    }
+
+    // Committees (memberships shift on caucus reassignments — weekly is plenty)
+    {
+      const t0 = Date.now();
+      try {
+        const r = await runCommitteesPipeline({ federalId });
+        results.pipelines.congress_committees = { status: "complete", rows_added: r.inserted + r.updated, duration_ms: Date.now() - t0 };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[nightly] congress committees failed:", msg);
+        results.pipelines.congress_committees = { status: "failed", error: msg };
+        results.errors.push(`Congress committees: ${msg}`);
       }
     }
   }

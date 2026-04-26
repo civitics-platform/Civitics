@@ -142,3 +142,4 @@
 2026-04-25 | FIX-118 | 9a20cf1d | feat(data): add USASpending bulk archive pipeline (FIX-118)
 2026-04-25 | FIX-119 | 9f645a00 | fix(data): fix USASpending sub-agency attribution and seed ICE/TSA/FEMA
 2026-04-25 | FIX-042 | 44829221 | feat(graph): add USER node with alignment scoring (FIX-042)
+2026-04-25 | FIX-120 | f3fdabdc | feat(graph): surface USER node toggle + alignment connection (FIX-120)

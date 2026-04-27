@@ -176,3 +176,5 @@
 2026-04-26 | FIX-148 | cd8e7ee3 | feat(graph): wire SpendingGraph options + fix contract connection-type drift
 2026-04-26 | FIX-149 | aea46680 | feat(graph): shared-connections pill bar (compare mode)
 2026-04-26 | FIX-150 | 6f65d96e | docs(graph): refresh CLAUDE.md after viz-tier completion
+2026-04-26 | FIX-154 | 8eeb20d2 | fix(graph): wire donations + hide orphan nodes on type toggle
+2026-04-26 | FIX-155 | 8eeb20d2 | fix(graph): wire donations + hide orphan nodes on type toggle

@@ -172,7 +172,7 @@ The shadow→public promotion migration (`20260422000000_promote_shadow_to_publi
 
 ### Documentation
 
-- [ ] 🟢 S — **Update packages/graph/CLAUDE.md** — reflect new vision; reference GRAPH_PLAN.md; per GRAPH_PLAN §7.1 <!--id:FIX-150-->
+- [x] 🟢 S — **Update packages/graph/CLAUDE.md** — reflect new vision; reference GRAPH_PLAN.md; per GRAPH_PLAN §7.1 <!--id:FIX-150-->
 
 ### Prerequisites (discovered in audit)
 

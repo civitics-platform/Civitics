@@ -843,19 +843,21 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
     // ── Category A — Connection styles + shared edge highlighting ─────────────
     useEffect(() => {
       const link = linkSelRef.current;
+      const nodeGrp = nodeGrpRef.current;
       if (!link) return;
 
       const focusIds = new Set(focusEntities.map((fe) => fe.id));
       const hasConnectionFilter = connections && Object.keys(connections).length > 0;
 
+      const edgeVisible = (d: SimLink): boolean => {
+        if (!hasConnectionFilter) return true;
+        const conn = connections[d.connectionType];
+        if (!conn) return true;
+        return conn.enabled !== false;
+      };
+
       link
-        .style("display", (d: SimLink) => {
-          if (!hasConnectionFilter) return "block";
-          const conn = connections[d.connectionType];
-          if (!conn) return "block";           // unknown type: show
-          if (conn.enabled === false) return "none"; // explicitly disabled: hide
-          return "block";
-        })
+        .style("display", (d: SimLink) => (edgeVisible(d) ? "block" : "none"))
         .attr("stroke", (d: SimLink) => {
           if (d.connectionType === "alignment") {
             return alignmentEdgeColor(d.metadata?.alignmentRatio as number | null);
@@ -884,6 +886,24 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
           }
           return thickness * 4;
         });
+
+      // Hide nodes whose only edges were just disabled. Focused entities,
+      // FocusGroup nodes, and the USER node always stay visible.
+      if (nodeGrp) {
+        const visibleNodeIds = new Set<string>();
+        link.each(function (d: SimLink) {
+          if (!edgeVisible(d)) return;
+          const sid = (d.source as SimNode).id ?? d.fromId;
+          const tid = (d.target as SimNode).id ?? d.toId;
+          visibleNodeIds.add(sid);
+          visibleNodeIds.add(tid);
+        });
+        nodeGrp.style("display", (n: SimNode) => {
+          if (focusIds.has(n.id)) return null;
+          if (n.type === "user" || n.type === "group") return null;
+          return visibleNodeIds.has(n.id) ? null : "none";
+        });
+      }
     }, [connections, focusEntities]);
 
     // ── Category A — Node highlight for focus entities ─────────────────────────

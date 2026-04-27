@@ -180,6 +180,11 @@ The shadow→public promotion migration (`20260422000000_promote_shadow_to_publi
 - [x] 🟠 L — **Committees schema** — no `committees` table; `governing_body_type` enum lacks 'committee' value; `officials.governing_body_id` is single FK so an official can't belong to multiple committees. Add `'committee'` to enum + `official_committee_memberships` join table (official_id, committee_id, role, started_at, ended_at). Prereq for FIX-139. <!--id:FIX-152-->
 - [x] 🟠 L — **Committees ingestion pipeline** — Congress.gov committees endpoint → backfill `governing_bodies` rows of type='committee' + `official_committee_memberships`. Prereq for FIX-139. Depends on FIX-152. <!--id:FIX-153-->
 
+### Post-launch bug fixes
+
+- [ ] 🔴 S — **Donations don't render as PAC donor nodes** — `entity_connections.from_type` for donor rows is `"financial_entity"`, but `apps/civitics/app/api/graph/connections/route.ts` (`mapNodeType` switch + `financialIds` filter) and `apps/civitics/app/api/graph/snapshot/route.ts` (`financialIds` filter, also selecting `name` instead of `display_name`) both matched `"financial"`. Result: donor entities never got fetched from `financial_entities`, ended up labeled "Unknown financial_entity" and typed `corporation` instead of `pac`/`individual`. Affects donations and contract_award (agency↔financial_entity) endpoints. <!--id:FIX-154-->
+- [ ] 🔴 S — **Orphan nodes remain after a connection type is toggled off** — `ForceGraph.tsx` Category A effect only set `display: none` on disabled-type edges; nodes that existed solely because of those edges floated alone on the canvas. Add a node-visibility pass that hides nodes with no visible incident edge unless they're focused, the USER node, or a FocusGroup. <!--id:FIX-155-->
+
 ---
 
 ## DASHBOARD

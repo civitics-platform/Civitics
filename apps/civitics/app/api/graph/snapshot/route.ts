@@ -427,7 +427,7 @@ async function buildForceData(
   // Fetch names
   const ids = [...entityMap.values()];
   const officialIds = ids.filter((e) => e.type === "official").map((e) => e.id);
-  const financialIds = ids.filter((e) => e.type === "financial").map((e) => e.id);
+  const financialIds = ids.filter((e) => e.type === "financial_entity").map((e) => e.id);
   const proposalIds = ids.filter((e) => e.type === "proposal").map((e) => e.id);
   const gbIds = ids
     .filter((e) => ["governing_body", "agency"].includes(e.type))
@@ -438,8 +438,8 @@ async function buildForceData(
       ? supabase.from("officials").select("id, full_name").in("id", officialIds)
       : Promise.resolve({ data: [] as { id: string; full_name: string }[] }),
     financialIds.length
-      ? supabase.from("financial_entities").select("id, name").in("id", financialIds)
-      : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+      ? supabase.from("financial_entities").select("id, display_name").in("id", financialIds)
+      : Promise.resolve({ data: [] as { id: string; display_name: string }[] }),
     proposalIds.length
       ? supabase.from("proposals").select("id, title").in("id", proposalIds)
       : Promise.resolve({ data: [] as { id: string; title: string }[] }),
@@ -452,8 +452,8 @@ async function buildForceData(
   const nameMap = new Map<string, string>();
   for (const o of (offRes.data ?? []) as { id: string; full_name: string }[])
     nameMap.set(o.id, o.full_name);
-  for (const f of (finRes.data ?? []) as { id: string; name: string }[])
-    nameMap.set(f.id, f.name);
+  for (const f of (finRes.data ?? []) as { id: string; display_name: string }[])
+    nameMap.set(f.id, f.display_name);
   for (const p of (propRes.data ?? []) as { id: string; title: string }[])
     nameMap.set(p.id, p.title);
   for (const g of (gbRes.data ?? []) as { id: string; name: string }[])

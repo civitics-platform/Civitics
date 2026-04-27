@@ -27,7 +27,8 @@ function mapNodeType(dbType: string, subType?: string): NodeType {
     case "governing_body": return "agency";
     case "proposal": return "proposal";
     case "initiative": return "initiative";
-    case "financial": {
+    case "financial":
+    case "financial_entity": {
       switch (subType) {
         case "pac":
         case "super_pac":
@@ -340,7 +341,7 @@ export async function GET(request: Request) {
     const agencyIds    = entities.filter((e) => e.type === "agency").map((e) => e.id);
     const proposalIds  = entities.filter((e) => e.type === "proposal").map((e) => e.id);
     const gbIds        = entities.filter((e) => e.type === "governing_body").map((e) => e.id);
-    const financialIds = entities.filter((e) => e.type === "financial").map((e) => e.id);
+    const financialIds = entities.filter((e) => e.type === "financial_entity").map((e) => e.id);
 
     // ── Batch-fetch names in parallel ──────────────────────────────────────
     // FIX-123: bill_number lives in `bill_details` (one-to-one with proposals)

@@ -22,6 +22,11 @@ point back to plan sections.
 Order of work: **Direction 1 (cleanup) → Direction 3 (reactive panels) → Direction 2
 (file-system browse) → new connection types → new viz types → compare upgrade.**
 
+**Status (2026-04-26):** The viz tier (FIX-144 → FIX-149: hierarchy, matrix,
+alignment, sankey, spending wire-up, shared-connections pill bar) is shipped.
+Cross-cutting principles below remain authoritative. Future viz work attaches
+under "Stage 2 (After Launch)" further down.
+
 Cross-cutting principles being introduced:
 
 - **Reactive panels** — the Connections tree gates by focused entity types; the viz
@@ -97,6 +102,11 @@ interface GraphView {
       chord?: ChordOptions
       treemap?: TreemapOptions
       sunburst?: SunburstOptions
+      hierarchy?: HierarchyOptions   // FIX-144 (§5.1)
+      spending?: SpendingOptions     // FIX-148 (§5.5)
+      matrix?: MatrixOptions         // FIX-145 (§5.2)
+      alignment?: AlignmentOptions   // FIX-146 (§5.3)
+      sankey?: SankeyOptions         // FIX-147 (§5.4)
     }
   }
 
@@ -663,15 +673,22 @@ variant and children.
 
 Lives in the fixed `GraphHeader.tsx` bar. **Not** inside the settings panel.
 
-Renders from `VIZ_REGISTRY`, grouped by `entry.group`:
+Renders from `VIZ_REGISTRY`, grouped by `entry.group`. The Standard group
+populates dynamically from registry entries — adding a viz here means adding
+one entry, not editing the dropdown. `isApplicable(focus, connections, graphMeta)`
+greys out non-applicable entries (with the returned reason as helper text).
+
 ```
 ─── Standard ───
-⬡  Force Graph
-◎  Chord Diagram
-▦  Treemap
-◉  Sunburst
-─── Coming Soon ───
-↔  Timeline
+⬡  Force Graph        — universal, always applicable
+◎  Chord Diagram      — donations, ≥2 donor edges
+▦  Treemap            — officials by donations / PACs by sector
+◉  Sunburst           — entity-centric rings
+🌳 Hierarchy          — agency org tree, budget-weighted   (FIX-144)
+💵 Spending           — agency contract panel              (FIX-148)
+▦▦ Matrix             — pairwise vote agreement, ≥2 officials (FIX-145)
+🎯 Alignment          — USER-centric radial, alignment edges  (FIX-146)
+≡  Sankey             — Treasury → agency → sector → vendor   (FIX-147)
 ─── Custom ───
    [user saved views]
    + Create new view
@@ -749,6 +766,34 @@ const CONNECTION_TYPE_REGISTRY = {
     description: 'Bill co-sponsorship',
     hasAmount: false,
   },
+  appointment: {                                          // FIX-141 (§4.1)
+    label: 'Appointment',
+    icon: '🪪',
+    color: '#d97706',
+    description: 'Cabinet- and agency-leadership appointments (official → agency)',
+    hasAmount: false,
+  },
+  revolving_door: {                                       // FIX-142 (§4.2)
+    label: 'Revolving Door',
+    icon: '🔁',
+    color: '#ec4899',
+    description: 'Official ↔ corporation movement via career history',
+    hasAmount: false,
+  },
+  contract_award: {                                       // FIX-143 (§4.3)
+    label: 'Contracts',
+    icon: '💵',
+    color: '#14b8a6',
+    description: 'Federal contracts and grants flowing from agencies to vendors',
+    hasAmount: true,
+  },
+  alignment: {                                            // FIX-120 (§1.1)
+    label: 'Alignment',
+    icon: '≈',
+    color: '#8b5cf6',
+    description: 'Alignment between your civic positions and representative votes',
+    hasAmount: false,
+  },
 }
 ```
 
@@ -756,6 +801,11 @@ Note: `nomination_vote_yes` / `nomination_vote_no` are VALID and DISTINCT
 from `vote_yes` / `vote_no`. They are derived from proposals with
 `vote_category = 'nomination'`. Show in UI as "Nomination Votes" —
 separate from "Legislation Votes". Never merge them.
+
+The connection-type key for federal contract data is **`contract_award`**,
+not `contract`. Every API write path uses `contract_award`; viz registry
+`supportedConnectionTypes` and applicability checks must reference the same
+key. (FIX-148 cleaned up registry entries that had drifted to `'contract'`.)
 
 ---
 
@@ -847,18 +897,28 @@ User-saved presets: stored in localStorage for now. Future: per-user DB.
 
 ### Built-in Presets (never remove these)
 
-| Preset | Connections | Focus |
-|---|---|---|
-| Follow the Money | donation | depth 1 default |
-| Votes and Bills | vote_yes, vote_no, co_sponsorship | hide_procedural |
-| The Revolving Door | revolving_door, appointment | — |
-| Committee Power | oversight, appointment | — |
-| Industry Capture | donation, oversight, revolving_door | — |
-| Co-Sponsor Network | co_sponsorship, vote_yes | — |
-| Nominations | nomination_vote_yes, nomination_vote_no | — |
-| Full Record | all | include_procedural=true |
-| Full Picture | all | include_procedural=false |
-| Clean View | all | minStrength=0.7, verifiedOnly=true |
+Authoritative list lives in `BUILT_IN_PRESETS` in `presets.ts`. Each row's
+`presetId` is the stable handle — never renumber or drop one, since saved
+sessions reference it.
+
+| Preset | presetId | Viz | Connections |
+|---|---|---|---|
+| Follow the Money | `follow-the-money` | force | donation |
+| Votes & Bills | `votes-and-bills` | force | vote_yes, vote_no, co_sponsorship |
+| Nominations | `nominations` | force | nomination_vote_yes, nomination_vote_no |
+| Committee Power | `committee-power` | force | oversight, appointment |
+| Full Record | `full-record` | force | all |
+| Clean View | `clean-view` | force | all (high-strength only) |
+| Industry Capture | `industry-capture` | force | donation, oversight, revolving_door |
+| Co-Sponsor Network | `co-sponsor-network` | force | co_sponsorship, vote_yes |
+| Top Donors Only | `chord-top-donors` | chord | donation |
+| Industry Donors | `chord-donor-industries` | chord | donation |
+| By State | `treemap-by-state` | treemap | donation |
+| By Chamber | `treemap-by-chamber` | treemap | donation |
+| Donor Breakdown | `treemap-donor-breakdown` | treemap | donation |
+| PAC Money by Sector | `treemap-pac-sector` | treemap | donation |
+| PAC Money by Party | `treemap-pac-party` | treemap | donation |
+| How aligned are my reps? | `alignment-my-reps` | alignment | alignment (FIX-146) |
 
 ---
 

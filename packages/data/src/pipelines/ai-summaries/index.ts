@@ -138,12 +138,15 @@ function computeCostCents(inputTokens: number, outputTokens: number): number {
 
 export async function fetchOpenProposals(db: ReturnType<typeof createAdminClient>): Promise<ProposalRow[]> {
   // Proposals store agency as metadata->>'agency_id' (acronym string), not a FK.
+  // Post-cutover, comment_period_end lives in metadata JSONB (not a top-level column).
+  // ISO 8601 strings compare lexicographically == chronologically, so .gt() against
+  // a fresh now() ISO string still gives "still-open" semantics.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result = await (db as any)
     .from("proposals")
     .select("id, title, summary_plain, type, metadata, jurisdiction_id, updated_at")
-    .gt("comment_period_end", new Date().toISOString())
-    .order("comment_period_end", { ascending: true })
+    .gt("metadata->>comment_period_end", new Date().toISOString())
+    .order("metadata->>comment_period_end", { ascending: true })
     .limit(200);
 
   if (result.error || !result.data) {

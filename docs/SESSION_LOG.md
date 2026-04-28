@@ -2,6 +2,86 @@
 
 ---
 
+## 2026-04-27 evening (FIX-160 OpenStates bulk + FIX-022 elections + state-district maps)
+
+**Done (all verified local; prod runs queued — see below):**
+
+- **FIX-160 — OpenStates bulk people pipeline** (commit `eb691f90`).
+  - `pnpm data:states` now downloads `data.openstates.org/people/current/{abbr}.csv` per state — no API key, no rate limit, no daily quota. ~5.7 MB total, ~1 minute end-to-end. 7,368 legislators upserted on local; idempotent on re-run (0 inserts).
+  - Original `/people` + `/bills` API pipeline preserved as `pnpm data:states-api`. Master orchestrator runs bulk-people daily, full API weekly. The 250-call/day API quota now goes entirely to `/bills` since `/people` no longer competes.
+  - Bills bulk (`open.pluralpolicy.com/data/session-csv/`) is gated behind a Plural Policy Django session that the API key doesn't satisfy — kept on the API path.
+  - Writer hardening: `LOOKUP_CHUNK_SIZE` 200 → 100 (URLs were overflowing PostgREST limits on bigger states like NH/IL/NY, causing failed lookups → silent orphan re-inserts; cleaned up 3,520 duplicate state legislators on local). `termStart`/`termEnd` made optional so the bulk path doesn't clobber API-set dates.
+
+- **State-legislative district maps** (commit `4448cd4d`, FIX-163 filed for tracking).
+  - New `pnpm data:districts` — Census TIGER 2024 SLD-U + SLD-L for all 50 states. 6,775 districts loaded with PostGIS MULTIPOLYGON geometry (skipped DC, NE-SLDL since unicameral). ~197 MB downloaded, ~30–50 MB persisted. Annual cadence; not in nightly orchestrator.
+  - New migration `20260428061525_district_boundaries.sql`:
+    - Partial unique index `(parent_id, type, census_geoid, metadata->>'chamber')` — chamber is required because TIGER GEOIDs are STATE_FIPS+DISTRICT and the same district number appears in both SLD-U and SLD-L files (caught this when first run wrote 6775 but DB held only 5063 — SLDL was clobbering SLDU).
+    - `upsert_district_jurisdiction()` — accepts GeoJSON text + chamber, casts to MULTIPOLYGON via `ST_GeomFromGeoJSON` + `ST_Multi`.
+    - `link_officials_to_districts()` — derives `metadata.district_jurisdiction_id` for each state legislator via leading-zero-normalised match on `(state_abbr, chamber, district_id)`. ~84% link rate (6,534/7,818); the unlinked 16% are NH/MA/VT multi-member, ID A/B subdistricts, and DC. Called automatically at the end of both bulk-people and the districts pipeline.
+    - `query_districts(...)` — single RPC supporting id-lookup, bbox, point-in-polygon, state, and chamber filters; returns simplified GeoJSON (default Douglas-Peucker tolerance 0.001 ~ 111 m).
+  - **Maps UI:**
+    - `/api/districts` route returns GeoJSON FeatureCollection. 5-min browser cache, 15-min CDN.
+    - `/districts/[id]` page renders the boundary + linked officials. Geometry fetched server-side via the id-fast-path on the RPC.
+    - Homepage `DistrictMap` exposes State Senate / State House layer toggles. Layers debounce-refetch on map move (300 ms after `moveend`) so the bbox query stays aligned. Click a polygon → `/districts/[id]`.
+  - `packages/maps/CLAUDE.md` updated — Mapbox blocker removed (`NEXT_PUBLIC_MAPBOX_TOKEN` is in `.env.local`); documented `/api/districts`, `/districts/[id]`, layer toggles. Bulk-people pipeline buckets unicameral chambers (NE) as `'upper'` to match TIGER's SLDU-only publication.
+
+- **FIX-022 — accurate per-state election dates** (commit `89d470ca`).
+  - New `packages/data/src/pipelines/elections/calendar.ts` with `STATE_ELECTION_CALENDAR` covering NJ/VA/KY/LA/MS odd-year cycles through 2032. Each entry comments its SoS source URL.
+  - Pipeline now detects federal officials via `governing_body.name LIKE 'United States%'` (instead of `jurisdiction.type='country'`). The old check missed federal House members whose `jurisdiction_id` points at their state — they were getting bucketed as state-cycle officials.
+  - Governor detection added (separates KY/LA/MS odd-year governor races from their on-federal-cycle legislatures).
+  - Verified local: NJ state legislators → `2027-11-02`; NJ federal Reps → `2026-11-03`; KY state legislators → `2026-11-03` (KY uses federal cycle for legislature); MS state legislators → `2027-11-02`.
+
+- **`pnpm fixes:sync`** (commit `b8096bb2`) — flipped FIX-022 and FIX-160 to `[x]`. Logged as `local-only` in `done.log`; flips to `local+prod` once the runs below complete.
+
+**⚠️ Action needed tomorrow — prod runs (env switched to `.env.local.prod` for the duration):**
+
+```powershell
+# 1. Confirm target
+Copy-Item .env.local.prod .env.local
+grep "^NEXT_PUBLIC_SUPABASE_URL" .env.local   # must be xsazcoxinpgttgquwvuf
+
+# 2. Push the new migration to Pro
+supabase db push --linked
+
+# 3. Run bulk-people against Pro (~1 min, idempotent)
+pnpm --filter @civitics/data data:states
+
+# 4. Run TIGER districts against Pro (~5–10 min, ~197 MB download, ~30–50 MB written)
+pnpm --filter @civitics/data data:districts
+
+# 5. Run elections recompute against Pro
+pnpm --filter @civitics/data data:elections
+
+# 6. Smoke-test prod
+#    Visit https://civitics-civitics.vercel.app — homepage DistrictMap should show
+#    State Senate / State House layer toggles; visiting /districts/<any-id> should
+#    render the boundary + officials.
+
+# 7. Restore env
+Copy-Item .env.local.dev .env.local
+```
+
+**Then update verification trailers** — append a new commit (or amend an empty status commit) with the per-fix `Verified: local + prod` trailer for FIX-022 and FIX-160 and re-run `pnpm fixes:sync`. The `done.log` row will flip from `local-only` to `local+prod`.
+
+**Known caveats for the prod runs:**
+- `data:districts` is slow (annual TIGER zips, all 50 states). Don't kill it midway — the unique constraint on `(parent_id, type, census_geoid, chamber)` makes it idempotent, but partial runs leave gaps in coverage until the next full pass.
+- `data:states` will refresh ~7,400 legislators with bulk-CSV data. **Won't touch term dates** (the bulk CSV doesn't carry them). Term dates on prod will only refresh when `data:states-api` runs (weekly via nightly cron, or manually).
+- `data:elections` is fast (~30 s) and idempotent. Re-run anytime.
+
+**Up next (after prod sync):**
+
+1. **Verification + trailer update** for FIX-022 + FIX-160 (above).
+2. **FIX-163** filed in HOMEPAGE — state-legislative district overlay on homepage map. Already shipped functionally; flips to `[x]` whenever a future commit references it. Could be closed by including `Fixes: FIX-163` in the prod-verification commit.
+3. **Improve unlinked-legislator coverage (~16%)** — NH/MA/VT/ID multi-member naming quirks. Optional follow-up; the unlinked legislators still display correctly with their `district_name` string, they just lack a clickable link to `/districts/[id]`.
+
+**Commits pushed to `main`:**
+- `eb691f90` — feat(openstates): bulk people pipeline → FIX-160
+- `4448cd4d` — feat(districts): TIGER state-legislative boundaries + maps UI
+- `89d470ca` — feat(elections): per-state election calendar → FIX-022
+- `b8096bb2` — chore(fixes): sync status after FIX-022, FIX-160
+
+---
+
 ## 2026-04-27 (Donations on prod + local↔prod drift audit + 6 FIX items)
 
 **Done:**

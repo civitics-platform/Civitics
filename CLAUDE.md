@@ -47,29 +47,57 @@ drift, and duplicate-commit shuffles.
 | `docs/FIXES.md` | Craig (adds, edits, reprioritises) | Claude **only appends new items** or lets `fixes:sync` flip `[ ]` → `[x]` |
 | `docs/done.log` | Claude / `fixes:sync` | **Append-only**, never rewritten |
 | Git commit trailer `Fixes: FIX-NNN` | Claude (when code lands a fix) | Feeds done.log via `fixes:sync` |
+| Git commit trailer `Verified: …`    | Claude (when code lands a fix) | Records per-environment verification in done.log (FIX-159) |
 
 **When you (Claude) complete a FIX item:**
 
 1. Find the item's ID in FIXES.md — the `<!--id:FIX-NNN-->` marker at the end of
    the bullet.
-2. Include a trailer in the commit message. Multiple IDs allowed, comma-separated:
+2. Include a `Fixes:` trailer and a `Verified:` trailer in the commit message.
+   Multiple IDs allowed, comma-separated. The `Verified:` value is one of
+   `local`, `prod`, or `local + prod` (normalized to `local-only` / `prod-only`
+   / `local+prod` in `done.log`):
    ```
    feat(proposals): add sort-by dropdown
    
    Longer body if needed.
    
+   Verified: local + prod
    Fixes: FIX-027
    ```
    ```
+   Verified: local
    Fixes: FIX-020, FIX-021, FIX-024
    ```
+   **When to use which:**
+   - `local` — code-only or local-state change; you exercised it against the
+     local Docker DB but haven't curl'd the deployed prod endpoint or re-run a
+     pipeline on prod yet.
+   - `prod` — runtime action you only ran against prod (rare, e.g. an emergency
+     `rebuild_entity_connections()` on prod). Pair with a follow-up to also
+     run/verify locally.
+   - `local + prod` — both. For pure code changes, that means: local smoke
+     test before push **and** a post-deploy curl against the live prod URL. For
+     runtime data actions, both DBs were re-run separately (see "Data-state
+     changes vs schema changes" below).
+   - **Omit only if you genuinely have not verified anywhere.** A missing
+     trailer is logged as `unverified` and is greppable, so future-you can
+     audit which fixes were merged untested.
 3. After committing, run `pnpm fixes:sync`. The script:
-   - Scans all `Fixes:` trailers across git history
-   - Appends new `(FIX-ID, sha)` pairs to `docs/done.log` (deduplicated)
+   - Scans all `Fixes:` and `Verified:` trailers across git history
+   - Appends new `(FIX-ID, sha, verified)` rows to `docs/done.log` (deduplicated)
    - Flips matching `[ ]` bullets in FIXES.md to `[x]` (only ever one direction)
 4. Commit the resulting FIXES.md + done.log diff as its own status commit, e.g.
    `chore(fixes): sync status after FIX-027`. Keep status commits separate from
    code commits so reverts don't drag status with them.
+
+**Auditing per-environment state:**
+
+```bash
+grep "| prod-only |"  docs/done.log   # shipped without local repro
+grep "| unverified |" docs/done.log   # trailer was forgotten
+grep "| local-only |" docs/done.log   # local-tested but prod side never confirmed
+```
 
 **Do NOT:**
 

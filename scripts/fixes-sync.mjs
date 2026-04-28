@@ -28,6 +28,25 @@ const DONE_PATH = resolve(REPO_ROOT, "docs/done.log");
 const DRY = process.argv.includes("--dry-run");
 const CHECK = process.argv.includes("--check");
 
+// FIX-159: per-environment verification trailer.
+//   `Verified: local`           → "local-only"
+//   `Verified: prod`            → "prod-only"
+//   `Verified: local + prod`    → "local+prod"   (also: `local+prod`, `local & prod`)
+//   trailer absent              → "unverified"
+// done.log gains a 5th column with this status. Lines without the column are
+// pre-FIX-159 (4-column) entries — parsed by detecting whether the 4th column
+// matches a known verification literal.
+const VERIFIED_VALUES = new Set(["local-only", "prod-only", "local+prod", "unverified"]);
+
+function normalizeVerified(raw) {
+  if (!raw) return "unverified";
+  const t = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  if (/^local\s*[+&]\s*prod$|^local\s+and\s+prod$/i.test(t) || t === "local+prod") return "local+prod";
+  if (t === "local" || t === "local-only" || t === "local only") return "local-only";
+  if (t === "prod" || t === "prod-only" || t === "prod only") return "prod-only";
+  return "unverified";
+}
+
 function readDoneLog() {
   if (!existsSync(DONE_PATH)) {
     return { entries: [], keys: new Set(), completedIds: new Set(), reopenedIds: new Set() };
@@ -42,9 +61,18 @@ function readDoneLog() {
     if (!line || line.startsWith("#")) continue;
     const parts = line.split("|").map((p) => p.trim());
     if (parts.length < 3) continue;
-    const [date, id, sha, ...noteParts] = parts;
-    const entry = { date, id, sha, note: noteParts.join(" | ") };
-    entries.push(entry);
+    // 5-column (post-FIX-159): date | id | sha | verified | note
+    // 4-column (legacy):       date | id | sha | note
+    let date, id, sha, verified, note;
+    if (parts.length >= 5 && VERIFIED_VALUES.has(parts[3])) {
+      [date, id, sha, verified, ...note] = parts;
+      note = note.join(" | ");
+    } else {
+      [date, id, sha, ...note] = parts;
+      verified = "unverified";
+      note = note.join(" | ");
+    }
+    entries.push({ date, id, sha, verified, note });
     keys.add(`${id}|${sha}`);
     if (sha === "reopen") {
       reopenedIds.add(id);
@@ -64,6 +92,7 @@ function scanCommits() {
   );
   const blocks = raw.split("\x1e").map((b) => b.trim()).filter(Boolean);
   const trailerRe = /^\s*Fixes:\s*(.+)$/im;
+  const verifiedRe = /^\s*Verified:\s*(.+)$/im;
   const idRe = /FIX-\d{3}/g;
   const completions = [];
   for (const block of blocks) {
@@ -71,11 +100,14 @@ function scanCommits() {
     const m = body.match(trailerRe);
     if (!m) continue;
     const ids = [...new Set(m[1].match(idRe) || [])];
+    const vMatch = body.match(verifiedRe);
+    const verified = normalizeVerified(vMatch ? vMatch[1] : null);
     for (const id of ids) {
       completions.push({
         id,
         sha: sha.trim().slice(0, 8),
         date: date.trim(),
+        verified,
         note: subject.trim(),
       });
     }
@@ -89,7 +121,9 @@ function appendNewEntries(existing, completions) {
   if (newOnes.length === 0) return [];
   // Stable sort: date ascending, then id.
   newOnes.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
-  const lines = newOnes.map((c) => `${c.date} | ${c.id} | ${c.sha} | ${c.note}`);
+  const lines = newOnes.map(
+    (c) => `${c.date} | ${c.id} | ${c.sha} | ${c.verified ?? "unverified"} | ${c.note}`,
+  );
   if (!DRY && !CHECK) appendFileSync(DONE_PATH, lines.join("\n") + "\n");
   return newOnes;
 }
@@ -150,7 +184,8 @@ console.log("fixes:sync —", DRY ? "DRY RUN" : CHECK ? "CHECK MODE" : "APPLIED"
 console.table(summary);
 if (newEntries.length) {
   console.log("\nNew done.log entries:");
-  for (const e of newEntries) console.log(`  ${e.date} | ${e.id} | ${e.sha} | ${e.note}`);
+  for (const e of newEntries)
+    console.log(`  ${e.date} | ${e.id} | ${e.sha} | ${e.verified ?? "unverified"} | ${e.note}`);
 }
 if (flipped.length) {
   console.log("\nCheckboxes flipped to [x]:");

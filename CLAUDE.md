@@ -17,13 +17,15 @@ Starting a new session? Read these files before touching any code:
 | `docs/FIXES.md` | Bug and improvement backlog, each bullet has a stable `FIX-NNN` ID |
 | `docs/done.log` | Source of truth for what's actually shipped (append-only) |
 | `docs/PHASE_GOALS.md` | Phase 1 completion picture |
+| `.env.local` (whichever was last copied) | **Which DB you're hitting** — `grep ^NEXT_PUBLIC_SUPABASE_URL .env.local` |
 
 These are the fastest path to current project state. Git log and code exploration
 are for verification, not orientation.
 
 **First step of every session:** run `pnpm fixes:sync` to pick up any new
 commit-trailer completions since last session, then read `docs/FIXES.md` for the
-current queue.
+current queue. Then verify the active DB before any data work — see "Active
+environment check" below.
 
 > **Execution model (as of 2026-04-18):** Claude Code (VS Code extension on
 > Windows) runs the full loop autonomously: migrate → build → commit → push →
@@ -216,6 +218,75 @@ When adding a new API key:
   3. Add key name (no value)
      to .env.example
   4. Update CLAUDE.md if relevant
+
+## Active environment check (CRITICAL)
+
+`.env.local` is the active config. Two saved templates exist alongside it:
+
+```
+.env.local.dev     → points at local Docker     (NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321)
+.env.local.prod    → points at Supabase Pro     (NEXT_PUBLIC_SUPABASE_URL=https://xsazcoxinpgttgquwvuf.supabase.co)
+.env.local         → whichever was Copy-Item'd most recently
+```
+
+**Before running anything that reads or writes data — including pipelines, scripts,
+RPC calls, or ad-hoc queries — verify which DB is active:**
+
+```powershell
+grep "^NEXT_PUBLIC_SUPABASE_URL" .env.local
+```
+
+If it points at prod (`xsazcoxinpgttgquwvuf.supabase.co`):
+- App reads (`pnpm dev` → localhost:3000) will hit prod data
+- `pnpm data:*` pipelines will write to prod
+- Any seed/backfill/RPC invocation runs against prod
+
+**Confirm with the user before running data-writing scripts (`pnpm data:*`,
+`SELECT * FROM rebuild_*()`, etc.) when `.env.local` points at prod.** Never
+assume the active env matches the user's intent — always check.
+
+Switch with:
+```powershell
+Copy-Item .env.local.dev  .env.local    # → local Docker
+Copy-Item .env.local.prod .env.local    # → production Pro
+```
+
+Pipelines run from `packages/data/` read `.env.local` from the repo root. The
+shell that runs the pipeline inherits whichever env is active at invocation
+time — there is no per-script override.
+
+## Data-state changes vs schema changes
+
+Schema and data are propagated to prod by **separate** mechanisms.
+
+**Schema changes** (anything in `supabase/migrations/`):
+- `supabase migration up --local` applies to local
+- `supabase db push --linked` applies to prod
+- The standard autonomous loop in "Claude ↔ Database Access" handles both
+
+**Data-state changes** (any runtime DB action that writes data):
+- `pnpm data:*` pipelines
+- `SELECT * FROM rebuild_entity_connections();` and similar RPCs
+- Seeds, backfills, `UPDATE`/`INSERT` scripts
+- These ONLY hit the DB pointed at by the active `.env.local` at the moment of invocation
+
+Schema migrations being applied to both DBs does NOT mean derived data exists in
+both. A FIX item that requires a runtime action (rebuild, pipeline re-run, seed)
+must be executed against **each** environment separately:
+
+```
+1. Run against local (.env.local → local Docker)
+2. Verify locally
+3. Switch:  Copy-Item .env.local.prod .env.local
+4. Re-run the same action against prod
+5. Verify against prod
+6. Switch back: Copy-Item .env.local.dev .env.local
+7. Commit trailer:  Verified: local + prod
+```
+
+**Never mark a runtime-action FIX as complete after only running it locally.** If
+you cannot run against prod in this session, leave the FIX open and document
+the prod step as pending.
 
 ## Supabase API Keys
 

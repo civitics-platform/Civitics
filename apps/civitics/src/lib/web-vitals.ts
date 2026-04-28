@@ -18,7 +18,8 @@ type VitalsMetric = {
 
 export async function reportWebVital(metric: VitalsMetric, path: string) {
   const threshold = VITALS_THRESHOLDS[metric.name];
-  const exceeded = threshold ? metric.value > threshold.poor : false;
+  if (!threshold) return;
+  const exceeded = metric.value > threshold.poor;
 
   try {
     const body = JSON.stringify({

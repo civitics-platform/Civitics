@@ -276,6 +276,130 @@ export async function getQuality(db: Db) {
   };
 }
 
+// ── Derived-edge drift detection (FIX-157) ───────────────────────────────────
+// One row per derivation rule in supabase/migrations/20260422000002_implement_rebuild_entity_connections.sql.
+// "drifted" = source has rows but no derived edges exist — the failure mode
+// behind FIX-156, where prod had 22,715 donations in financial_relationships
+// but 0 edges in entity_connections for five days because the rebuild RPC
+// hadn't been re-invoked after the FEC bulk pipeline ran.
+const DRIFT_RULES = [
+  {
+    type: "donation",
+    source: (db: Db) =>
+      db
+        .from("financial_relationships")
+        .select("*", { count: "exact", head: true })
+        .eq("relationship_type", "donation"),
+  },
+  {
+    type: "vote_yes",
+    source: (db: Db) =>
+      db
+        .from("votes")
+        .select("*", { count: "exact", head: true })
+        .eq("vote", "yes"),
+  },
+  {
+    type: "vote_no",
+    source: (db: Db) =>
+      db
+        .from("votes")
+        .select("*", { count: "exact", head: true })
+        .eq("vote", "no"),
+  },
+  {
+    type: "vote_abstain",
+    source: (db: Db) =>
+      db
+        .from("votes")
+        .select("*", { count: "exact", head: true })
+        .eq("vote", "abstain"),
+  },
+  {
+    type: "co_sponsorship",
+    source: (db: Db) =>
+      db
+        .from("proposal_cosponsors")
+        .select("*", { count: "exact", head: true })
+        .is("date_withdrawn", null),
+  },
+  {
+    type: "appointment",
+    source: (db: Db) =>
+      db
+        .from("career_history")
+        .select("*", { count: "exact", head: true })
+        .eq("is_government", true)
+        .not("governing_body_id", "is", null),
+  },
+  {
+    type: "oversight",
+    source: (db: Db) =>
+      db
+        .from("agencies")
+        .select("*", { count: "exact", head: true })
+        .not("governing_body_id", "is", null),
+  },
+  {
+    type: "holds_position",
+    source: (db: Db) =>
+      db
+        .from("financial_relationships")
+        .select("*", { count: "exact", head: true })
+        .in("relationship_type", ["owns_stock", "owns_bond", "property"])
+        .is("ended_at", null),
+  },
+  {
+    type: "gift_received",
+    source: (db: Db) =>
+      db
+        .from("financial_relationships")
+        .select("*", { count: "exact", head: true })
+        .in("relationship_type", ["gift", "honorarium"]),
+  },
+  {
+    type: "contract_award",
+    source: (db: Db) =>
+      db
+        .from("financial_relationships")
+        .select("*", { count: "exact", head: true })
+        .in("relationship_type", ["contract", "grant"]),
+  },
+  {
+    type: "lobbying",
+    source: (db: Db) =>
+      db
+        .from("financial_relationships")
+        .select("*", { count: "exact", head: true })
+        .eq("relationship_type", "lobbying_spend"),
+  },
+] as const;
+
+async function checkDerivedDrift(db: Db) {
+  const sourceCounts = await Promise.all(
+    DRIFT_RULES.map((r) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      r.source(db).then((res: any) => res.count ?? 0),
+    ),
+  );
+  const derivedCounts = await Promise.all(
+    DRIFT_RULES.map((r) =>
+      db
+        .from("entity_connections")
+        .select("*", { count: "exact", head: true })
+        .eq("connection_type", r.type)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .then((res: any) => res.count ?? 0),
+    ),
+  );
+  const drifted = DRIFT_RULES.flatMap((r, i) => {
+    const source = sourceCounts[i] ?? 0;
+    const derived = derivedCounts[i] ?? 0;
+    return source > 0 && derived === 0 ? [{ type: r.type, source, derived }] : [];
+  });
+  return { drifted, total_rules: DRIFT_RULES.length };
+}
+
 // ── 7. Self-tests ────────────────────────────────────────────────────────────
 export async function getSelfTests(db: Db) {
   // Step 1: resolve Warren (needed for two checks)
@@ -299,6 +423,7 @@ export async function getSelfTests(db: Db) {
     cronState,
     connPipelineRes,
     voteYesTotal,
+    drift,
   ] = await Promise.all([
     db.rpc("chord_industry_flows"),
 
@@ -330,6 +455,8 @@ export async function getSelfTests(db: Db) {
       .from("entity_connections")
       .select("*", { count: "exact", head: true })
       .eq("connection_type", "vote_yes"),
+
+    checkDerivedDrift(db),
   ]);
 
   const monthlySpent =
@@ -399,6 +526,14 @@ export async function getSelfTests(db: Db) {
       detail: connPipelineRes.data
         ? `Status: ${connPipelineRes.data.status}, vote_yes total: ${voteYesTotal.count ?? 0}`
         : "No connections pipeline run found in data_sync_log",
+    },
+    {
+      name: "derived_edges_match_source",
+      passed: drift.drifted.length === 0,
+      detail:
+        drift.drifted.length === 0
+          ? `all ${drift.total_rules} derivation rules have non-zero derived edges`
+          : `drift detected: ${drift.drifted.map((d) => `${d.type} ${d.source} source / 0 derived`).join("; ")}`,
     },
   ];
 }

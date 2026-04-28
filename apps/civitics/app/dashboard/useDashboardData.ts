@@ -173,16 +173,48 @@ export function useDashboardData() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [statusResult, usageResult, anthropicResult] = await Promise.allSettled([
-        fetch("/api/claude/status"),
+      const [coreResult, qualityResult, usageResult, anthropicResult] = await Promise.allSettled([
+        fetch("/api/claude/status/core"),
+        fetch("/api/claude/status/quality"),
         fetch("/api/platform/usage"),
         fetch("/api/platform/anthropic"),
       ]);
 
-      if (statusResult.status === "rejected") throw new Error(statusResult.reason);
-      const statusRes = statusResult.value;
-      if (!statusRes.ok) throw new Error(`HTTP ${statusRes.status}`);
-      const status = (await statusRes.json()) as StatusData;
+      // /core failures bubble up — without it we can't render the dashboard at all.
+      // /quality failures degrade gracefully into per-section partial: true placeholders.
+      if (coreResult.status === "rejected") throw new Error(coreResult.reason);
+      const coreRes = coreResult.value;
+      if (!coreRes.ok) throw new Error(`HTTP ${coreRes.status}`);
+      const core = (await coreRes.json()) as Partial<StatusData> & { meta: StatusData["meta"] };
+
+      let quality: Partial<StatusData> = {};
+      if (qualityResult.status === "fulfilled" && qualityResult.value.ok) {
+        try {
+          quality = (await qualityResult.value.json()) as Partial<StatusData>;
+        } catch {
+          // fall through — placeholders below
+        }
+      }
+      const qualityFailed =
+        qualityResult.status === "rejected" ||
+        (qualityResult.status === "fulfilled" && !qualityResult.value.ok);
+      const partialErr: PartialError = {
+        error: "quality endpoint unavailable",
+        partial: true,
+      };
+
+      const status: StatusData = {
+        meta: core.meta,
+        version: core.version!,
+        database: core.database!,
+        pipelines: core.pipelines!,
+        ai_costs: core.ai_costs!,
+        activity: core.activity,
+        officials_breakdown: core.officials_breakdown,
+        quality: qualityFailed ? partialErr : quality.quality!,
+        self_tests: qualityFailed ? partialErr : quality.self_tests!,
+        chord: qualityFailed ? partialErr : quality.chord,
+      };
 
       // Read chord flows from status — no separate fetch needed
       const chordData =

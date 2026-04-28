@@ -1,24 +1,20 @@
 /**
- * GET /api/claude/status
+ * GET /api/claude/status/core
  *
- * Platform health diagnostic endpoint. No auth required — all civic data is public.
- * Runs all sections in parallel for speed. Target: under 2 seconds.
+ * Lightweight half of the dashboard health endpoint: counts, pipeline state,
+ * AI budget, activity, resource warnings, officials breakdown. No graph RPCs,
+ * no semantic checks — see /api/claude/status/quality for those.
  *
- * Rate limit: 60 requests/hour/IP (in-memory, resets on cold start), shared with
- * /api/claude/status/core and /api/claude/status/quality.
- * Never returns 500 — always 200 with whatever data is available.
- * Sections that error are marked { error: string; partial: true }.
+ * Rate limit shared with /api/claude/status and /quality (60 req/hour/IP).
  *
- * This route returns the full union of /core + /quality. Kept for backward
- * compatibility with curl/monitoring callers; the dashboard hits /core and
- * /quality directly. See FIX-082.
+ * See FIX-082 for the split rationale.
  */
 
 export const revalidate = 300;
 
 import { createAdminClient } from "@civitics/db";
 import { NextResponse } from "next/server";
-import { getIp, rateOk } from "./_lib/ratelimit";
+import { getIp, rateOk } from "../_lib/ratelimit";
 import {
   type Db,
   section,
@@ -27,13 +23,10 @@ import {
   getConnectionTypes,
   getPipelines,
   getAiCosts,
-  getQuality,
-  getSelfTests,
-  getChord,
   getActivity,
   getResourceWarnings,
   getOfficialsBreakdown,
-} from "./_lib/sections";
+} from "../_lib/sections";
 
 export async function GET(request: Request) {
   const ip = getIp(request);
@@ -56,9 +49,6 @@ export async function GET(request: Request) {
     connectionTypes,
     pipelines,
     aiCosts,
-    quality,
-    selfTests,
-    chordSection,
     activitySection,
     resourceWarnings,
     officialsBreakdown,
@@ -68,9 +58,6 @@ export async function GET(request: Request) {
     section(() => getConnectionTypes(db)),
     section(() => getPipelines(db)),
     section(() => getAiCosts(db, monthStart)),
-    section(() => getQuality(db)),
-    section(() => getSelfTests(db)),
-    section(() => getChord(db)),
     section(() => getActivity(db, yesterday)),
     section(() => getResourceWarnings(db)),
     section(() => getOfficialsBreakdown(db)),
@@ -88,9 +75,6 @@ export async function GET(request: Request) {
     connection_types: connectionTypes,
     pipelines,
     ai_costs: aiCosts,
-    quality,
-    self_tests: selfTests,
-    chord: chordSection,
     activity: activitySection,
     resource_warnings: resourceWarnings,
     officials_breakdown: officialsBreakdown,

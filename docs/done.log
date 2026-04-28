@@ -193,3 +193,5 @@
 2026-04-27 | FIX-159 | 6a7afee8 | local-only | feat(fixes): track per-environment verification via Verified: trailer
 2026-04-27 | FIX-022 | 89d470ca | local-only | feat(elections): per-state election calendar + federal-via-gov-body detect
 2026-04-27 | FIX-160 | eb691f90 | local-only | feat(openstates): bulk people pipeline (no API quota)
+2026-04-28 | FIX-022 | 78bfbf13 | local+prod | fix(districts): widen RPC search_path so PostGIS resolves on Supabase Pro
+2026-04-28 | FIX-160 | 78bfbf13 | local+prod | fix(districts): widen RPC search_path so PostGIS resolves on Supabase Pro

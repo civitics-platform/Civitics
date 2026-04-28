@@ -2,6 +2,77 @@
 
 ---
 
+## 2026-04-27 (Donations on prod + local↔prod drift audit + 6 FIX items)
+
+**Done:**
+
+- **Reported symptom:** "0 donations" in graph Active Types after selecting a senator, even though FIX-154 (committed `8eeb20d2` on 2026-04-26) had verified donor wiring against local Docker.
+
+- **Root cause was data drift, not code drift.** The full graph donation path (`mapNodeType`, `financialIds` filter, `useGraphData.ts` count derivation, `ConnectionsTree.tsx` rendering, `CONNECTION_TYPE_REGISTRY`) is correct on `main`. Local Docker had 16,263 donation rows in `entity_connections`. **Prod had 0** — despite 22,715 donation rows sitting in `financial_relationships`. `rebuild_entity_connections()` ran on Pro once on 2026-04-22 (votes-only, before FEC bulk landed) and was never re-invoked. FEC bulk and USASpending (830k contracts) loaded source data after that, but nothing called the SQL derivation against Pro.
+
+- **Fix path:** ran `SELECT * FROM public.rebuild_entity_connections()` against Pro via the PostgREST RPC endpoint. 88s execution. Wrote 22,715 donation edges + 36,032 contract_award edges + refreshed votes (81,476 → 100,311). Prod graph UI now shows real donation counts for federal senators — Schumer 23, McConnell 24, Durbin 7, Warren 10.
+
+- **Pivoted to systemic audit** at Craig's request after the symptom fix: where in the codebase / docs does the local-vs-prod distinction lose Claude? Answer: pretty much everywhere. Root `CLAUDE.md` never mentioned the `.env.local.dev` / `.env.local.prod` Copy-Item pattern (documented only in `docs/OPERATIONS.md`). The standard autonomous loop pushes schema (`supabase db push --linked`) but has no analogous step for runtime data actions (RPC invocations, pipeline runs, seeds). Pipelines silently inherit whichever env is active. FIXES.md / done.log have no per-environment field — FIX-101 was checked off after pipelines re-ran on Pro, but the implicit follow-up `rebuild_entity_connections()` never happened and nothing surfaced that.
+
+- **CLAUDE.md surgical edits** (commit `b50b68d8`):
+  - New row in Session Continuity table: verify active DB before any data work.
+  - New "Active environment check (CRITICAL)" section: explains `.env.local.{dev,prod}` template files, the grep one-liner to confirm target DB, and the requirement to confirm with the user before running data-writing pipelines against prod.
+  - New "Data-state changes vs schema changes" section: codifies the per-env runtime-action loop (run local → verify → switch to prod → re-run → switch back → trailer `Verified: local + prod`).
+
+- **Fixed latent pipeline bug** (FIX-156, commit `e97c9b08`): `packages/data/src/pipelines/connections/index.ts:355` still wrote `from_type: "financial"` for donor rows; bypassed in production by the SQL rebuild path, but `pnpm data:connections` would have re-introduced exactly the rendering bug FIX-154 closed. Aligned to `"financial_entity"`.
+
+- **Manual full prod refresh** (env switched to `.env.local.prod`, restored after):
+  - **FEC bulk** — 1,959 PAC entities + 22,684 financial_relationships upserted, 0 failures
+  - **USASpending bulk** — skipped cleanly (no new delta since 2026-04-06)
+  - **CourtListener** — 365 judges + 280 opinions
+  - **OpenStates** — aborted mid-run (took too long state-by-state); deferred to FIX-160 (bulk rewrite)
+  - **agencies-hierarchy** — current, no changes
+  - **elections** — 2,956 officials updated
+  - **congress committees** — 230 committees + 3,879 memberships
+  - **`data:nightly`** — Regulations 39 new, congress votes/officials updated, `rebuild_entity_connections()` invoked again (donation 22,715 → 22,904, post-delta), tag-rules clean, tag-ai queue-staged 63 new jobs (1,882 already pending), ai-summaries queue-staged 3 officials and **0 proposals — surfaced FIX-161**
+
+- **AI kill-switches verified before run.** `.env.local.prod` has both `AI_SUMMARIES_ENABLED=false` and `CIVITICS_ENRICHMENT_MODE=queue`. Verified that `runAiTagger` ([ai-tagger.ts:527](packages/data/src/pipelines/tags/ai-tagger.ts#L527)) and `runAiSummariesPipeline` ([ai-summaries/index.ts:509](packages/data/src/pipelines/ai-summaries/index.ts#L509)) both early-return into queue staging mode before any `createAiClient()` call. Confirmed `runAiClassifier` is not invoked by the orchestrator. **Total Anthropic spend for the night: $0.**
+
+- **FIX-161 caught and shipped same session** (commit `b85dba8f`): `ai-summaries/index.ts` `fetchOpenProposals` was still hitting the dropped `proposals.comment_period_end` top-level column (post-cutover it lives in `metadata` JSONB). Same drift pattern as FIX-112 fixed in `tags/rules.ts` but in a different file. Switched `.gt()` and `.order()` to `metadata->>comment_period_end`. ISO 8601 strings sort lexicographically the same as chronologically, so still-open semantics preserved. Smoke-tested against local: returns expected open-comment proposals in correct sort order.
+
+- **Three audit-driven FIX items filed for systemic ambiguity** (deferred to their own sessions):
+  - **FIX-157 (🟡 M)** — `/api/claude/status` should compare source-table counts to `entity_connections` derived counts and flag drift. The bug we just hit (22,715 source / 0 derived) would have been visible immediately.
+  - **FIX-158 (🟡 S)** — pipelines should announce their target DB on startup and refuse to run against prod without `--allow-prod`. Prevents accidental cross-env writes when `.env.local` was last copied from `.env.local.prod`.
+  - **FIX-159 (🟡 S)** — `fixes:sync` should track `Verified: local + prod` (or `local-only` / `prod-only`) trailers; surface in `done.log` so incomplete prod state becomes greppable.
+
+- **One additional FIX item filed** during the OpenStates timing:
+  - **FIX-160 (🟡 M)** — Rewrite OpenStates pipeline to use bulk dumps from `data.openstates.org`. Current per-state API approach is slow enough that the full state refresh got deferred mid-stream tonight. Same playbook as FEC bulk and FIX-118 USASpending bulk migrations.
+
+**Final prod entity_connections (post-rebuild + post-nightly):**
+
+| connection_type | rows |
+|---|---:|
+| donation | 22,904 |
+| vote_yes | 100,311 |
+| vote_no | 51,833 |
+| contract_award | 36,032 |
+| co_sponsorship / appointment / oversight / holds_position / gift_received / lobbying | 0 (no source data yet) |
+
+**Commits:**
+- `e97c9b08` — FIX-156 pipeline `from_type` align with SQL rebuild
+- `b50b68d8` — CLAUDE.md additions: active-env check, data-state loop, session-continuity row
+- `948ee874` — fixes:sync after FIX-156
+- `28f663e7` — file FIX-160 (OpenStates bulk) and FIX-161 (ai-summaries column drift)
+- `b85dba8f` — FIX-161 fix
+- `815f0889` — fixes:sync after FIX-161
+
+**⚠️ Action needed — none.** All commits pushed to `main`. Env restored to `.env.local.dev`.
+
+**Up next:**
+
+1. **FIX-161 verification on next prod nightly** — ai-summaries proposals queue-staging path should populate alongside officials. No code follow-up required if it works.
+2. **FIX-157 (🟡 M)** — drift detection in `/api/claude/status`. Highest leverage of the three systemic FIXes; closes the loop that allowed tonight's bug to ship undetected for 5 days.
+3. **FIX-158 (🟡 S)** — pipeline target-DB banner. Trivial, high cognitive ROI.
+4. **FIX-159 (🟡 S)** — per-env trailer in fixes:sync. Trivial, makes existing patterns more honest.
+5. **FIX-160 (🟡 M)** — OpenStates bulk rewrite. Unblocks future state-data refreshes from Claude sessions.
+
+---
+
 ## 2026-04-25 (Graph 2.0 plan + FIX-120)
 
 **Done:**

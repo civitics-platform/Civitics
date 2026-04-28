@@ -44,6 +44,7 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## HOMEPAGE
 
+- [ ] 🟢 M — **State legislative district overlay on homepage map** — DistrictMap exposes SLD-U and SLD-L layer toggles backed by Census TIGER boundaries (`pnpm data:districts`). Click any district polygon to navigate to `/districts/[id]`. Layers debounced-refetch on map move via `/api/districts?bbox=…&chamber=…`. <!--id:FIX-163-->
 
 ---
 

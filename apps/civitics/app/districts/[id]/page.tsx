@@ -1,0 +1,182 @@
+import type { Metadata } from "next";
+import { cookies } from "next/headers";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import dynamicImport from "next/dynamic";
+import { createServerClient } from "@civitics/db";
+import type { MultiPolygon, Polygon } from "geojson";
+
+export const dynamic = "force-dynamic";
+
+const PARTY_BADGE: Record<string, string> = {
+  democrat:    "bg-blue-100 text-blue-800",
+  republican:  "bg-red-100 text-red-800",
+  independent: "bg-purple-100 text-purple-800",
+};
+
+const SingleDistrictMap = dynamicImport(
+  () => import("../components/SingleDistrictMap").then((m) => m.SingleDistrictMap),
+  { ssr: false, loading: () => <div className="h-[400px] bg-gray-50 rounded-lg" /> },
+);
+
+interface DistrictRow {
+  id:         string;
+  name:       string | null;
+  short_name: string | null;
+  parent_id:  string | null;
+  metadata:   Record<string, unknown> | null;
+}
+
+interface ParentRow { name: string | null }
+
+interface OfficialRow {
+  id:           string;
+  full_name:    string;
+  role_title:   string | null;
+  party:        string | null;
+  district_name: string | null;
+}
+
+async function loadDistrict(id: string): Promise<{
+  district: DistrictRow;
+  parent: ParentRow | null;
+  officials: OfficialRow[];
+  geometry: Polygon | MultiPolygon | null;
+} | null> {
+  const cookieStore = await cookies();
+  const supabase = createServerClient(cookieStore);
+
+  const { data: district } = await supabase
+    .from("jurisdictions")
+    .select("id, name, short_name, parent_id, metadata")
+    .eq("id", id)
+    .eq("type", "district")
+    .single<DistrictRow>();
+  if (!district) return null;
+
+  const [parentRes, officialsRes, geomRes] = await Promise.all([
+    district.parent_id
+      ? supabase.from("jurisdictions").select("name").eq("id", district.parent_id).single<ParentRow>()
+      : Promise.resolve({ data: null }),
+    supabase
+      .from("officials")
+      .select("id, full_name, role_title, party, district_name")
+      .filter("metadata->>district_jurisdiction_id", "eq", id)
+      .eq("is_active", true)
+      .order("full_name"),
+    supabase.rpc("query_districts" as never, {
+      p_id: id,
+      p_simplify_tolerance: 0.0005,
+      p_limit: 1,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any),
+  ]);
+
+  type Row = { id: string; geom_geojson: string | null };
+  const matched = (geomRes.data as Row[] | null)?.[0] ?? null;
+  let geometry: Polygon | MultiPolygon | null = null;
+  if (matched?.geom_geojson) {
+    try { geometry = JSON.parse(matched.geom_geojson) as Polygon | MultiPolygon; } catch { /* skip */ }
+  }
+
+  return {
+    district,
+    parent: (parentRes.data as ParentRow | null) ?? null,
+    officials: ((officialsRes.data as OfficialRow[] | null) ?? []),
+    geometry,
+  };
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const data = await loadDistrict(id);
+  if (!data) return { title: "District not found" };
+  const stateName = data.parent?.name ?? "";
+  const chamber = (data.district.metadata?.["chamber"] as string | undefined) ?? "";
+  const title = `${data.district.name ?? "District"}${stateName ? ` — ${stateName}` : ""}`;
+  return {
+    title,
+    description: `Boundary, representatives, and election info for ${title} (${chamber} chamber).`,
+  };
+}
+
+export default async function DistrictPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const data = await loadDistrict(id);
+  if (!data) notFound();
+
+  const { district, parent, officials, geometry } = data;
+  const meta = district.metadata ?? {};
+  const chamber = (meta["chamber"] as string | undefined) ?? null;
+  const stateAbbr = (meta["state_abbr"] as string | undefined) ?? null;
+  const districtNum = (meta["district_id"] as string | undefined) ?? null;
+
+  const chamberLabel = chamber === "upper" ? "State Senate" : chamber === "lower" ? "State House" : "Legislative";
+
+  return (
+    <main className="mx-auto max-w-5xl px-4 py-8">
+      <nav className="text-xs text-gray-500 mb-3">
+        <Link href="/" className="hover:text-indigo-600">Home</Link>
+        <span className="mx-2">/</span>
+        <span>Districts</span>
+        {parent?.name && (
+          <>
+            <span className="mx-2">/</span>
+            <span>{parent.name}</span>
+          </>
+        )}
+      </nav>
+
+      <header className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">{district.name}</h1>
+        <p className="mt-1 text-sm text-gray-500">
+          {chamberLabel}{districtNum ? ` · District ${districtNum}` : ""}
+          {stateAbbr ? ` · ${stateAbbr}` : ""}
+        </p>
+      </header>
+
+      <section className="mb-8">
+        <SingleDistrictMap geometry={geometry} />
+      </section>
+
+      <section>
+        <h2 className="text-lg font-semibold text-gray-900 mb-3">
+          Representatives ({officials.length})
+        </h2>
+        {officials.length === 0 ? (
+          <p className="text-sm text-gray-500">
+            No active officials are currently linked to this district. The cross-link is built
+            from OpenStates district names and may miss states with non-numeric district
+            conventions (e.g. Massachusetts, Vermont, New Hampshire multi-member districts).
+          </p>
+        ) : (
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {officials.map((o) => {
+              const badge = PARTY_BADGE[(o.party ?? "").toLowerCase()] ?? "bg-gray-100 text-gray-700";
+              return (
+                <li key={o.id}>
+                  <Link
+                    href={`/officials/${o.id}`}
+                    className="block rounded-lg border border-gray-200 bg-white p-3 hover:border-indigo-300 hover:shadow-sm transition-all"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-semibold text-gray-900 leading-tight">{o.full_name}</p>
+                      {o.party && (
+                        <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${badge}`}>
+                          {o.party[0]}
+                        </span>
+                      )}
+                    </div>
+                    {o.role_title && <p className="mt-0.5 text-xs text-gray-500">{o.role_title}</p>}
+                    {o.district_name && <p className="mt-0.5 text-xs text-gray-400">District {o.district_name}</p>}
+                    <p className="mt-2 text-xs font-medium text-indigo-600">View profile →</p>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+    </main>
+  );
+}

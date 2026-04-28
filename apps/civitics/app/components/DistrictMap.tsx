@@ -3,8 +3,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { initMapbox, mapboxgl } from "@civitics/maps/client";
+import type { FeatureCollection } from "geojson";
 
 type MapState = "placeholder" | "address_input" | "loading" | "active";
+type LayerKey = "upper" | "lower";
+
+interface SldLayerProps {
+  source: string;
+  fillColor: string;
+  lineColor: string;
+}
+
+const SLD_LAYERS: Record<LayerKey, SldLayerProps> = {
+  upper: { source: "sld-upper", fillColor: "#6366f1", lineColor: "#4338ca" },
+  lower: { source: "sld-lower", fillColor: "#10b981", lineColor: "#047857" },
+};
 
 type Representative = {
   id: string;
@@ -45,6 +58,62 @@ export function DistrictMap() {
   const [representatives, setRepresentatives] = useState<Representative[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [lastMethod, setLastMethod] = useState<"geo" | "address" | null>(null);
+  const [activeLayers, setActiveLayers] = useState<Record<LayerKey, boolean>>({ upper: false, lower: false });
+
+  const loadDistrictsLayer = useCallback(async (map: mapboxgl.Map, chamber: LayerKey) => {
+    const bounds = map.getBounds();
+    if (!bounds) return;
+    const w = bounds.getWest(), s = bounds.getSouth(), e = bounds.getEast(), n = bounds.getNorth();
+    try {
+      const res = await fetch(`/api/districts?chamber=${chamber}&bbox=${w},${s},${e},${n}&limit=300`);
+      if (!res.ok) return;
+      const fc = (await res.json()) as FeatureCollection;
+      const cfg = SLD_LAYERS[chamber];
+      const src = map.getSource(cfg.source) as mapboxgl.GeoJSONSource | undefined;
+      if (src) {
+        src.setData(fc);
+      } else {
+        map.addSource(cfg.source, { type: "geojson", data: fc });
+        map.addLayer({
+          id: `${cfg.source}-fill`, type: "fill", source: cfg.source,
+          paint: { "fill-color": cfg.fillColor, "fill-opacity": 0.15 },
+        });
+        map.addLayer({
+          id: `${cfg.source}-line`, type: "line", source: cfg.source,
+          paint: { "line-color": cfg.lineColor, "line-width": 1 },
+        });
+        // Click → district detail page. Add once, when the layer is created.
+        map.on("click", `${cfg.source}-fill`, (ev) => {
+          const f = ev.features?.[0];
+          const did = f?.properties?.["id"];
+          if (typeof did === "string") window.location.href = `/districts/${did}`;
+        });
+        map.on("mouseenter", `${cfg.source}-fill`, () => { map.getCanvas().style.cursor = "pointer"; });
+        map.on("mouseleave", `${cfg.source}-fill`, () => { map.getCanvas().style.cursor = ""; });
+      }
+    } catch {
+      // Silent — overlay just won't appear.
+    }
+  }, []);
+
+  const removeDistrictsLayer = useCallback((map: mapboxgl.Map, chamber: LayerKey) => {
+    const cfg = SLD_LAYERS[chamber];
+    if (map.getLayer(`${cfg.source}-fill`)) map.removeLayer(`${cfg.source}-fill`);
+    if (map.getLayer(`${cfg.source}-line`)) map.removeLayer(`${cfg.source}-line`);
+    if (map.getSource(cfg.source)) map.removeSource(cfg.source);
+  }, []);
+
+  const toggleLayer = useCallback((chamber: LayerKey) => {
+    setActiveLayers((prev) => {
+      const next = { ...prev, [chamber]: !prev[chamber] };
+      const map = mapRef.current;
+      if (map) {
+        if (next[chamber]) void loadDistrictsLayer(map, chamber);
+        else removeDistrictsLayer(map, chamber);
+      }
+      return next;
+    });
+  }, [loadDistrictsLayer, removeDistrictsLayer]);
 
   // Stable helper — only touches refs and the mapboxgl import
   const placeMarkers = useCallback(
@@ -115,8 +184,19 @@ export function DistrictMap() {
       }
     });
 
+    // Refresh visible-bbox districts when the user pans/zooms (debounced).
+    let moveTimer: ReturnType<typeof setTimeout> | null = null;
+    map.on("moveend", () => {
+      if (moveTimer) clearTimeout(moveTimer);
+      moveTimer = setTimeout(() => {
+        for (const [k, on] of Object.entries(activeLayers)) {
+          if (on) void loadDistrictsLayer(map, k as LayerKey);
+        }
+      }, 300);
+    });
+
     track("map_load");
-  }, [mapState, placeMarkers]);
+  }, [mapState, placeMarkers, activeLayers, loadDistrictsLayer]);
 
   // Shared: fetch representatives, then activate map
   async function activateMapWithLocation(
@@ -470,13 +550,34 @@ export function DistrictMap() {
 
         {/* Change address — overlaid top-left on the live map */}
         {mapState === "active" && (
-          <div className="absolute top-2 left-2 z-10">
+          <div className="absolute top-2 left-2 z-10 flex flex-col gap-2">
             <button
               onClick={() => setMapState("address_input")}
               className="rounded-md bg-white/90 backdrop-blur-sm border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-white shadow-sm transition-colors"
             >
               Change address
             </button>
+            <div className="rounded-md bg-white/90 backdrop-blur-sm border border-gray-200 shadow-sm p-2 flex flex-col gap-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Layers</p>
+              <label className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={activeLayers.upper}
+                  onChange={() => toggleLayer("upper")}
+                  className="rounded text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="inline-block w-2 h-2 rounded-sm bg-indigo-500" /> State Senate
+              </label>
+              <label className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={activeLayers.lower}
+                  onChange={() => toggleLayer("lower")}
+                  className="rounded text-emerald-600 focus:ring-emerald-500"
+                />
+                <span className="inline-block w-2 h-2 rounded-sm bg-emerald-500" /> State House
+              </label>
+            </div>
           </div>
         )}
       </div>

@@ -8,11 +8,12 @@ Shared spatial query helpers built on PostGIS.
 
 ## Status
 
-**Pending Mapbox API key** — waiting on privacy.com virtual card to complete Mapbox account setup.
-Code structure is ready; map components render placeholder until key is configured.
+**Live.** `NEXT_PUBLIC_MAPBOX_TOKEN` is configured in `.env.local` and Vercel.
+Map components render real tiles + Census TIGER state legislative district
+boundaries via the `/api/districts` route.
 
 ```
-NEXT_PUBLIC_MAPBOX_TOKEN
+NEXT_PUBLIC_MAPBOX_TOKEN     # public, exposed to client (Mapbox js SDK)
 ```
 
 ---
@@ -73,23 +74,41 @@ CREATE INDEX jurisdictions_boundary_gist ON jurisdictions USING GIST(boundary_ge
 ```
 Test with `EXPLAIN ANALYZE` to confirm the GIST index is being used on any spatial query.
 
-**Boundary data setup (run once per census cycle):**
-```sql
-SELECT AddGeometryColumn('jurisdictions', 'boundary_geometry', 4326, 'MULTIPOLYGON', 2);
-```
-Import Census TIGER GeoJSON files after adding the column.
+**Boundary data setup:**
+- `boundary_geometry` MULTIPOLYGON column already exists on `jurisdictions`
+  (initial schema, migration 0001).
+- State legislative districts are seeded by `pnpm --filter @civitics/data data:districts`
+  — pulls Census TIGER SLD-U + SLD-L shapefiles, calls
+  `upsert_district_jurisdiction()` RPC. Annual cadence.
+- Officials are cross-linked to their district jurisdiction via
+  `link_officials_to_districts()` (called automatically at the end of both
+  the bulk-people pipeline and the districts pipeline).
+
+**Districts query API:**
+- RPC: `query_districts(p_chamber, p_state, p_bbox_*, p_point_*, p_simplify_tolerance, p_limit, p_id)`
+  — supports id-lookup, bbox, point-in-polygon, state and chamber filters.
+- HTTP route: `GET /api/districts` returns GeoJSON FeatureCollection.
+  Query params: `chamber=upper|lower`, `state=XX`, `bbox=W,S,E,N`,
+  `point=lng,lat`, `simplify` (0–0.05 degrees, default 0.001), `limit` (max 2000).
+- Detail page: `/districts/[id]` renders a single district + its officials.
+- Homepage `DistrictMap` exposes layer toggles for SLD-U / SLD-L; clicking a
+  district polygon navigates to `/districts/[id]`.
 
 ---
 
 ## Geographic Data Sources (all free)
 
-| Data | Source |
-|------|--------|
-| Congressional districts | Census TIGER files |
-| State legislative districts | OpenStates GeoJSON |
-| County/municipal boundaries | Census TIGER |
-| Precincts | OpenPrecincts.org |
-| Census tracts | Census Bureau |
+| Data | Source | Loader |
+|------|--------|--------|
+| Congressional districts | Census TIGER (`/CD/`) | not yet loaded |
+| State legislative districts (SLD-U + SLD-L) | Census TIGER (`/SLDU/`, `/SLDL/`) | `pnpm data:districts` (annual) |
+| County/municipal boundaries | Census TIGER | not yet loaded |
+| Precincts | OpenPrecincts.org | not yet loaded |
+| Census tracts | Census Bureau | not yet loaded |
+
+> Note: OpenStates also publishes SLD GeoJSON, but the file dates to Nov 2018
+> and is stale. Census TIGER is the canonical, annual-refresh source — also
+> what the openstates-geo project uses upstream.
 
 ---
 

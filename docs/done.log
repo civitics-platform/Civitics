@@ -189,3 +189,5 @@
 2026-04-27 | FIX-161 | b85dba8f | fix(ai-summaries): read comment_period_end from metadata JSONB
 2026-04-27 | FIX-082 | 46556fdc | feat(api/status): split into core + quality routes with shared section helpers
 2026-04-27 | FIX-157 | 75bd7a5a | feat(api/status): add derived_edges_match_source self-test
+2026-04-27 | FIX-158 | 76ef4197 | local+prod | feat(db): banner pipeline target DB and refuse non-local without --allow-prod
+2026-04-27 | FIX-159 | 6a7afee8 | local-only | feat(fixes): track per-environment verification via Verified: trailer

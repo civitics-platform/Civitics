@@ -72,7 +72,38 @@ export function createServerClient(cookieStore: CookieStore) {
 // Admin client — server only, bypasses RLS
 // Uses the secret key (replaces legacy service_role key).
 // Never import this in client components or expose it to the browser.
+//
+// Pipeline guard (FIX-158): when invoked from a tsx pipeline (no NEXT_RUNTIME
+// or VERCEL env var), prints a one-line target banner to stderr and refuses
+// to run against a non-local URL unless --allow-prod is in process.argv.
+// Prevents accidental cross-env writes when .env.local was last copied from
+// .env.local.prod. Skipped entirely inside Next.js (server routes, build).
 // ---------------------------------------------------------------------------
+let pipelineGuardChecked = false;
+
+function isLocalUrl(url: string): boolean {
+  return /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/.test(url);
+}
+
+function runPipelineGuard(url: string): void {
+  if (pipelineGuardChecked) return;
+  pipelineGuardChecked = true;
+  if (process.env["NEXT_RUNTIME"] || process.env["VERCEL"]) return;
+
+  const local = isLocalUrl(url);
+  const banner = `[pipeline] target: ${url} (${local ? "local" : "REMOTE"})`;
+  process.stderr.write(`${banner}\n`);
+
+  if (!local && !process.argv.includes("--allow-prod")) {
+    process.stderr.write(
+      `[pipeline] REFUSING to run against a non-local DB without --allow-prod\n` +
+        `[pipeline] If intentional, re-invoke with --allow-prod.\n` +
+        `[pipeline] To switch back to local: Copy-Item .env.local.dev .env.local\n`,
+    );
+    process.exit(1);
+  }
+}
+
 export function createAdminClient() {
   const url = process.env["NEXT_PUBLIC_SUPABASE_URL"];
   const key = process.env["SUPABASE_SECRET_KEY"];
@@ -80,6 +111,8 @@ export function createAdminClient() {
   if (!url || !key) {
     throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SECRET_KEY");
   }
+
+  runPipelineGuard(url);
 
   return createClient<Database>(url, key, {
     auth: { persistSession: false },

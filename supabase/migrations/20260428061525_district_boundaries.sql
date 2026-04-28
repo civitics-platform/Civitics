@@ -34,7 +34,7 @@ CREATE OR REPLACE FUNCTION public.upsert_district_jurisdiction(
 ) RETURNS uuid
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_id  uuid;
@@ -85,7 +85,7 @@ CREATE OR REPLACE FUNCTION public.link_officials_to_districts()
 RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_count integer;
@@ -150,7 +150,7 @@ CREATE OR REPLACE FUNCTION public.query_districts(
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
   WITH bbox AS (
     SELECT

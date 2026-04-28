@@ -7,11 +7,12 @@
  *
  * Sources (no external API fetches — all derived from data we already have):
  *   - Existing term_start / term_end columns (set by Congress + OpenStates pipelines).
- *   - Static US federal election calendar (general elections are Nov of even years;
- *     Senate class cycle is deterministic).
+ *   - Curated US federal + state election calendar in ./calendar.ts. The state
+ *     calendar covers NJ/VA/KY/LA/MS odd-year cycles; other states fall back
+ *     to the federal calendar.
  *
  * Ballotpedia was considered as a secondary source but its free API coverage is
- * narrower than the static federal calendar + OpenStates term_end data. Phase 2
+ * narrower than the curated state calendar + OpenStates term_end data. Phase 2
  * may add a Ballotpedia pipeline for contested-primary metadata.
  *
  * Safe to re-run: UPDATEs are idempotent.
@@ -22,20 +23,12 @@
 
 import { createAdminClient } from "@civitics/db";
 import { completeSync, failSync, startSync, type PipelineResult } from "../sync-log";
-
-// ---------------------------------------------------------------------------
-// US federal election calendar
-// ---------------------------------------------------------------------------
-
-// General elections: first Tuesday after first Monday of November, even years.
-// Hard-coded through 2032 — covers Phase 1 horizon; Phase 2 may extend.
-const FEDERAL_GENERAL_ELECTIONS: string[] = [
-  "2024-11-05",
-  "2026-11-03",
-  "2028-11-07",
-  "2030-11-05",
-  "2032-11-02",
-];
+import {
+  FEDERAL_GENERAL_ELECTIONS,
+  STATE_ELECTION_CALENDAR,
+  nextLegislativeElection,
+  nextGubernatorialElection,
+} from "./calendar";
 
 function nextFederalGeneral(asOf: Date): string | null {
   const now = asOf.toISOString().slice(0, 10);
@@ -82,6 +75,21 @@ export async function runElectionsPipeline(): Promise<PipelineResult> {
     const jurisdictionType = new Map<string, string>();
     for (const j of (jRows ?? []) as JurisdictionRow[]) jurisdictionType.set(j.id, j.type);
 
+    // Build a "this governing_body is federal" lookup. Federal House/Senate
+    // members can have jurisdiction_id set to their state (not 'country'),
+    // so we need governing_body to disambiguate.
+    const { data: gbRows, error: gbErr } = await db
+      .from("governing_bodies")
+      .select("id, name");
+    if (gbErr) throw new Error(gbErr.message);
+    const federalGoverningBody = new Set<string>();
+    for (const gb of (gbRows ?? []) as Array<{ id: string; name: string | null }>) {
+      const n = (gb.name ?? "").toLowerCase();
+      if (n.includes("united states") || n.startsWith("u.s. ") || n.startsWith("us ")) {
+        federalGoverningBody.add(gb.id);
+      }
+    }
+
     // Paginate officials in 1000-row chunks to avoid memory spikes on full table.
     const now = new Date();
     const nowIso = now.toISOString().slice(0, 10);
@@ -103,12 +111,25 @@ export async function runElectionsPipeline(): Promise<PipelineResult> {
 
       for (const r of rows) {
         const jType = jurisdictionType.get(r.jurisdiction_id);
-        // Federal officials live under the 'country' jurisdiction (United States).
-        const isFederal = jType === "country";
+        // Federal officials either live under the 'country' jurisdiction
+        // OR are attached to a state jurisdiction (e.g. NJ Reps) but belong
+        // to a federal governing body (US House / US Senate).
+        const isFederal = jType === "country"
+          || (r.governing_body_id !== null && federalGoverningBody.has(r.governing_body_id));
 
         // Current term copy-over (idempotent; same value if already set).
         const currentTermStart = r.term_start;
         const currentTermEnd   = r.term_end;
+
+        const stateAbbr = (r.metadata && typeof r.metadata["state"] === "string")
+          ? (r.metadata["state"] as string)
+          : null;
+
+        // Governor detection: role title contains "governor" but not
+        // "lieutenant" (lt govs are typically on the same cycle anyway, but
+        // if data ever reflects a distinct cycle we'd want to handle that).
+        const role = (r.role_title ?? "").toLowerCase();
+        const isGovernor = role.includes("governor") && !role.includes("lieutenant");
 
         let nextElectionDate: string | null = null;
         let nextElectionType: string | null = null;
@@ -117,19 +138,32 @@ export async function runElectionsPipeline(): Promise<PipelineResult> {
           // Federal officials: next federal general election.
           nextElectionDate = nextFederalGeneral(now);
           nextElectionType = "general";
-        } else if (currentTermEnd) {
-          // State/local officials: derive from term_end. Election is typically
-          // the November before the term ends — so approximate to the nearest
-          // federal-general date before or equal to term_end.
-          const termEndIso = currentTermEnd;
-          // Find the latest election date that's <= term_end.
-          for (let i = FEDERAL_GENERAL_ELECTIONS.length - 1; i >= 0; i--) {
-            const d = FEDERAL_GENERAL_ELECTIONS[i]!;
-            if (d <= termEndIso && d >= nowIso) {
-              nextElectionDate = d;
-              nextElectionType = "general";
-              break;
+        } else if (isGovernor) {
+          // State governor: separate cycle in KY/LA/MS/NJ/VA, federal cycle elsewhere.
+          nextElectionDate = nextGubernatorialElection(stateAbbr, nowIso);
+          nextElectionType = "general";
+        } else {
+          // State/local officials. Use the state-specific legislative calendar
+          // when available. If we have a term_end, prefer the latest cycle
+          // date that falls on or before term_end (i.e. the actual election
+          // that ends THIS term); otherwise fall back to the next upcoming.
+          const candidates =
+            (stateAbbr && STATE_ELECTION_CALENDAR[stateAbbr]?.legislative)
+            ?? FEDERAL_GENERAL_ELECTIONS;
+
+          if (currentTermEnd) {
+            for (let i = candidates.length - 1; i >= 0; i--) {
+              const d = candidates[i]!;
+              if (d <= currentTermEnd && d >= nowIso) {
+                nextElectionDate = d;
+                nextElectionType = "general";
+                break;
+              }
             }
+          }
+          if (!nextElectionDate) {
+            nextElectionDate = nextLegislativeElection(stateAbbr, nowIso);
+            if (nextElectionDate) nextElectionType = "general";
           }
         }
 

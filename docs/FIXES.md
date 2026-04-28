@@ -27,18 +27,11 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## BUGS — Fix These First
 
-  - ~169 titles matching `^on ` (procedural vote questions — see CLAUDE.md §votes) — likely leaking from the votes ingester into `proposals`
-  - ~320 titles matching ` v. ` (court case names) — likely a SCOTUS/courts docket pipeline dumping into `proposals`
-  - Both groups have `summary_plain = NULL`, `metadata->>'agency_id' = NULL`
-  - By `type`: most of the contamination sits in `type = 'other'`
-  - **Shadow schema note (20260421):** new `shadow.proposals` + `bill_details` / `case_details` architecture prevents future contamination; `vote_question` is now a first-class column on `votes`. Action here is limited to cleaning up / quarantining bad rows already in `public.proposals`.
-  - Do NOT delete from `proposals` without agreeing the destination — these may be referenced by `votes.metadata->>'proposal_id'` or similar FKs
+- [ ] 🟡 M — **Clean up procedural-vote / court-case rows already in `public.proposals`** — FIX-072 fixed the contamination *path* via the shadow→public promotion (vote_question is now first-class on `votes`, `bill_details`/`case_details` separate the row types) but the bad rows that landed before the cutover are still there. Findings: ~169 titles matching `^on ` (procedural vote questions — see CLAUDE.md §votes) leaked from the votes ingester; ~320 titles matching ` v. ` (court case names) leaked from a SCOTUS/courts docket pipeline; both groups have `summary_plain = NULL`, `metadata->>'agency_id' = NULL`; most contamination sits under `type = 'other'`. Do NOT just `DELETE FROM proposals` — these rows may still be referenced by `votes.metadata->>'proposal_id'` or similar FKs. Decide quarantine destination (move to a `proposals_archive`, or set `metadata.contaminated=true` and exclude from queries) before deleting. <!--id:FIX-162-->
 
 ---
 
 ## POST-CUTOVER (Supabase Pro, shadow→public promoted 2026-04-22)
-
-The shadow→public promotion migration (`20260422000000_promote_shadow_to_public.sql`) intentionally dropped 11 RPCs and a materialized view that referenced the legacy `financial_relationships.donor_name` / `.official_id` / `.donor_id` columns (replaced by the polymorphic `from_entity_id` / `to_entity_id` shape). App paths that call these will 500 until the RPCs are reimplemented.
 
 - [ ] ⬜ M — **USASpending grants fetch** — FIX-101 USASpending rewrite queries `award_type_codes: ["A", "B", "C", "D"]` (procurement contracts only). Grants use codes 02/03/04/05/11 and land in a slightly different response schema. Post-FIX-101 Pro has 1,480 contracts and 0 grants. Add a second fetch pass against the grants codes if grant-level reporting becomes a product need — same batched writer, `relationship_type='grant'`. <!--id:FIX-114-->
 

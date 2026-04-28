@@ -85,11 +85,25 @@ Step 2b (PAC contributions):
 - Script: `pnpm --filter @civitics/data data:courtlistener`
 
 ### OpenStates
-- Current legislative term only
-- All 50 state legislators + votes
-- Free API
-- Update schedule: daily at 2am
-- Script: `pnpm --filter @civitics/data data:openstates`
+**Bulk-first, API as fallback** (FIX-160).
+
+| Source | Access | Cadence | Coverage |
+|---|---|---|---|
+| `data.openstates.org/people/current/{abbr}.csv` | Public, no auth | Continuous | All 50 states + DC + territories. Basic legislator fields (id, name, party, district, chamber, contact). **No term dates.** |
+| OpenStates v3 API (`/people`, `/bills`) | `OPENSTATES_API_KEY`, 250 calls/day | Weekly | Term dates + state bills. People bulk eliminates the per-state `/people` paginated calls, leaving the full quota for `/bills`. |
+| `open.pluralpolicy.com/data/session-csv/` | Plural Policy login required | Monthly | Bill CSVs per state per session. Not currently used — gated behind a Django session that the API key doesn't satisfy. |
+
+Scripts:
+- `pnpm --filter @civitics/data data:states` — bulk people pipeline (default; runs daily via nightly orchestrator). Calls `link_officials_to_districts()` at the end so the district cross-link survives the wholesale metadata-jsonb rewrite.
+- `pnpm --filter @civitics/data data:states-api` — full API pipeline (people + bills, weekly). Use when term dates need refreshing or the bulk CSV is stale.
+
+### Census TIGER districts (FIX-160 maps integration)
+- State legislative district boundaries (SLD-U + SLD-L) for all 50 states.
+- Source: `https://www2.census.gov/geo/tiger/TIGER2024/SLD{U,L}/tl_2024_{ss}_{sldu,sldl}.zip` — public, no auth.
+- ~197 MB downloaded per run (50 states × 2 chambers × 1–6 MB each); persisted as ~30–50 MB of MULTIPOLYGON geometry in `jurisdictions.boundary_geometry`.
+- Skipped: DC (no SLDs), Nebraska SLDL (unicameral — only SLDU published).
+- Cadence: annual (Census TIGER refresh). Not in the nightly orchestrator.
+- Script: `pnpm --filter @civitics/data data:districts`
 
 ---
 

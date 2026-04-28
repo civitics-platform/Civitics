@@ -15,7 +15,9 @@
     "data:usaspending": "tsx --env-file=../../.env.local src/pipelines/usaspending/index.ts",
     "data:usaspending-bulk": "tsx --env-file=../../.env.local src/pipelines/usaspending-bulk/index.ts",
     "data:courts": "tsx --env-file=../../.env.local src/pipelines/courtlistener/index.ts",
-    "data:states": "tsx --env-file=../../.env.local src/pipelines/openstates/index.ts",
+    "data:states": "tsx --env-file=../../.env.local src/pipelines/openstates-bulk/people.ts",
+    "data:states-api": "tsx --env-file=../../.env.local src/pipelines/openstates/index.ts",
+    "data:districts": "tsx --env-file=../../.env.local src/pipelines/districts-tiger/index.ts",
     "data:connections": "tsx --env-file=../../.env.local src/pipelines/connections/index.ts",
     "data:pilot-metros": "tsx --env-file=../../.env.local src/jurisdictions/pilot-metros.ts",
     "data:legistar": "tsx --env-file=../../.env.local src/pipelines/legistar/index.ts",
@@ -44,12 +46,15 @@
     "csv-parse": "^5.5.0",
     "fast-xml-parser": "^4.5.0",
     "pg": "^8.13.0",
+    "shapefile": "^0.6.6",
     "unzipper": "^0.12.3"
   },
   "devDependencies": {
     "@civitics/config": "workspace:*",
+    "@types/geojson": "^7946.0.16",
     "@types/node": "^20.0.0",
     "@types/pg": "^8.11.10",
+    "@types/shapefile": "^0.6.4",
     "@types/unzipper": "^0.10.9",
     "tsx": "^4.0.0",
     "typescript": "^5.4.0"

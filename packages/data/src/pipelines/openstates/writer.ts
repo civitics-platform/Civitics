@@ -36,7 +36,10 @@ type ProposalStatus = Database["public"]["Enums"]["proposal_status"];
 type PartyValue = Database["public"]["Tables"]["officials"]["Row"]["party"];
 
 const CHUNK_SIZE = 500;
-const LOOKUP_CHUNK_SIZE = 200;
+// 100 keeps PostgREST URL under ~6KB even with long ocd-person/ocd-bill IDs.
+// 200 was overflowing on bigger states (NH, IL, NY) — failed lookups silently
+// re-inserted existing rows as orphans. (FIX-160 hardening.)
+const LOOKUP_CHUNK_SIZE = 100;
 
 // ---------------------------------------------------------------------------
 // Governing bodies
@@ -122,8 +125,10 @@ export interface LegislatorInput {
   jurisdictionId: string;
   party: PartyValue;
   districtName: string | null;
-  termStart: string | null;
-  termEnd: string | null;
+  // termStart/termEnd are optional. The bulk-CSV path omits them so existing
+  // dates (set by the API pipeline) aren't clobbered with null on update.
+  termStart?: string | null;
+  termEnd?: string | null;
   websiteUrl: string | null;
   metadata: { org_classification: string; state: string };
 }
@@ -135,21 +140,22 @@ export interface LegislatorBatchResult {
 }
 
 function buildOfficialInsert(input: LegislatorInput): OfficialInsert {
-  return {
+  const insert: OfficialInsert = {
     full_name: input.fullName,
     role_title: input.roleTitle,
     governing_body_id: input.governingBodyId,
     jurisdiction_id: input.jurisdictionId,
     party: input.party,
     district_name: input.districtName,
-    term_start: input.termStart,
-    term_end: input.termEnd,
     is_active: true,
     is_verified: false,
     website_url: input.websiteUrl,
     source_ids: { openstates_id: input.openstatesId },
     metadata: input.metadata,
   };
+  if (input.termStart !== undefined) insert.term_start = input.termStart;
+  if (input.termEnd !== undefined) insert.term_end = input.termEnd;
+  return insert;
 }
 
 export async function upsertLegislatorsBatch(

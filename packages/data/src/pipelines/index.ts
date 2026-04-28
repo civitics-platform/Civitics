@@ -16,6 +16,7 @@ import { runFecBulkPipeline } from "./fec-bulk";
 import { runUsaSpendingPipeline } from "./usaspending";
 import { runCourtListenerPipeline } from "./courtlistener";
 import { runOpenStatesPipeline } from "./openstates";
+import { runBulkPeoplePipeline } from "./openstates-bulk/people";
 import { runOfficialsPipeline, runVotesPipeline, runCommitteesPipeline } from "./congress";
 import { runRuleBasedTagger } from "./tags/rules";
 import { runAiTagger } from "./tags/ai-tagger";
@@ -198,21 +199,30 @@ export async function runAllPipelines(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // 5. OpenStates
+  // 5. OpenStates — bulk people (no quota), then API for bills + term dates
   // -------------------------------------------------------------------------
   {
+    try {
+      const r = await runBulkPeoplePipeline(stateIds);
+      results.push({ name: "openstates_bulk", ...r });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("\n  OpenStates bulk people pipeline threw:", msg);
+      results.push({ name: "openstates_bulk", inserted: 0, updated: 0, failed: 1, estimatedMb: 0, error: msg });
+    }
+
     const apiKey = process.env["OPENSTATES_API_KEY"];
     if (!apiKey) {
-      console.warn("\n[5/5] OpenStates — SKIPPED (OPENSTATES_API_KEY not set)");
-      results.push({ name: "openstates", inserted: 0, updated: 0, failed: 0, estimatedMb: 0, error: "API key missing" });
+      console.warn("\n  OpenStates API — SKIPPED (OPENSTATES_API_KEY not set)");
+      results.push({ name: "openstates_api", inserted: 0, updated: 0, failed: 0, estimatedMb: 0, error: "API key missing" });
     } else {
       try {
         const r = await runOpenStatesPipeline(apiKey, stateIds);
-        results.push({ name: "openstates", ...r });
+        results.push({ name: "openstates_api", ...r });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error("\n  OpenStates pipeline threw:", msg);
-        results.push({ name: "openstates", inserted: 0, updated: 0, failed: 1, estimatedMb: 0, error: msg });
+        console.error("\n  OpenStates API pipeline threw:", msg);
+        results.push({ name: "openstates_api", inserted: 0, updated: 0, failed: 1, estimatedMb: 0, error: msg });
       }
     }
   }
@@ -292,6 +302,7 @@ export interface NightlySyncResults {
     usaspending?: NightlyPipelineResult;
     courtlistener?: NightlyPipelineResult;
     openstates?: NightlyPipelineResult;
+    openstates_bulk_people?: NightlyPipelineResult;
     agencies_hierarchy?: NightlyPipelineResult;
     elections?: NightlyPipelineResult;
     congress_committees?: NightlyPipelineResult;
@@ -381,6 +392,21 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
     } else {
       results.pipelines.congress_officials = { status: "skipped", error: "CONGRESS_GOV_API_KEY not set" };
       results.pipelines.congress_votes = { status: "skipped", error: "CONGRESS_GOV_API_KEY not set" };
+    }
+  }
+
+  // 1c. Daily — OpenStates bulk people (no API quota; refreshes basic legislator
+  //     fields). Term dates + bills are still pulled by the weekly API run below.
+  {
+    const t0 = Date.now();
+    try {
+      const r = await runBulkPeoplePipeline(stateIds);
+      results.pipelines.openstates_bulk_people = { status: "complete", rows_added: r.inserted + r.updated, duration_ms: Date.now() - t0 };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[nightly] openstates bulk people failed:", msg);
+      results.pipelines.openstates_bulk_people = { status: "failed", error: msg };
+      results.errors.push(`OpenStates bulk people: ${msg}`);
     }
   }
 

@@ -180,3 +180,5 @@
 2026-04-26 | FIX-155 | 8eeb20d2 | fix(graph): wire donations + hide orphan nodes on type toggle
 2026-04-27 | FIX-156 | e97c9b08 | fix(connections): align TS pipeline donation from_type with SQL rebuild
 2026-04-27 | FIX-161 | b85dba8f | fix(ai-summaries): read comment_period_end from metadata JSONB
+2026-04-27 | FIX-082 | 46556fdc | feat(api/status): split into core + quality routes with shared section helpers
+2026-04-27 | FIX-157 | 75bd7a5a | feat(api/status): add derived_edges_match_source self-test

@@ -50,7 +50,7 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## OFFICIALS
 
-- [ ] ⬜ L — **Current term duration + upcoming election status** — requires Ballotpedia/OpenStates elections data pipeline; Phase 2 <!--id:FIX-022-->
+- [x] ⬜ L — **Current term duration + upcoming election status** — requires Ballotpedia/OpenStates elections data pipeline; Phase 2 <!--id:FIX-022-->
 
 ---
 
@@ -106,7 +106,7 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ### Post-launch bug fixes
 
-- [ ] 🟡 M — **Rewrite OpenStates pipeline to use bulk data dumps** — current pipeline (`packages/data/src/pipelines/openstates/index.ts`) hits the OpenStates API per-state, per-endpoint with pagination — ~50 states × 2 endpoints × N pages. OpenStates publishes daily bulk dumps at `data.openstates.org` (CSV / JSON, free, no rate limits). Same playbook as FEC API → FEC bulk and FIX-118 USASpending API → bulk: download, stream-parse, upsert. Should be ~5–10× faster end-to-end and eliminates the rate-limit ceiling on full state-legislator refreshes. <!--id:FIX-160-->
+- [x] 🟡 M — **Rewrite OpenStates pipeline to use bulk data dumps** — current pipeline (`packages/data/src/pipelines/openstates/index.ts`) hits the OpenStates API per-state, per-endpoint with pagination — ~50 states × 2 endpoints × N pages. OpenStates publishes daily bulk dumps at `data.openstates.org` (CSV / JSON, free, no rate limits). Same playbook as FEC API → FEC bulk and FIX-118 USASpending API → bulk: download, stream-parse, upsert. Should be ~5–10× faster end-to-end and eliminates the rate-limit ceiling on full state-legislator refreshes. <!--id:FIX-160-->
 
 ---
 

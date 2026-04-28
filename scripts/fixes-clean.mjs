@@ -40,8 +40,12 @@ const STRATEGIC_RE = /^##\s+STRATEGIC PILLARS\b/i;
 const COMPLETED_RE = /^##\s+COMPLETED\b/i;
 
 function loadCompletedFromDoneLog() {
+  // Per-ID last-write-wins: walking lines in chronological (append) order, a
+  // `reopen` line clears the completed status, and any subsequent non-reopen
+  // line restores it. Earlier code had `else if (!reopened.has(id))` which
+  // permanently disqualified an ID once reopened — that broke FIX-041/042
+  // which were reopened then re-completed.
   const completed = new Set();
-  const reopened = new Set();
   if (!existsSync(DONE_PATH)) return completed;
   const text = readFileSync(DONE_PATH, "utf8");
   for (const raw of text.split("\n")) {
@@ -51,9 +55,8 @@ function loadCompletedFromDoneLog() {
     if (parts.length < 3) continue;
     const [, id, sha] = parts;
     if (sha === "reopen") {
-      reopened.add(id);
       completed.delete(id);
-    } else if (!reopened.has(id)) {
+    } else {
       completed.add(id);
     }
   }

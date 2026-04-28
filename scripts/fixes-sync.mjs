@@ -74,11 +74,16 @@ function readDoneLog() {
     }
     entries.push({ date, id, sha, verified, note });
     keys.add(`${id}|${sha}`);
+    // Last-write-wins: a `reopen` line clears completion, a subsequent
+    // non-reopen line restores it. `reopenedIds` still records every ID that
+    // has ever been reopened (used for diagnostics), but it does NOT gate
+    // re-completion. Earlier logic permanently disqualified an ID once
+    // reopened — that broke FIX-041/042 which were reopened then re-completed.
     if (sha === "reopen") {
       reopenedIds.add(id);
       completedIds.delete(id);
     } else {
-      if (!reopenedIds.has(id)) completedIds.add(id);
+      completedIds.add(id);
     }
   }
   return { entries, keys, completedIds, reopenedIds };
@@ -169,8 +174,11 @@ function syncFixesMd(completedIds) {
 const done = readDoneLog();
 const trailerCompletions = scanCommits();
 const newEntries = appendNewEntries(done, trailerCompletions);
+// Last-write-wins across the existing log + newly-discovered trailer commits.
+// Past reopen state does NOT gate re-completion — a fresh commit with a
+// `Fixes:` trailer is itself the new "last write".
 const allCompleted = new Set(done.completedIds);
-for (const c of newEntries) if (!done.reopenedIds.has(c.id)) allCompleted.add(c.id);
+for (const c of newEntries) allCompleted.add(c.id);
 const { flipped, missingMarker } = syncFixesMd(allCompleted);
 
 const summary = {

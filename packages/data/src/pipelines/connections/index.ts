@@ -352,7 +352,7 @@ async function deriveDonationConnections(
     const financialEntityId = entityIdMap.get(pair.donorKey);
     if (!financialEntityId) continue;
     connectionRows.push({
-      from_type:       "financial",
+      from_type:       "financial_entity",
       from_id:         financialEntityId,
       to_type:         "official",
       to_id:           pair.officialId,

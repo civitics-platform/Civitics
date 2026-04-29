@@ -62,13 +62,16 @@ Step 2b (PAC contributions):
 
 ### USASpending.gov
 - Full FY bulk archive — all agencies in `public.agencies`, all award sizes, no rate limits
-- First run: Full file (`FY{year}_All_Contracts_Full_{YYYYMMDD}.zip`, 300 MB–1 GB compressed)
+- Two categories, run independently:
+  - **Contracts** (procurement) — `data:usaspending-bulk`
+  - **Assistance** (grants 02/03/04/05/11) — `data:usaspending-bulk-assistance` (FIX-114). Loans/insurance/direct payments are skipped because the `financial_relationships` enum has no row for them.
+- First run per category: Full file (`FY{year}_All_{Contracts|Assistance}_Full_{YYYYMMDD}.zip`, 300 MB–1 GB compressed)
 - Subsequent runs: Delta files since last processed date (much smaller)
-- State tracked in `packages/data/.usaspending-bulk-state.json` (gitignored, not committed)
+- State tracked in `packages/data/.usaspending-bulk-state.json` per-category (gitignored, not committed). Pre-FIX-114 single-shape state migrates into the `contracts` slot on first read.
 - No API key required
 - Update schedule: weekly cron (Full file refreshes weekly; Deltas daily)
-- Primary script: `pnpm --filter @civitics/data data:usaspending-bulk`
-- Force full re-run: `pnpm --filter @civitics/data data:usaspending-bulk -- --force`
+- Force full re-run: append `-- --force` (e.g. `pnpm … data:usaspending-bulk -- --force`)
+- Underlying script accepts `--category=contracts|assistance --force` directly: `pnpm --filter @civitics/data data:usaspending-bulk -- --category=assistance --force`
 - Legacy API script (`data:usaspending`) retained for reference — superseded by bulk approach (FIX-118)
 
 ### Regulations.gov

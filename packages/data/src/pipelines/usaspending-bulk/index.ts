@@ -4,6 +4,10 @@
  * Downloads pre-built annual award archives from:
  *   https://files.usaspending.gov/award_data_archive/
  *
+ * Two categories supported:
+ *   - "contracts"   → procurement contracts (FY{year}_All_Contracts_*.zip)
+ *   - "assistance"  → grants & financial assistance (FY{year}_All_Assistance_*.zip)
+ *
  * Advantages over the API pipeline (data:usaspending):
  *   - All agencies (not just the hardcoded top 20)
  *   - All award sizes (no $1M minimum)
@@ -11,17 +15,25 @@
  *   - Static files — no rate limits, no async polling
  *
  * Strategy:
- *   - First run (no prior state): Full file  FY{year}_All_Contracts_Full_{YYYYMMDD}.zip
+ *   - First run (no prior state): Full file FY{year}_All_{Category}_Full_{YYYYMMDD}.zip
  *   - Subsequent runs: Delta files since last processed date
  *   - Filters rows to agencies present in public.agencies (by name match)
  *   - Reuses resolveRecipients + upsertSpendingRelationshipsBatch from usaspending/writer.ts
- *   - Dedup key: contract_award_unique_key (transaction-level)
+ *   - Dedup key: contract_award_unique_key / assistance_award_unique_key
+ *   - For assistance, filters to grant-shaped assistance_type_codes (02/03/04/05/11);
+ *     loans, insurance, and direct payments are skipped because the
+ *     financial_relationships enum has no row for them.
  *
- * State: packages/data/.usaspending-bulk-state.json (gitignored, not committed)
+ * State: packages/data/.usaspending-bulk-state.json (gitignored, not committed).
+ *        Per-category sub-objects so contracts and assistance progress
+ *        independently. Legacy single-shape state (pre-FIX-114) is migrated
+ *        into the contracts slot on first read.
  *
  * Run standalone:
  *   pnpm --filter @civitics/data data:usaspending-bulk
- *   pnpm --filter @civitics/data data:usaspending-bulk -- --force   # force Full re-run
+ *   pnpm --filter @civitics/data data:usaspending-bulk -- --force
+ *   pnpm --filter @civitics/data data:usaspending-bulk-assistance
+ *   pnpm --filter @civitics/data data:usaspending-bulk -- --category=assistance --force
  */
 
 import * as https    from "https";
@@ -54,29 +66,114 @@ const ARCHIVE_INDEX_URL = "https://files.usaspending.gov/award_data_archive/";
 const STATE_FILE        = path.join(__dirname, "../../../.usaspending-bulk-state.json");
 const BATCH_SIZE        = 1_000;   // rows per DB write batch
 
+// Assistance type codes that map cleanly to relationship_type='grant'.
+// 02 block grant · 03 formula grant · 04 project grant ·
+// 05 cooperative agreement · 11 other financial assistance.
+// Skips loans (07/08), insurance (09), and direct payments (06/10) — these
+// are real federal financial assistance but don't fit the 'grant' enum.
+const GRANT_ASSISTANCE_TYPE_CODES = new Set(["02", "03", "04", "05", "11"]);
+
 // ---------------------------------------------------------------------------
-// State management (delta tracking)
+// Category config
 // ---------------------------------------------------------------------------
 
-interface PipelineState {
-  /** YYYYMMDD of the latest archive file processed on the last successful run. */
-  lastArchiveDate: string;
-  lastRunType: "full" | "delta";
-  lastRunAt: string;
+export type BulkCategory = "contracts" | "assistance";
+
+interface CategoryConfig {
+  category:           BulkCategory;
+  filePrefix:         "Contracts" | "Assistance";
+  syncLogName:        "usaspending_bulk" | "usaspending_bulk_assistance";
+  relationshipType:   "contract" | "grant";
+  /** CSV column carrying the dedup key. */
+  uniqueKeyColumn:    "contract_award_unique_key" | "assistance_award_unique_key";
+  /** Fallback CSV column for the dedup key when the primary is missing. */
+  fallbackKeyColumn:  "award_id_piid" | "award_id_fain";
 }
 
-function loadState(): PipelineState | null {
+const CATEGORY_CONFIGS: Record<BulkCategory, CategoryConfig> = {
+  contracts: {
+    category:          "contracts",
+    filePrefix:        "Contracts",
+    syncLogName:       "usaspending_bulk",
+    relationshipType:  "contract",
+    uniqueKeyColumn:   "contract_award_unique_key",
+    fallbackKeyColumn: "award_id_piid",
+  },
+  assistance: {
+    category:          "assistance",
+    filePrefix:        "Assistance",
+    syncLogName:       "usaspending_bulk_assistance",
+    relationshipType:  "grant",
+    uniqueKeyColumn:   "assistance_award_unique_key",
+    fallbackKeyColumn: "award_id_fain",
+  },
+};
+
+// ---------------------------------------------------------------------------
+// State management (delta tracking, per-category)
+// ---------------------------------------------------------------------------
+
+interface CategoryState {
+  /** YYYYMMDD of the latest archive file processed on the last successful run. */
+  lastArchiveDate: string;
+  lastRunType:     "full" | "delta";
+  lastRunAt:       string;
+}
+
+interface PipelineState {
+  contracts?:  CategoryState;
+  assistance?: CategoryState;
+  // Legacy single-shape fields (pre-FIX-114) — migrated into `contracts` on read.
+  lastArchiveDate?: string;
+  lastRunType?:     "full" | "delta";
+  lastRunAt?:       string;
+}
+
+function readStateFile(): PipelineState {
   try {
-    if (!fs.existsSync(STATE_FILE)) return null;
+    if (!fs.existsSync(STATE_FILE)) return {};
     return JSON.parse(fs.readFileSync(STATE_FILE, "utf8")) as PipelineState;
   } catch {
-    return null;
+    return {};
   }
 }
 
-function saveState(state: PipelineState): void {
+function loadCategoryState(category: BulkCategory): CategoryState | null {
+  const raw = readStateFile();
+
+  if (raw[category]) return raw[category]!;
+
+  // Legacy migration: pre-FIX-114 the state file held a single CategoryState
+  // at the root, implicitly tracking contracts. Treat it as such.
+  if (category === "contracts" && raw.lastArchiveDate) {
+    return {
+      lastArchiveDate: raw.lastArchiveDate,
+      lastRunType:     raw.lastRunType ?? "full",
+      lastRunAt:       raw.lastRunAt   ?? new Date().toISOString(),
+    };
+  }
+
+  return null;
+}
+
+function saveCategoryState(category: BulkCategory, next: CategoryState): void {
   try {
-    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), "utf8");
+    const raw = readStateFile();
+    const merged: PipelineState = {
+      contracts:  raw.contracts,
+      assistance: raw.assistance,
+    };
+    // Migrate any legacy root-level fields into contracts during save so the
+    // next read returns clean nested shape.
+    if (!merged.contracts && raw.lastArchiveDate) {
+      merged.contracts = {
+        lastArchiveDate: raw.lastArchiveDate,
+        lastRunType:     raw.lastRunType ?? "full",
+        lastRunAt:       raw.lastRunAt   ?? new Date().toISOString(),
+      };
+    }
+    merged[category] = next;
+    fs.writeFileSync(STATE_FILE, JSON.stringify(merged, null, 2), "utf8");
   } catch (err) {
     console.warn("  [state] Could not save state:", err instanceof Error ? err.message : err);
   }
@@ -99,9 +196,9 @@ function currentFy(): number {
 // root listing returns FY2007–FY2010 on the first page; FY2026 is far down.
 // Use targeted ?prefix= queries instead of scanning the root listing.
 //
-// File naming (discovered 2026-04-25):
-//   Full  : FY{YEAR}_All_Contracts_Full_{YYYYMMDD}.zip
-//   Delta : FY(All)_All_Contracts_Delta_{YYYYMMDD}.zip
+// File naming (discovered 2026-04-25 for Contracts, FIX-114 for Assistance):
+//   Full  : FY{YEAR}_All_{Category}_Full_{YYYYMMDD}.zip
+//   Delta : FY(All)_All_{Category}_Delta_{YYYYMMDD}.zip
 // ---------------------------------------------------------------------------
 
 interface ArchiveFile {
@@ -160,19 +257,19 @@ async function discoverFiles(
   return files;
 }
 
-async function discoverFullFiles(fy: number): Promise<ArchiveFile[]> {
+async function discoverFullFiles(cfg: CategoryConfig, fy: number): Promise<ArchiveFile[]> {
   return discoverFiles(
-    `FY${fy}_All_Contracts_Full`,
+    `FY${fy}_All_${cfg.filePrefix}_Full`,
     "Full",
-    `FY${fy}_All_Contracts_Full_(\\d{8})(?:_(\\d+))?\\.zip$`,
+    `FY${fy}_All_${cfg.filePrefix}_Full_(\\d{8})(?:_(\\d+))?\\.zip$`,
   );
 }
 
-async function discoverDeltaFiles(): Promise<ArchiveFile[]> {
+async function discoverDeltaFiles(cfg: CategoryConfig): Promise<ArchiveFile[]> {
   return discoverFiles(
-    "FY(All)_All_Contracts_Delta",
+    `FY(All)_All_${cfg.filePrefix}_Delta`,
     "Delta",
-    `FY\\(All\\)_All_Contracts_Delta_(\\d{8})(?:_(\\d+))?\\.zip$`,
+    `FY\\(All\\)_All_${cfg.filePrefix}_Delta_(\\d{8})(?:_(\\d+))?\\.zip$`,
   );
 }
 
@@ -294,17 +391,30 @@ async function loadAgencyMap(
 // CSV processing — streamed line by line through csv-parse
 // ---------------------------------------------------------------------------
 
+/**
+ * Union of columns we read from either the contracts or the assistance CSV.
+ * csv-parse with `columns: true` returns objects keyed by header name; a
+ * header that's only present in one schema simply yields `undefined` in
+ * the other — safe to read either way.
+ */
 interface CsvRow {
-  contract_award_unique_key?: string;
-  award_id_piid?:             string;
-  recipient_name?:            string;
-  recipient_uei?:             string;
-  federal_action_obligation?: string;
-  action_date?:               string;
-  awarding_agency_name?:      string;
-  awarding_sub_agency_name?:  string;
-  naics_code?:                string;
-  award_description?:         string;
+  // Contracts
+  contract_award_unique_key?:    string;
+  award_id_piid?:                string;
+  naics_code?:                   string;
+  // Assistance
+  assistance_award_unique_key?:  string;
+  award_id_fain?:                string;
+  cfda_number?:                  string;
+  assistance_type_code?:         string;
+  // Shared
+  recipient_name?:               string;
+  recipient_uei?:                string;
+  federal_action_obligation?:    string;
+  action_date?:                  string;
+  awarding_agency_name?:         string;
+  awarding_sub_agency_name?:     string;
+  award_description?:            string;
 }
 
 interface PendingRow {
@@ -314,21 +424,25 @@ interface PendingRow {
   amountCents:   number;
   actionDate:    string;
   naicsCode:     string | null;
+  cfdaNumber:    string | null;
   description:   string | null;
 }
 
 interface FileResult {
-  upserted: number;
-  failed:   number;
-  skipped:  number;
+  upserted:     number;
+  failed:       number;
+  skipped:      number;
+  /** Rows skipped because assistance_type_code wasn't a grant shape. Assistance only. */
+  skippedNonGrant: number;
 }
 
 async function processCsvFile(
+  cfg:       CategoryConfig,
   csvPath:   string,
   agencyMap: Map<string, string>,
   db:        ReturnType<typeof createAdminClient>,
 ): Promise<FileResult> {
-  const result: FileResult = { upserted: 0, failed: 0, skipped: 0 };
+  const result: FileResult = { upserted: 0, failed: 0, skipped: 0, skippedNonGrant: 0 };
 
   const fileMb = (fs.statSync(csvPath).size / 1024 / 1024).toFixed(0);
   console.log(`    Processing CSV (${fileMb} MB uncompressed)...`);
@@ -361,12 +475,12 @@ async function processCsvFile(
       relInputs.push({
         agencyId:           row.agencyId,
         recipientEntityId,
-        relationshipType:   "contract",
+        relationshipType:   cfg.relationshipType,
         amountCents:        row.amountCents,
         occurredAt:         row.actionDate,
         usaspendingAwardId: row.uniqueKey,
         naicsCode:          row.naicsCode,
-        cfdaNumber:         null,
+        cfdaNumber:         row.cfdaNumber,
         description:        row.description,
         sourceUrl:          `https://www.usaspending.gov/award/${encodeURIComponent(row.uniqueKey)}/`,
       });
@@ -381,6 +495,16 @@ async function processCsvFile(
   for await (const row of parser as AsyncIterable<CsvRow>) {
     rowsRead++;
 
+    // Assistance: skip rows that aren't grant-shaped (loans, insurance, direct
+    // payments) — the financial_relationships enum has no row for them.
+    if (cfg.category === "assistance") {
+      const code = (row.assistance_type_code ?? "").trim();
+      if (!GRANT_ASSISTANCE_TYPE_CODES.has(code)) {
+        result.skippedNonGrant++;
+        continue;
+      }
+    }
+
     const subRaw  = (row.awarding_sub_agency_name ?? "").toUpperCase().trim();
     const subKey  = subRaw.replace(/^U\.S\.\s+/, "");
     const agRaw   = (row.awarding_agency_name ?? "").toUpperCase().trim();
@@ -390,9 +514,11 @@ async function processCsvFile(
                      ?? agencyMap.get(agRaw);
     if (!agencyId) { result.skipped++; continue; }
 
-    // Use contract_award_unique_key (transaction-level) as the dedup key;
-    // fall back to award_id_piid for files that omit it.
-    const uniqueKey = (row.contract_award_unique_key ?? row.award_id_piid ?? "").trim();
+    // Use the category's transaction-level unique key; fall back to the
+    // category's award_id column when the primary is missing.
+    const primaryKey  = (row[cfg.uniqueKeyColumn]   ?? "").trim();
+    const fallbackKey = (row[cfg.fallbackKeyColumn] ?? "").trim();
+    const uniqueKey   = primaryKey || fallbackKey;
     if (!uniqueKey) { result.skipped++; continue; }
 
     const recipientName = (row.recipient_name ?? "").trim();
@@ -412,7 +538,8 @@ async function processCsvFile(
       agencyId,
       amountCents: Math.round(amount * 100),
       actionDate,
-      naicsCode:   (row.naics_code ?? "").trim() || null,
+      naicsCode:   cfg.category === "contracts" ? ((row.naics_code  ?? "").trim() || null) : null,
+      cfdaNumber:  cfg.category === "assistance" ? ((row.cfda_number ?? "").trim() || null) : null,
       description: (row.award_description ?? "").trim().slice(0, 500) || null,
     });
     rowsMatched++;
@@ -435,6 +562,9 @@ async function processCsvFile(
   console.log(`    Rows read:          ${rowsRead.toLocaleString()}`);
   console.log(`    Matched agencies:   ${rowsMatched.toLocaleString()}`);
   console.log(`    Skipped:            ${result.skipped.toLocaleString()}`);
+  if (cfg.category === "assistance") {
+    console.log(`    Non-grant skipped:  ${result.skippedNonGrant.toLocaleString()}`);
+  }
   console.log(`    Upserted:           ${result.upserted.toLocaleString()}`);
   console.log(`    Failed:             ${result.failed.toLocaleString()}`);
 
@@ -465,11 +595,18 @@ function cleanTmpDir(): void {
 // Main pipeline
 // ---------------------------------------------------------------------------
 
+export interface BulkPipelineOpts {
+  force?:    boolean;
+  category?: BulkCategory;
+}
+
 export async function runUsaSpendingBulkPipeline(
-  opts: { force?: boolean } = {},
+  opts: BulkPipelineOpts = {},
 ): Promise<PipelineResult> {
-  console.log("\n=== USASpending bulk archive pipeline ===");
-  const logId = await startSync("usaspending_bulk");
+  const cfg = CATEGORY_CONFIGS[opts.category ?? "contracts"];
+
+  console.log(`\n=== USASpending bulk archive pipeline (${cfg.category}) ===`);
+  const logId = await startSync(cfg.syncLogName);
   const db    = createAdminClient();
 
   let totalUpserted = 0;
@@ -479,17 +616,17 @@ export async function runUsaSpendingBulkPipeline(
     // ── [1/5] Discover archive files via S3 prefix queries ────────────────
     console.log("\n  [1/5] Discovering archive files...");
     const fy    = currentFy();
-    const state = opts.force ? null : loadState();
+    const state = opts.force ? null : loadCategoryState(cfg.category);
 
     // Fetch Full listing unconditionally (needed whether we run Full or to
     // determine the latest Full date for delta-mode display). Delta listing
     // is deferred — only fetched when we actually need it.
-    const fullFiles = await discoverFullFiles(fy);
-    console.log(`  FY${fy} Full Contracts files: ${fullFiles.length}`);
+    const fullFiles = await discoverFullFiles(cfg, fy);
+    console.log(`  FY${fy} Full ${cfg.filePrefix} files: ${fullFiles.length}`);
 
     if (fullFiles.length === 0) {
-      console.warn(`  No Full archive found for FY${fy}`);
-      await failSync(logId, `No Full archive found for FY${fy}`);
+      console.warn(`  No Full archive found for FY${fy} ${cfg.filePrefix}`);
+      await failSync(logId, `No Full ${cfg.filePrefix} archive found for FY${fy}`);
       return { inserted: 0, updated: 0, failed: 1, estimatedMb: 0 };
     }
 
@@ -507,7 +644,7 @@ export async function runUsaSpendingBulkPipeline(
         ` Full file dated ${filesToProcess[0]!.date}`,
       );
     } else {
-      const deltaFiles = await discoverDeltaFiles();
+      const deltaFiles = await discoverDeltaFiles(cfg);
       console.log(`  Delta files available: ${deltaFiles.length}`);
       filesToProcess = deltasSince(deltaFiles, state.lastArchiveDate);
       runMode = "delta";
@@ -561,7 +698,7 @@ export async function runUsaSpendingBulkPipeline(
         }
 
         // Process the CSV stream
-        const fileResult = await processCsvFile(csvPath, agencyMap, db);
+        const fileResult = await processCsvFile(cfg, csvPath, agencyMap, db);
         totalUpserted += fileResult.upserted;
         totalFailed   += fileResult.failed;
 
@@ -588,7 +725,7 @@ export async function runUsaSpendingBulkPipeline(
     };
 
     console.log("\n  ──────────────────────────────────────────────────");
-    console.log("  USASpending bulk pipeline report");
+    console.log(`  USASpending bulk pipeline report (${cfg.category})`);
     console.log("  ──────────────────────────────────────────────────");
     console.log(`  ${"Run mode:".padEnd(30)} ${runMode}`);
     console.log(`  ${"FY:".padEnd(30)} ${fy}`);
@@ -600,7 +737,7 @@ export async function runUsaSpendingBulkPipeline(
 
     // Persist state for next run's delta logic
     if (lastProcessedDate) {
-      saveState({
+      saveCategoryState(cfg.category, {
         lastArchiveDate: lastProcessedDate,
         lastRunType:     runMode,
         lastRunAt:       new Date().toISOString(),
@@ -611,7 +748,7 @@ export async function runUsaSpendingBulkPipeline(
 
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("  USASpending bulk pipeline fatal error:", msg);
+    console.error(`  USASpending bulk pipeline (${cfg.category}) fatal error:`, msg);
     cleanTmpDir();
     await failSync(logId, msg);
     return { inserted: totalUpserted, updated: 0, failed: totalFailed, estimatedMb: 0 };
@@ -622,9 +759,19 @@ export async function runUsaSpendingBulkPipeline(
 // Standalone entry point
 // ---------------------------------------------------------------------------
 
+function parseCategoryArg(): BulkCategory {
+  const arg = process.argv.find((a) => a.startsWith("--category="));
+  if (!arg) return "contracts";
+  const value = arg.slice("--category=".length).toLowerCase();
+  if (value === "contracts" || value === "assistance") return value;
+  console.error(`Unknown --category=${value} (expected 'contracts' or 'assistance')`);
+  process.exit(2);
+}
+
 if (require.main === module) {
-  const force = process.argv.includes("--force");
-  runUsaSpendingBulkPipeline({ force })
+  const force    = process.argv.includes("--force");
+  const category = parseCategoryArg();
+  runUsaSpendingBulkPipeline({ force, category })
     .then(() => { setTimeout(() => process.exit(0), 500); })
     .catch((err) => {
       console.error("Pipeline failed:", err);

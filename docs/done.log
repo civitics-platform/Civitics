@@ -202,3 +202,5 @@
 2026-04-28 | FIX-114 | af13a542 | local-only | feat(usaspending): add grants/assistance bulk pipeline
 2026-04-28 | FIX-114 | 6e68106f | prod-only | chore(usaspending): verify FIX-114 grants pipeline against prod
 2026-04-28 | FIX-166 | de7770f0 | local-only | feat(usaspending): key bulk state per environment
+2026-04-28 | FIX-167 | 5fd6409b | local-only | fix(graph): route industry through entity_tags; drop polluted financial_entities.industry
+2026-04-28 | FIX-167 | 438e2f51 | local+prod | chore(graph): verify FIX-167 against prod

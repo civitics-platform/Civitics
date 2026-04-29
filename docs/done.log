@@ -195,3 +195,4 @@
 2026-04-27 | FIX-160 | eb691f90 | local-only | feat(openstates): bulk people pipeline (no API quota)
 2026-04-28 | FIX-022 | 78bfbf13 | local+prod | fix(districts): widen RPC search_path so PostGIS resolves on Supabase Pro
 2026-04-28 | FIX-160 | 78bfbf13 | local+prod | fix(districts): widen RPC search_path so PostGIS resolves on Supabase Pro
+2026-04-28 | FIX-162 | 75b49d66 | local+prod | fix(proposals): retitle procedural-vote bill stubs from Congress.gov

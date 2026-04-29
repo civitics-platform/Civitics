@@ -38,7 +38,8 @@
     "data:drain:claim": "tsx --env-file=../../.env.local src/drain/claim.ts",
     "data:drain:submit": "tsx --env-file=../../.env.local src/drain/submit.ts",
     "data:drain:status": "tsx --env-file=../../.env.local src/drain/status.ts",
-    "data:audit": "tsx --env-file=../../.env.local src/pipelines/integrity-audit/index.ts"
+    "data:audit": "tsx --env-file=../../.env.local src/pipelines/integrity-audit/index.ts",
+    "data:retitle-stubs": "tsx --env-file=../../.env.local src/scripts/retitle-procedural-bill-stubs.ts"
   },
   "dependencies": {
     "@civitics/ai": "workspace:*",

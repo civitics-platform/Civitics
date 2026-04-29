@@ -15,7 +15,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@civitics/db";
+import { createAdminClient, fetchEntityIdsByIndustryTag } from "@civitics/db";
 import { supabaseUnavailable, unavailableResponse } from "@/lib/supabase-check";
 
 export const dynamic = "force-dynamic";
@@ -61,13 +61,20 @@ export async function GET(req: NextRequest) {
   if (entityType === "pac") {
     const industry = searchParams.get("industry");
 
+    // Industry filter resolves through `entity_tags` (FIX-167). Resolve the
+    // tagged entity IDs first, then count PACs in that set.
+    const taggedIds = industry ? await fetchEntityIdsByIndustryTag(supabase, industry) : null;
+    if (taggedIds && taggedIds.length === 0) {
+      return NextResponse.json({ count: 0 });
+    }
+
     let q = supabase
       .from("financial_entities")
       .select("id", { count: "exact", head: true })
       .eq("entity_type", "pac")
       .not("display_name", "ilike", "%PAC/Committee%");
 
-    if (industry) q = q.eq("industry", industry);
+    if (taggedIds) q = q.in("id", taggedIds);
 
     const { count, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

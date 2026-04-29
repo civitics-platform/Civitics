@@ -218,7 +218,6 @@ export type FinancialEntityTagInput = {
   id: string;
   display_name: string;
   entity_subtype: string;  // financial_entities.entity_type (pac, corporation, …)
-  industry_hint: string | null;  // financial_entities.industry column (FEC connected org name)
   total_donated_cents: number;
 };
 
@@ -226,7 +225,6 @@ export function buildFinancialEntityTagContext(fe: FinancialEntityTagInput) {
   return {
     display_name: fe.display_name,
     entity_subtype: fe.entity_subtype,
-    industry_hint: fe.industry_hint ?? null,
     total_donated_cents: fe.total_donated_cents,
     valid_industries: VALID_INDUSTRIES,
     industry_labels: Object.fromEntries(

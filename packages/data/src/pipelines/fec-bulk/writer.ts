@@ -111,10 +111,12 @@ export async function upsertPacEntitiesBatch(
       display_name: displayName,
       entity_type: entityType,
       fec_committee_id: input.cmteId,
-      industry: input.connectedOrg?.trim() || null,
       total_donated_cents: input.totalDonatedCents,
       total_received_cents: 0,
-      metadata: { fec_cmte_type_raw: input.cmteType },
+      metadata: {
+        fec_cmte_type_raw: input.cmteType,
+        fec_connected_org_nm: input.connectedOrg?.trim() || null,
+      },
     };
   });
 

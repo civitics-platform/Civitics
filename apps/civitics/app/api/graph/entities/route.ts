@@ -11,7 +11,7 @@
  * No auth required. Rate limited to 20 requests/minute/IP.
  */
 
-import { createAdminClient } from "@civitics/db";
+import { createAdminClient, fetchIndustryTagsByEntityId } from "@civitics/db";
 import { supabaseUnavailable, unavailableResponse, withDbTimeout } from "@/lib/supabase-check";
 
 export const dynamic = "force-dynamic";
@@ -92,7 +92,7 @@ export async function GET(request: Request) {
     withDbTimeout(
       supabase
         .from("financial_entities")
-        .select("id, display_name, entity_type, industry")
+        .select("id, display_name, entity_type")
         .ilike("display_name", like)
         .limit(20),
     ),
@@ -107,8 +107,14 @@ export async function GET(request: Request) {
 
   type OfficialRow = { id: string; full_name: string; role_title: string | null; party: string | null };
   type AgencyRow = { id: string; name: string; acronym: string | null; agency_type: string | null };
-  type FinancialRow = { id: string; display_name: string; entity_type: string | null; industry: string | null };
+  type FinancialRow = { id: string; display_name: string; entity_type: string | null };
   type ProposalRow = { id: string; title: string; type: string | null };
+
+  const financialRows = ((financialRes as { data: FinancialRow[] | null }).data ?? []);
+  const industryByEntityId = await fetchIndustryTagsByEntityId(
+    supabase,
+    financialRows.map((f) => f.id),
+  );
 
   let rows: SearchRow[] = [];
   for (const o of ((officialsRes as { data: OfficialRow[] | null }).data ?? [])) {
@@ -123,12 +129,12 @@ export async function GET(request: Request) {
       party: null,
     });
   }
-  for (const f of ((financialRes as { data: FinancialRow[] | null }).data ?? [])) {
+  for (const f of financialRows) {
     rows.push({
       id: f.id,
       label: f.display_name,
       entity_type: "financial",
-      subtitle: f.industry ?? f.entity_type,
+      subtitle: industryByEntityId.get(f.id)?.display_label ?? f.entity_type,
       party: null,
     });
   }

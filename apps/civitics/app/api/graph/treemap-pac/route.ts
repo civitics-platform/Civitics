@@ -1,4 +1,4 @@
-import { createAdminClient } from "@civitics/db";
+import { createAdminClient, fetchIndustryTagsByEntityId } from "@civitics/db";
 import { supabaseUnavailable, unavailableResponse } from "@/lib/supabase-check";
 
 export const dynamic = "force-dynamic";
@@ -34,23 +34,29 @@ export async function GET(request: Request) {
   // ── Sector mode ──────────────────────────────────────────────────────────────
 
   if (groupBy === "sector") {
-    // Step 1: PAC/party committee entities with a sector.
+    // Step 1: PAC/party committee entities, joined with their industry tag
+    // from `entity_tags`. The `financial_entities.industry` column was dropped
+    // in FIX-167 — it had been polluted with FEC `CONNECTED_ORG_NM` values
+    // (parent org / candidate / committee names). `entity_tags` is the only
+    // source of truth for industry now.
     const { data: pacEntities, error: pacErr } = await supabase
       .from("financial_entities")
-      .select("id, display_name, industry, entity_type")
-      .in("entity_type", ["pac", "party_committee"])
-      .not("industry", "is", null)
-      .neq("industry", "Other");
+      .select("id, display_name")
+      .in("entity_type", ["pac", "party_committee"]);
 
     if (pacErr) {
       console.error("[treemap-pac/sector] query error:", pacErr.message);
       return Response.json({ error: pacErr.message }, { status: 500 });
     }
 
+    const allIds = (pacEntities ?? []).map((p) => p.id);
+    const industryByEntityId = await fetchIndustryTagsByEntityId(supabase, allIds);
+
     const pacInfo = new Map<string, { name: string; sector: string }>();
     for (const p of pacEntities ?? []) {
-      if (!p.industry) continue;
-      pacInfo.set(p.id, { name: p.display_name, sector: p.industry });
+      const ind = industryByEntityId.get(p.id);
+      if (!ind) continue; // Untagged PACs are simply absent from the treemap.
+      pacInfo.set(p.id, { name: p.display_name, sector: ind.display_label });
     }
 
     // Step 2: their donations.

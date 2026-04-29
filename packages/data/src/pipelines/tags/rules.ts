@@ -635,7 +635,7 @@ async function tagFinancialEntities(db: any): Promise<number> {
 
   const { data: entities, error: entErr } = await db
     .from("financial_entities")
-    .select("id, display_name, entity_type, industry");
+    .select("id, display_name, entity_type");
 
   if (entErr) {
     console.error("    Error fetching financial_entities:", entErr.message);

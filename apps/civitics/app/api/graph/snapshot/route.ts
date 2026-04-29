@@ -17,7 +17,7 @@
  * No auth required — all civic data is public.
  */
 
-import { createAdminClient } from "@civitics/db";
+import { createAdminClient, fetchIndustryTagsByEntityId } from "@civitics/db";
 import type { Json } from "@civitics/db";
 import { supabaseUnavailable, unavailableResponse, withDbTimeout } from "@/lib/supabase-check";
 
@@ -144,7 +144,7 @@ async function resolveEntityByName(
       .maybeSingle(),
     supabase
       .from("financial_entities")
-      .select("id, display_name, entity_type, industry")
+      .select("id, display_name, entity_type")
       .ilike("display_name", like)
       .limit(1)
       .maybeSingle(),
@@ -175,11 +175,13 @@ async function resolveEntityByName(
     };
   } else if (financialRes.data) {
     const f = financialRes.data;
+    const industryByEntityId = await fetchIndustryTagsByEntityId(supabase, [f.id]);
+    queries++;
     row = {
       id: f.id,
       label: f.display_name,
       entity_type: "financial",
-      subtitle: f.industry ?? f.entity_type,
+      subtitle: industryByEntityId.get(f.id)?.display_label ?? f.entity_type,
       party: null,
     };
   } else if (proposalsRes.data) {

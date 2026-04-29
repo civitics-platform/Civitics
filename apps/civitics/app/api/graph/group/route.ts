@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@civitics/db";
+import { createAdminClient, fetchIndustryTagsByEntityId, fetchEntityIdsByIndustryTag } from "@civitics/db";
 import { supabaseUnavailable, unavailableResponse, withDbTimeout } from "@/lib/supabase-check";
 import type { GraphEdgeV2 as GraphEdge, GraphNodeV2 as GraphNode, NodeTypeV2 as NodeType } from "@civitics/graph";
 
@@ -104,16 +104,24 @@ export async function GET(req: NextRequest) {
       if (batchData) allDonationRows.push(...batchData);
     }
 
-    // Resolve donor entity names/sectors in one lookup
+    // Resolve donor entity names + industry tags. Industry comes from
+    // `entity_tags` (FIX-167): the legacy `financial_entities.industry` column
+    // was dropped because it had been polluted with FEC CONNECTED_ORG_NM.
     const donorIds = [...new Set(allDonationRows.map((r) => r.from_id))];
     const donorInfo = new Map<string, { name: string; sector: string | null }>();
     if (donorIds.length > 0) {
-      const { data: entities } = await supabase
-        .from("financial_entities")
-        .select("id, display_name, industry")
-        .in("id", donorIds);
+      const [{ data: entities }, industryByEntityId] = await Promise.all([
+        supabase
+          .from("financial_entities")
+          .select("id, display_name")
+          .in("id", donorIds),
+        fetchIndustryTagsByEntityId(supabase, donorIds),
+      ]);
       for (const e of entities ?? []) {
-        donorInfo.set(e.id, { name: e.display_name, sector: e.industry ?? null });
+        donorInfo.set(e.id, {
+          name:   e.display_name,
+          sector: industryByEntityId.get(e.id)?.display_label ?? null,
+        });
       }
     }
 
@@ -208,21 +216,32 @@ export async function GET(req: NextRequest) {
   // Which officials received the most money from PACs in this industry?
 
   if (entityType === "pac") {
-    // Step 1: find the PAC financial_entities in this industry.
-    const { data: pacEntities } = await withDbTimeout<{
-      data: Array<{ id: string; display_name: string; industry: string | null }> | null;
-      error: { message: string } | null;
-    }>(
-      supabase
-        .from("financial_entities")
-        .select("id, display_name, industry")
-        .eq("entity_type", "pac")
-        .eq("industry", industry ?? "")
-        .not("display_name", "ilike", "%PAC/Committee%")
-        .limit(2000),
-    );
+    // Step 1: find the PAC financial_entities tagged with this industry.
+    // Industry filter comes from `entity_tags.tag` now (FIX-167) — the legacy
+    // `financial_entities.industry` column was dropped.
+    const taggedIds = industry ? await fetchEntityIdsByIndustryTag(supabase, industry) : [];
 
-    const pacIds = (pacEntities ?? []).map((p) => p.id);
+    const pacEntitiesRows: Array<{ id: string; display_name: string }> = [];
+    if (taggedIds.length > 0) {
+      const BATCH_FILTER = 200;
+      for (let i = 0; i < taggedIds.length; i += BATCH_FILTER) {
+        const batch = taggedIds.slice(i, i + BATCH_FILTER);
+        const { data } = await withDbTimeout<{
+          data: Array<{ id: string; display_name: string }> | null;
+          error: { message: string } | null;
+        }>(
+          supabase
+            .from("financial_entities")
+            .select("id, display_name")
+            .eq("entity_type", "pac")
+            .in("id", batch)
+            .not("display_name", "ilike", "%PAC/Committee%"),
+        );
+        if (data) pacEntitiesRows.push(...data);
+      }
+    }
+
+    const pacIds = pacEntitiesRows.map((p) => p.id);
 
     // Step 2: pull their donations to officials.
     const pacData: Array<{ to_id: string; amount_cents: number | null }> = [];

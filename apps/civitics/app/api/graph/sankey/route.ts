@@ -24,7 +24,6 @@ interface AgencyRow {
 interface FinancialEntityRow {
   id: string;
   display_name: string;
-  industry: string | null;
 }
 
 interface TagRow {
@@ -134,7 +133,7 @@ export async function GET(_req: NextRequest) {
       .in("id", agencyIds),
     supabase
       .from("financial_entities")
-      .select("id, display_name, industry")
+      .select("id, display_name")
       .in("id", vendorIds),
     supabase
       .from("entity_tags")
@@ -173,10 +172,11 @@ export async function GET(_req: NextRequest) {
     if (!agency || !vendor) continue;
 
     const naics = (row.metadata?.naics_code as string | null | undefined) ?? null;
-    // Industry tag (FIX-109) takes priority over NAICS prefix mapping, with
-    // financial_entities.industry as final fallback.
+    // Industry tag (FIX-109) takes priority over NAICS prefix mapping.
+    // The legacy financial_entities.industry fallback was removed in FIX-167
+    // (column was polluted with FEC CONNECTED_ORG_NM and has been dropped).
     const sector =
-      vendorTags.get(vendor.id) ?? (naics ? naicsToSector(naics) : null) ?? vendor.industry ?? "Other";
+      vendorTags.get(vendor.id) ?? (naics ? naicsToSector(naics) : null) ?? "Other";
 
     const key = `${agency.id}|${sector}|${vendor.id}`;
     const existing = flowMap.get(key);

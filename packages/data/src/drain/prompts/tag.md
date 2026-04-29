@@ -67,7 +67,6 @@ from `issue_areas`. No complexity tag for officials.
 {
   display_name: string,          // entity name (PAC name, company name, etc.)
   entity_subtype: string,        // "pac" | "super_pac" | "corporation" | "union" | etc.
-  industry_hint: string | null,  // FEC CONNECTED_ORG_NM — often the parent company name
   total_donated_cents: number,
   valid_industries: string[],    // the ONLY tags you may use
   industry_labels: Record<string,string>
@@ -75,8 +74,7 @@ from `issue_areas`. No complexity tag for officials.
 ```
 
 Classify the entity into **exactly 1 industry** drawn exclusively from `valid_industries`.
-Use `display_name` as the primary signal, `industry_hint` as a secondary clue (it may be a
-more canonical form of the org name). If neither is classifiable with confidence ≥ 0.6,
+Use `display_name` as the primary signal. If it isn't classifiable with confidence ≥ 0.6,
 emit `{ "success": false, "error": "insufficient signal" }`.
 
 For financial entities, omit the complexity tag and `affects_individuals` field.

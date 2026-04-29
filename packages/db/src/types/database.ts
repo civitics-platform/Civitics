@@ -1377,7 +1377,6 @@ export type Database = {
           entity_type: string
           fec_committee_id: string | null
           id: string
-          industry: string | null
           metadata: Json
           parent_entity_id: string | null
           total_donated_cents: number
@@ -1391,7 +1390,6 @@ export type Database = {
           entity_type: string
           fec_committee_id?: string | null
           id?: string
-          industry?: string | null
           metadata?: Json
           parent_entity_id?: string | null
           total_donated_cents?: number
@@ -1405,7 +1403,6 @@ export type Database = {
           entity_type?: string
           fec_committee_id?: string | null
           id?: string
-          industry?: string | null
           metadata?: Json
           parent_entity_id?: string | null
           total_donated_cents?: number
@@ -3417,7 +3414,32 @@ export type Database = {
           to_page: string
         }[]
       }
+      link_officials_to_districts: { Args: never; Returns: number }
       normalize_pv_path: { Args: { p: string }; Returns: string }
+      query_districts: {
+        Args: {
+          p_bbox_e?: number
+          p_bbox_n?: number
+          p_bbox_s?: number
+          p_bbox_w?: number
+          p_chamber?: string
+          p_id?: string
+          p_limit?: number
+          p_point_lat?: number
+          p_point_lng?: number
+          p_simplify_tolerance?: number
+          p_state?: string
+        }
+        Returns: {
+          chamber: string
+          district_id: string
+          geom_geojson: string
+          id: string
+          name: string
+          short_name: string
+          state_abbr: string
+        }[]
+      }
       rebuild_entity_connections: {
         Args: never
         Returns: {
@@ -3478,6 +3500,19 @@ export type Database = {
           naics_code: string
           total_cents: number
         }[]
+      }
+      upsert_district_jurisdiction: {
+        Args: {
+          p_census_geoid: string
+          p_chamber: string
+          p_fips_code: string
+          p_geojson: string
+          p_metadata: Json
+          p_name: string
+          p_parent_id: string
+          p_short_name: string
+        }
+        Returns: string
       }
     }
     Enums: {

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import nextDynamic from "next/dynamic";
-import { createServerClient, createAdminClient } from "@civitics/db";
+import { createServerClient, createAdminClient, fetchIndustryTagsByEntityId } from "@civitics/db";
 import { OfficialGraph } from "../components/OfficialGraph";
 import { AiProfileSection } from "../components/AiProfileSection";
 import { ProfileTabs } from "../components/ProfileTabs";
@@ -324,21 +324,24 @@ export default async function OfficialProfilePage({
   // Enrich donations with entity data (donor_name, industry, entity_type).
   // After the shadow→public promotion, financial_relationships is polymorphic:
   // donor info lives on financial_entities, not on the relationship row itself.
+  // Industry comes from `entity_tags` (FIX-167) — the legacy
+  // `financial_entities.industry` column was dropped.
   const donorAmtRaw = (donorAmtRawRes.data ?? []) as Array<{ from_id: string; amount_cents: number | null; metadata: Record<string, unknown> | null }>;
   const donorIds = [...new Set(donorAmtRaw.map((d) => d.from_id))];
   const entityInfo = new Map<string, { display_name: string; industry: string | null; entity_type: string | null }>();
   if (donorIds.length > 0) {
+    const industryByEntityId = await fetchIndustryTagsByEntityId(supabase, donorIds);
     const BATCH = 300;
     for (let i = 0; i < donorIds.length; i += BATCH) {
       const batch = donorIds.slice(i, i + BATCH);
       const { data: entities } = await supabase
         .from("financial_entities")
-        .select("id, display_name, industry, entity_type")
+        .select("id, display_name, entity_type")
         .in("id", batch);
       for (const e of entities ?? []) {
         entityInfo.set(e.id, {
           display_name: e.display_name,
-          industry:     e.industry,
+          industry:     industryByEntityId.get(e.id)?.display_label ?? null,
           entity_type:  e.entity_type,
         });
       }

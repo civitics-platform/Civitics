@@ -63,6 +63,12 @@ export {
 } from "./queries/financial-relationships";
 
 export {
+  fetchIndustryTagsByEntityId,
+  fetchEntityIdsByIndustryTag,
+} from "./queries/entity-industry";
+export type { IndustryTag } from "./queries/entity-industry";
+
+export {
   getAllConnectionsForEntity,
   getConnectionsFrom,
   getConnectionsTo,

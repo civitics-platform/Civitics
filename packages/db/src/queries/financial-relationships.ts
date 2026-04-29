@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../types/database";
+import { fetchIndustryTagsByEntityId } from "./entity-industry";
 
 type DB = SupabaseClient<Database>;
 type Row = Database["public"]["Tables"]["financial_relationships"]["Row"];
@@ -87,7 +88,12 @@ export async function listDonationsByDonor(
   return data;
 }
 
-/** Donation totals by industry for an official (industry on financial_entities). */
+/**
+ * Donation totals by industry for an official. Industry is sourced from
+ * `entity_tags` (FIX-167): the legacy `financial_entities.industry` column
+ * was dropped because it had been polluted with FEC `CONNECTED_ORG_NM`
+ * values (parent-org / candidate / committee names) by the FEC bulk pipeline.
+ */
 export async function getDonationsByIndustry(
   db: DB,
   officialId: string,
@@ -96,19 +102,12 @@ export async function getDonationsByIndustry(
   const rows = await listDonationsByOfficial(db, officialId, cycleYear, 5000);
   if (rows.length === 0) return [];
 
-  const { data: entities, error } = await db
-    .from("financial_entities")
-    .select("id, industry")
-    .in("id", Array.from(new Set(rows.map((r) => r.from_id))));
-  if (error) throw error;
-
-  const industryById = new Map<string, string>(
-    (entities ?? []).map((e) => [e.id, (e.industry as string | null) ?? "Unknown"])
-  );
+  const donorIds = Array.from(new Set(rows.map((r) => r.from_id)));
+  const industryByEntityId = await fetchIndustryTagsByEntityId(db, donorIds);
 
   const totals = new Map<string, number>();
   for (const r of rows) {
-    const key = industryById.get(r.from_id) ?? "Unknown";
+    const key = industryByEntityId.get(r.from_id)?.display_label ?? "Unknown";
     totals.set(key, (totals.get(key) ?? 0) + (r.amount_cents ?? 0));
   }
 

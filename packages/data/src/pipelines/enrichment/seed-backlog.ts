@@ -424,11 +424,13 @@ async function main(): Promise<void> {
 
   // 5. Financial entity industry tags — seed only entities without any industry tag.
   //    Rule-based pass (data:tag-rules) should run first; this seeds the remainder.
+  //    The legacy `industry_hint` from `financial_entities.industry` was dropped
+  //    in FIX-167 (the column was polluted with FEC CONNECTED_ORG_NM values, not
+  //    sectors, so it actively misled the AI classifier).
   type FinancialEntityRow = {
     id: string;
     display_name: string;
     entity_type: string;
-    industry: string | null;
     total_donated_cents: number;
     updated_at: string;
   };
@@ -437,7 +439,7 @@ async function main(): Promise<void> {
     (from, to) =>
       db
         .from("financial_entities")
-        .select("id, display_name, entity_type, industry, total_donated_cents, updated_at")
+        .select("id, display_name, entity_type, total_donated_cents, updated_at")
         .range(from, to),
   );
 
@@ -456,7 +458,6 @@ async function main(): Promise<void> {
         id: fe.id,
         display_name: fe.display_name,
         entity_subtype: fe.entity_type,
-        industry_hint: fe.industry ?? null,
         total_donated_cents: fe.total_donated_cents,
       }),
     }));

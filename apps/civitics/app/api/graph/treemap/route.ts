@@ -1,4 +1,4 @@
-import { createAdminClient } from "@civitics/db";
+import { createAdminClient, fetchIndustryTagsByEntityId } from "@civitics/db";
 import { supabaseUnavailable, unavailableResponse } from "@/lib/supabase-check";
 
 export const dynamic = "force-dynamic";
@@ -54,33 +54,35 @@ export async function GET(request: Request) {
     }
 
     const donorIds = [...byDonor.keys()];
-    const donorInfo = new Map<string, { name: string; industry: string | null; entity_type: string | null }>();
+    const donorInfo = new Map<string, { name: string; entity_type: string | null }>();
     if (donorIds.length > 0) {
       const BATCH = 300;
       for (let i = 0; i < donorIds.length; i += BATCH) {
         const batch = donorIds.slice(i, i + BATCH);
         const { data: entities } = await supabase
           .from("financial_entities")
-          .select("id, display_name, industry, entity_type")
+          .select("id, display_name, entity_type")
           .in("id", batch);
         for (const e of entities ?? []) {
           donorInfo.set(e.id, {
             name: e.display_name,
-            industry: e.industry,
             entity_type: e.entity_type,
           });
         }
       }
     }
 
+    const industryByEntityId = await fetchIndustryTagsByEntityId(supabase, donorIds);
+
     const rows: DonorRow[] = [];
     for (const [donorId, cents] of byDonor) {
       const info = donorInfo.get(donorId);
       if (!info) continue;
+      const industry = industryByEntityId.get(donorId);
       rows.push({
         donor_id: donorId,
         donor_name: info.name,
-        industry_category: info.industry ?? "Other",
+        industry_category: industry?.display_label ?? "Other",
         amount_usd: cents / 100,
         entity_type: info.entity_type ?? "financial",
       });

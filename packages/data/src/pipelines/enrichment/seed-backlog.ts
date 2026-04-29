@@ -31,6 +31,9 @@ import {
 const DRY_RUN = process.argv.includes("--dry-run");
 // --force: also reseeds items already marked 'done', refreshing context + priority.
 const FORCE = process.argv.includes("--force");
+// --pacs-only: skip proposals/officials entirely; only enqueue PAC + party_committee
+// industry tags at priority 100 so they drain ahead of any other backlog.
+const PACS_ONLY = process.argv.includes("--pacs-only");
 // Pagination size for the snapshot SELECTs (fetchAll). enrichment_queue
 // lacks an index on (entity_type, task_type) for non-pending rows, so each
 // page scan is O(N) on a growing table. 500 keeps a full page inside Pro's
@@ -220,7 +223,7 @@ async function enqueueAll(
   taskType: TaskType,
   rows: Array<{
     entity_id: string;
-    entity_type: "proposal" | "official";
+    entity_type: EntityType;
     task_type: "tag" | "summary";
     context: unknown;
     priority: number;
@@ -296,22 +299,30 @@ function fmt(counts: EnqueueCounts): string {
 
 async function main(): Promise<void> {
   console.log(`\n═══ Enrichment backlog seed ════════════════════════════════`);
-  console.log(`    Mode: ${DRY_RUN ? "DRY RUN" : "LIVE"}${FORCE ? " + FORCE (reseed done items)" : ""}`);
+  console.log(`    Mode: ${DRY_RUN ? "DRY RUN" : "LIVE"}${FORCE ? " + FORCE (reseed done items)" : ""}${PACS_ONLY ? " + PACS-ONLY (skip proposals/officials)" : ""}`);
   console.log(`    Time: ${new Date().toISOString()}\n`);
 
   const db = createAdminClient() as unknown as Db;
 
-  // Fetch proposals + officials, then resolve jurisdiction priorities in one batch.
-  const [proposals, officials] = await Promise.all([
-    fetchAllProposals(db),
-    fetchAllActiveOfficials(db),
-  ]);
+  // In --pacs-only mode skip proposals/officials entirely. The financial-entity
+  // industry-tag block at the bottom does its own filtering.
+  let proposalTagCounts: EnqueueCounts = zeroCounts();
+  let proposalSummaryCounts: EnqueueCounts = zeroCounts();
+  let officialTagCounts: EnqueueCounts = zeroCounts();
+  let officialSummaryCounts: EnqueueCounts = zeroCounts();
 
-  const allJurisdictionIds = [
-    ...proposals.map((p) => p.jurisdiction_id),
-    ...officials.map((o) => o.jurisdiction_id),
-  ].filter(Boolean) as string[];
-  const jPriority = await loadJurisdictionPriorities(db, allJurisdictionIds);
+  if (!PACS_ONLY) {
+    // Fetch proposals + officials, then resolve jurisdiction priorities in one batch.
+    const [proposals, officials] = await Promise.all([
+      fetchAllProposals(db),
+      fetchAllActiveOfficials(db),
+    ]);
+
+    const allJurisdictionIds = [
+      ...proposals.map((p) => p.jurisdiction_id),
+      ...officials.map((o) => o.jurisdiction_id),
+    ].filter(Boolean) as string[];
+    const jPriority = await loadJurisdictionPriorities(db, allJurisdictionIds);
 
   // 1. Proposal tags
   const taggedProposalIds = await taggedEntityIds(db, "proposal");
@@ -331,7 +342,7 @@ async function main(): Promise<void> {
       }),
     }));
   console.log(`── Proposal tags (${proposalTagRows.length} to seed) ──`);
-  const proposalTagCounts = await enqueueAll(db, "proposal", "tag", proposalTagRows, "proposal-tags");
+  proposalTagCounts = await enqueueAll(db, "proposal", "tag", proposalTagRows, "proposal-tags");
   console.log(`   ${fmt(proposalTagCounts)}\n`);
 
   // 2. Proposal summaries — exclude truly_empty (worker can't produce output)
@@ -358,7 +369,7 @@ async function main(): Promise<void> {
       };
     });
   console.log(`── Proposal summaries (${proposalSummaryRows.length} to seed, non-empty) ──`);
-  const proposalSummaryCounts = await enqueueAll(db, "proposal", "summary", proposalSummaryRows, "proposal-summaries");
+  proposalSummaryCounts = await enqueueAll(db, "proposal", "summary", proposalSummaryRows, "proposal-summaries");
   console.log(`   ${fmt(proposalSummaryCounts)}\n`);
 
   // 3. Official tags + 4. Official summaries — share the officials fetch and
@@ -393,7 +404,7 @@ async function main(): Promise<void> {
       };
     });
   console.log(`── Official tags (${officialTagRows.length} to seed) ──`);
-  const officialTagCounts = await enqueueAll(db, "official", "tag", officialTagRows, "official-tags");
+  officialTagCounts = await enqueueAll(db, "official", "tag", officialTagRows, "official-tags");
   console.log(`   ${fmt(officialTagCounts)}\n`);
 
   const officialSummaryRows = officials
@@ -419,14 +430,20 @@ async function main(): Promise<void> {
       };
     });
   console.log(`── Official summaries (${officialSummaryRows.length} to seed) ──`);
-  const officialSummaryCounts = await enqueueAll(db, "official", "summary", officialSummaryRows, "official-summaries");
+  officialSummaryCounts = await enqueueAll(db, "official", "summary", officialSummaryRows, "official-summaries");
   console.log(`   ${fmt(officialSummaryCounts)}\n`);
+  } // end !PACS_ONLY
 
   // 5. Financial entity industry tags — seed only entities without any industry tag.
   //    Rule-based pass (data:tag-rules) should run first; this seeds the remainder.
   //    The legacy `industry_hint` from `financial_entities.industry` was dropped
   //    in FIX-167 (the column was polluted with FEC CONNECTED_ORG_NM values, not
   //    sectors, so it actively misled the AI classifier).
+  //
+  //    PAC + party_committee rows seed at priority 100; other financial-entity
+  //    types (corporation, super_pac, union, …) stay at the country-level
+  //    baseline of 40 so the user-visible PAC sector treemap fills first.
+  //    --pacs-only filters non-PAC types out of the queue entirely.
   type FinancialEntityRow = {
     id: string;
     display_name: string;
@@ -436,34 +453,70 @@ async function main(): Promise<void> {
   };
   const financialEntities = await fetchAll<FinancialEntityRow>(
     "financial_entities",
-    (from, to) =>
-      db
+    (from, to) => {
+      let q = db
         .from("financial_entities")
         .select("id, display_name, entity_type, total_donated_cents, updated_at")
-        .range(from, to),
+        .range(from, to);
+      if (PACS_ONLY) q = q.in("entity_type", ["pac", "party_committee"]);
+      return q;
+    },
   );
 
   const industryTaggedIds = await industryTaggedFinancialEntityIds(db);
 
   const feTagRows = financialEntities
     .filter((fe) => FORCE || !industryTaggedIds.has(fe.id))
-    .map((fe) => ({
-      entity_id: fe.id,
-      entity_type: "financial_entity" as EntityType,
-      task_type: "tag" as TaskType,
-      // Federal financial entities are high-value; treat same priority as country-level.
-      priority: 40,
-      entity_updated_at: fe.updated_at,
-      context: buildFinancialEntityTagContext({
-        id: fe.id,
-        display_name: fe.display_name,
-        entity_subtype: fe.entity_type,
-        total_donated_cents: fe.total_donated_cents,
-      }),
-    }));
+    .map((fe) => {
+      const isPac = fe.entity_type === "pac" || fe.entity_type === "party_committee";
+      return {
+        entity_id: fe.id,
+        entity_type: "financial_entity" as EntityType,
+        task_type: "tag" as TaskType,
+        priority: isPac ? 100 : 40,
+        entity_updated_at: fe.updated_at,
+        context: buildFinancialEntityTagContext({
+          id: fe.id,
+          display_name: fe.display_name,
+          entity_subtype: fe.entity_type,
+          total_donated_cents: fe.total_donated_cents,
+        }),
+      };
+    });
   console.log(`── Financial entity industry tags (${feTagRows.length} to seed) ──`);
   const feTagCounts = await enqueueAll(db, "financial_entity", "tag", feTagRows, "financial-entity-tags");
   console.log(`   ${fmt(feTagCounts)}\n`);
+
+  // In --pacs-only mode, also bump priority on already-pending PAC tag rows.
+  // The classifier in `enqueueAll` skips pending rows ("skipped_pending"), so
+  // a fresh seed alone won't reorder a queue that already had PAC rows enqueued
+  // at the older priority of 40.
+  if (PACS_ONLY && !DRY_RUN) {
+    const pacIds = financialEntities.map((fe) => fe.id);
+    let bumped = 0;
+    const BUMP_CHUNK = 100;
+    for (let i = 0; i < pacIds.length; i += BUMP_CHUNK) {
+      const batch = pacIds.slice(i, i + BUMP_CHUNK);
+      const { data, error } = await db
+        .from("enrichment_queue")
+        .update({ priority: 100 })
+        .eq("entity_type", "financial_entity")
+        .eq("task_type", "tag")
+        .eq("status", "pending")
+        .lt("priority", 100)
+        .in("entity_id", batch)
+        .select("id");
+      if (error) {
+        console.error(`   ✗ priority bump batch ${i}-${i + batch.length}:`, error.message);
+        continue;
+      }
+      bumped += (data ?? []).length;
+    }
+    console.log(`── Priority bump (existing pending PAC tag rows) ──`);
+    console.log(`   bumped ${bumped} row(s) to priority=100\n`);
+  } else if (PACS_ONLY && DRY_RUN) {
+    console.log(`── Priority bump (existing pending PAC tag rows) — skipped in dry-run ──\n`);
+  }
 
   // Summary report
   console.log(`══ Seed complete ════════════════════════════════════════════`);

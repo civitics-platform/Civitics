@@ -25,9 +25,10 @@
  *     financial_relationships enum has no row for them.
  *
  * State: packages/data/.usaspending-bulk-state.json (gitignored, not committed).
- *        Per-category sub-objects so contracts and assistance progress
- *        independently. Legacy single-shape state (pre-FIX-114) is migrated
- *        into the contracts slot on first read.
+ *        Keyed `envs.{supabase-url-host}.{category}` (FIX-166) so local and
+ *        prod runs progress independently. Legacy shapes are migrated under
+ *        whichever env is active at first read; the other env starts fresh
+ *        and needs one Full run before deltas resume.
  *
  * Run standalone:
  *   pnpm --filter @civitics/data data:usaspending-bulk
@@ -110,7 +111,7 @@ const CATEGORY_CONFIGS: Record<BulkCategory, CategoryConfig> = {
 };
 
 // ---------------------------------------------------------------------------
-// State management (delta tracking, per-category)
+// State management (delta tracking, per-env per-category)
 // ---------------------------------------------------------------------------
 
 interface CategoryState {
@@ -120,13 +121,30 @@ interface CategoryState {
   lastRunAt:       string;
 }
 
-interface PipelineState {
+interface EnvState {
   contracts?:  CategoryState;
   assistance?: CategoryState;
-  // Legacy single-shape fields (pre-FIX-114) — migrated into `contracts` on read.
+}
+
+interface PipelineState {
+  envs?: Record<string, EnvState>;
+  // v1 legacy (post-FIX-114, pre-FIX-166): per-category at root.
+  contracts?:  CategoryState;
+  assistance?: CategoryState;
+  // v0 legacy (pre-FIX-114): single CategoryState at the root, contracts only.
   lastArchiveDate?: string;
   lastRunType?:     "full" | "delta";
   lastRunAt?:       string;
+}
+
+/**
+ * Stable env identifier derived from the active Supabase URL.
+ * Uses URL.host so the dev port is captured (`127.0.0.1:54321`).
+ */
+function envKey(): string {
+  const url = process.env["NEXT_PUBLIC_SUPABASE_URL"];
+  if (!url) return "unknown";
+  try { return new URL(url).host; } catch { return "unknown"; }
 }
 
 function readStateFile(): PipelineState {
@@ -138,42 +156,70 @@ function readStateFile(): PipelineState {
   }
 }
 
-function loadCategoryState(category: BulkCategory): CategoryState | null {
-  const raw = readStateFile();
+/**
+ * Lift legacy v0/v1 root state under a specific env key. The legacy file
+ * carries no env attribution, so on migration we attribute it to whichever
+ * env is active at the moment of the first read; the other env will start
+ * fresh on its next invocation.
+ */
+function liftLegacyIntoEnv(raw: PipelineState, key: string): PipelineState {
+  const next: PipelineState = { envs: { ...(raw.envs ?? {}) } };
+  const legacyEnv: EnvState = { ...(next.envs![key] ?? {}) };
 
-  if (raw[category]) return raw[category]!;
-
-  // Legacy migration: pre-FIX-114 the state file held a single CategoryState
-  // at the root, implicitly tracking contracts. Treat it as such.
-  if (category === "contracts" && raw.lastArchiveDate) {
-    return {
+  if (raw.contracts && !legacyEnv.contracts) {
+    legacyEnv.contracts = raw.contracts;
+  }
+  if (raw.assistance && !legacyEnv.assistance) {
+    legacyEnv.assistance = raw.assistance;
+  }
+  // v0: single contracts state at the root.
+  if (!legacyEnv.contracts && raw.lastArchiveDate) {
+    legacyEnv.contracts = {
       lastArchiveDate: raw.lastArchiveDate,
       lastRunType:     raw.lastRunType ?? "full",
       lastRunAt:       raw.lastRunAt   ?? new Date().toISOString(),
     };
   }
 
-  return null;
+  if (legacyEnv.contracts || legacyEnv.assistance) {
+    next.envs![key] = legacyEnv;
+  }
+  return next;
+}
+
+function loadCategoryState(category: BulkCategory): CategoryState | null {
+  const raw = readStateFile();
+  const key = envKey();
+
+  const fresh = raw.envs?.[key]?.[category];
+  if (fresh) return fresh;
+
+  // Legacy fallback — apply the lift in-memory so the same pre-migration
+  // file gives the same answer on a second read.
+  const lifted = liftLegacyIntoEnv(raw, key);
+  const lifedCat = lifted.envs?.[key]?.[category] ?? null;
+  if (lifedCat) {
+    console.log(
+      `  [state] Migrating legacy state under env "${key}" — ` +
+      `the other env will need a Full re-run (use --force) on next invocation.`,
+    );
+  }
+  return lifedCat;
 }
 
 function saveCategoryState(category: BulkCategory, next: CategoryState): void {
   try {
-    const raw = readStateFile();
-    const merged: PipelineState = {
-      contracts:  raw.contracts,
-      assistance: raw.assistance,
-    };
-    // Migrate any legacy root-level fields into contracts during save so the
-    // next read returns clean nested shape.
-    if (!merged.contracts && raw.lastArchiveDate) {
-      merged.contracts = {
-        lastArchiveDate: raw.lastArchiveDate,
-        lastRunType:     raw.lastRunType ?? "full",
-        lastRunAt:       raw.lastRunAt   ?? new Date().toISOString(),
-      };
-    }
-    merged[category] = next;
-    fs.writeFileSync(STATE_FILE, JSON.stringify(merged, null, 2), "utf8");
+    const raw    = readStateFile();
+    const key    = envKey();
+    const lifted = liftLegacyIntoEnv(raw, key);
+
+    const envs   = { ...(lifted.envs ?? {}) };
+    const env    = { ...(envs[key] ?? {}) };
+    env[category] = next;
+    envs[key]    = env;
+
+    // Drop any v0/v1 legacy keys from the persisted shape — keep only `envs`.
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ envs }, null, 2), "utf8");
   } catch (err) {
     console.warn("  [state] Could not save state:", err instanceof Error ? err.message : err);
   }

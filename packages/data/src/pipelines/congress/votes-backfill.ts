@@ -27,11 +27,15 @@ const TARGET_CONGRESSES = [117, 118, 119];
 async function runOneCongress(congress: number): Promise<number> {
   return new Promise((resolve) => {
     console.log(`\n── Backfilling ${congress}th Congress ─────────────────────`);
+    // Forward our argv (e.g. --allow-prod) so the child's pipeline guard
+    // sees the same flags. process.argv = [node, this-script, ...userArgs].
+    const userArgs = process.argv.slice(2);
     const child = spawn(
       process.execPath,
       [
         "--import", "tsx",
         path.join(__dirname, "votes.ts"),
+        ...userArgs,
       ],
       {
         stdio: "inherit",

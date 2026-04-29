@@ -259,12 +259,13 @@ export function mapVoteResult(result: string): string {
 }
 
 /**
- * Fetch raw text (HTML/XML) from any URL.
- * Used for House Clerk and Senate LIS XML vote feeds.
- * Applies the same 200ms rate-limit delay as fetchCongressApi.
+ * Fetch raw text (HTML/XML) from any URL. Used for House Clerk and Senate
+ * LIS XML vote feeds — both static-file servers with no rate limit, so no
+ * politeness delay. The previous 200ms sleep mirrored fetchCongressApi but
+ * was unjustified for static XML and dominated backfill runtime
+ * (5,000 rolls × 200ms ≈ 17 minutes of pure sleep per pass).
  */
 export async function fetchText(url: string): Promise<string> {
-  await sleep(200);
   const res = await fetch(url);
   if (!res.ok) {
     const body = await res.text().catch(() => "");

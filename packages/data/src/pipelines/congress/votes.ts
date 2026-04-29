@@ -182,9 +182,14 @@ function parseHouseLegisNum(legisNum: string): { type: string; number: string } 
 }
 
 /**
- * Normalize Senate document_type strings to our bill type codes.
+ * Normalize Senate document_type strings to our bill type codes. Returns
+ * null for any type the caller should handle separately (e.g. PN for
+ * Presidential Nominations) or for genuinely unrecognized strings.
+ *
+ * The previous fallthrough `return "S"` silently mapped PN votes (and any
+ * other novel doc type) into fake "S {N}" bill rows — see FIX-162/164/165.
  */
-function normalizeSenateDocType(docType: string): string {
+function normalizeSenateDocType(docType: string): string | null {
   const t = docType.trim().toUpperCase();
   if (t === "S." || t === "S") return "S";
   if (t === "H.R." || t === "H.R") return "HR";
@@ -194,7 +199,7 @@ function normalizeSenateDocType(docType: string): string {
   if (t === "H.J.RES." || t === "H.J.RES" || t === "H.J. RES.") return "HJRES";
   if (t === "S.CON.RES." || t === "S.CON.RES" || t === "S. CON. RES.") return "SCONRES";
   if (t === "H.CON.RES." || t === "H.CON.RES" || t === "H. CON. RES.") return "HCONRES";
-  return "S";
+  return null;
 }
 
 /**
@@ -424,13 +429,17 @@ export async function runVotesPipeline(
   const { officialMap, senatorByNameState } = await buildOfficialMaps(db, senateGovBodyId);
 
   // -------------------------------------------------------------------------
-  // 119th Congress session → calendar year mapping
-  // Session 1 = 2025, Session 2 = 2026
+  // Congress → session → calendar year mapping. Each Congress runs two
+  // sessions: session 1 in the odd year, session 2 in the even year. The
+  // 117th started in 2021, so year = 2021 + (congress - 117) * 2 + (session - 1).
+  // House Clerk XML feeds are addressed by year, Senate LIS feeds by
+  // {congress}{session} — both shapes are derivable from this mapping.
   // -------------------------------------------------------------------------
 
+  const sessionYearOffset = (CURRENT_CONGRESS - 117) * 2;
   const sessions: Array<{ session: number; year: number }> = [
-    { session: 1, year: 2025 },
-    { session: 2, year: 2026 },
+    { session: 1, year: 2021 + sessionYearOffset },
+    { session: 2, year: 2022 + sessionYearOffset },
   ];
 
   // -------------------------------------------------------------------------
@@ -455,6 +464,39 @@ export async function runVotesPipeline(
   const houseRollBuffer: HouseRollItem[] = [];
   const houseBillArgs = new Map<string, BillProposalArgs>();
 
+  // Bulk-load every House roll_call_id we already have for this Congress
+  // so the skip-check is a Set lookup instead of one round trip per roll.
+  // Paginate to break past supabase-js's 1000-row default cap — a fully
+  // backfilled Congress can have ~1,000-2,000 House rolls.
+  const houseExistingIds = new Set<string>();
+  {
+    const houseYears = sessions.map((s) => `${s.year}-house-%`);
+    for (const pattern of houseYears) {
+      let from = 0;
+      const PAGE = 1000;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data, error } = await db
+          .from("votes")
+          .select("roll_call_id")
+          .like("roll_call_id", pattern)
+          .range(from, from + PAGE - 1);
+        if (error) {
+          console.warn(`  House skip-check load error (${pattern}): ${error.message}`);
+          break;
+        }
+        if (!data || data.length === 0) break;
+        for (const row of data) {
+          const rid = (row as { roll_call_id: string | null }).roll_call_id;
+          if (rid) houseExistingIds.add(rid);
+        }
+        if (data.length < PAGE) break;
+        from += PAGE;
+      }
+    }
+    console.log(`  Pre-loaded ${houseExistingIds.size} existing House roll IDs`);
+  }
+
   // Pass 1: fetch + parse XML for all novel rolls; buffer bill args + vote data
   for (const { session, year } of sessions) {
     console.log(`\n  House session ${session} (${year}) — collecting rolls...`);
@@ -465,15 +507,7 @@ export async function runVotesPipeline(
       const rollCallId = `${year}-house-${paddedRoll}`;
 
       try {
-        const { data: existing } = await db
-          .from("votes")
-          .select("id")
-          .eq("roll_call_id", rollCallId)
-          .limit(1)
-          .maybeSingle();
-
-        if (existing) {
-          console.log(`    Roll ${rollNum}: already in DB, skipping`);
+        if (houseExistingIds.has(rollCallId)) {
           continue;
         }
 
@@ -626,6 +660,35 @@ export async function runVotesPipeline(
   const senateRollBuffer: SenateRollItem[] = [];
   const senateBillArgs = new Map<string, BillProposalArgs>();
 
+  // Bulk-load every Senate roll_call_id we already have for this Congress
+  // (paginated past supabase-js's 1000-row default cap).
+  const senateExistingIds = new Set<string>();
+  {
+    const senatePattern = `senate-${CURRENT_CONGRESS}-%`;
+    let from = 0;
+    const PAGE = 1000;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { data, error } = await db
+        .from("votes")
+        .select("roll_call_id")
+        .like("roll_call_id", senatePattern)
+        .range(from, from + PAGE - 1);
+      if (error) {
+        console.warn(`  Senate skip-check load error: ${error.message}`);
+        break;
+      }
+      if (!data || data.length === 0) break;
+      for (const row of data) {
+        const rid = (row as { roll_call_id: string | null }).roll_call_id;
+        if (rid) senateExistingIds.add(rid);
+      }
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    console.log(`  Pre-loaded ${senateExistingIds.size} existing Senate roll IDs`);
+  }
+
   // Pass 1: fetch + parse XML for all novel rolls; buffer bill args + vote data
   for (const { session } of sessions) {
     console.log(`\n  Senate session ${session} — collecting rolls...`);
@@ -640,15 +703,7 @@ export async function runVotesPipeline(
       const rollCallId = `senate-${CURRENT_CONGRESS}-${session}-${paddedRoll}`;
 
       try {
-        const { data: existing } = await db
-          .from("votes")
-          .select("id")
-          .eq("roll_call_id", rollCallId)
-          .limit(1)
-          .maybeSingle();
-
-        if (existing) {
-          console.log(`    Roll ${rollNum}: already in DB, skipping`);
+        if (senateExistingIds.has(rollCallId)) {
           continue;
         }
 
@@ -696,28 +751,64 @@ export async function runVotesPipeline(
           const rawDocType = String(docBlock["document_type"] ?? "");
           const docNumber  = String(docBlock["document_number"] ?? "");
           if (rawDocType && docNumber) {
-            const billType = normalizeSenateDocType(rawDocType);
-            billKey = `${CURRENT_CONGRESS}-${billType}-${docNumber}`;
-            if (!senateBillArgs.has(billKey)) {
-              const govBodyId      = chamberGovBodyId(billType, senateGovBodyId, houseGovBodyId);
-              const congressGovUrl = congressGovBillUrl(CURRENT_CONGRESS, billType, docNumber);
-              const introducedIso  = votedAt ? new Date(votedAt).toISOString() : null;
-              senateBillArgs.set(billKey, {
-                billKey,
-                title:           `${billType} ${docNumber}`,
-                billNumber:      `${billType} ${docNumber}`,
-                billType,
-                chamber:         chamberForBillType(billType),
-                type:            mapLegislationType(billType) as ProposalType,
-                status:          proposalStatus,
-                jurisdictionId:  federalId,
-                governingBodyId: govBodyId,
-                congressGovUrl,
-                introducedAt:    introducedIso,
-                lastActionAt:    introducedIso,
-                congressNumber:  CURRENT_CONGRESS,
-                session:         String(CURRENT_CONGRESS),
-              });
+            const upperDocType = rawDocType.trim().toUpperCase();
+            // Presidential Nominations (cabinet, judicial, ambassador
+            // confirmations) — the XML's <document_title> is the nominee
+            // string; route them as type='appointment' with a PN identifier
+            // so they don't end up as fake "S {N}" bills.
+            if (upperDocType === "PN") {
+              const documentTitle = String(docBlock["document_title"] ?? "").trim();
+              const title = (documentTitle || `Presidential Nomination ${docNumber}`).slice(0, 500);
+              const introducedIso = votedAt ? new Date(votedAt).toISOString() : null;
+              billKey = `${CURRENT_CONGRESS}-PN-${docNumber}`;
+              if (!senateBillArgs.has(billKey)) {
+                senateBillArgs.set(billKey, {
+                  billKey,
+                  title,
+                  billNumber:      `PN ${docNumber}`,
+                  billType:        "PN",
+                  chamber:         "senate",
+                  type:            "appointment" as ProposalType,
+                  status:          proposalStatus,
+                  jurisdictionId:  federalId,
+                  governingBodyId: senateGovBodyId,
+                  congressGovUrl:  `https://www.congress.gov/nomination/${CURRENT_CONGRESS}th-congress/${docNumber}`,
+                  introducedAt:    introducedIso,
+                  lastActionAt:    introducedIso,
+                  congressNumber:  CURRENT_CONGRESS,
+                  session:         String(CURRENT_CONGRESS),
+                });
+              }
+            } else {
+              const billType = normalizeSenateDocType(rawDocType);
+              if (billType) {
+                billKey = `${CURRENT_CONGRESS}-${billType}-${docNumber}`;
+                if (!senateBillArgs.has(billKey)) {
+                  const govBodyId      = chamberGovBodyId(billType, senateGovBodyId, houseGovBodyId);
+                  const congressGovUrl = congressGovBillUrl(CURRENT_CONGRESS, billType, docNumber);
+                  const introducedIso  = votedAt ? new Date(votedAt).toISOString() : null;
+                  senateBillArgs.set(billKey, {
+                    billKey,
+                    title:           `${billType} ${docNumber}`,
+                    billNumber:      `${billType} ${docNumber}`,
+                    billType,
+                    chamber:         chamberForBillType(billType),
+                    type:            mapLegislationType(billType) as ProposalType,
+                    status:          proposalStatus,
+                    jurisdictionId:  federalId,
+                    governingBodyId: govBodyId,
+                    congressGovUrl,
+                    introducedAt:    introducedIso,
+                    lastActionAt:    introducedIso,
+                    congressNumber:  CURRENT_CONGRESS,
+                    session:         String(CURRENT_CONGRESS),
+                  });
+                }
+              } else {
+                console.warn(
+                  `    ${rollCallId}: unrecognized Senate document_type '${rawDocType}', skipping bill ref`
+                );
+              }
             }
           }
         }

@@ -38,7 +38,7 @@ Actionable improvement backlog. Every item has a priority, complexity, and enoug
 
 ## POST-CUTOVER (Supabase Pro, shadow→public promoted 2026-04-22)
 
-- [ ] ⬜ M — **USASpending grants fetch** — FIX-101 USASpending rewrite queries `award_type_codes: ["A", "B", "C", "D"]` (procurement contracts only). Grants use codes 02/03/04/05/11 and land in a slightly different response schema. Post-FIX-101 Pro has 1,480 contracts and 0 grants. Add a second fetch pass against the grants codes if grant-level reporting becomes a product need — same batched writer, `relationship_type='grant'`. <!--id:FIX-114-->
+- [x] ⬜ M — **USASpending grants fetch** — FIX-101 USASpending rewrite queries `award_type_codes: ["A", "B", "C", "D"]` (procurement contracts only). Grants use codes 02/03/04/05/11 and land in a slightly different response schema. Post-FIX-101 Pro has 1,480 contracts and 0 grants. Add a second fetch pass against the grants codes if grant-level reporting becomes a product need — same batched writer, `relationship_type='grant'`. <!--id:FIX-114-->
 
 ---
 

@@ -199,3 +199,4 @@
 2026-04-28 | FIX-164 | 2d7c33eb | local+prod | fix(proposals): retitle Senate PN nomination stubs from XML feeds
 2026-04-28 | FIX-051 | 61d072d8 | local+prod | feat(votes): handle PN nominations, fix backfill, batch reads
 2026-04-28 | FIX-165 | 61d072d8 | local+prod | feat(votes): handle PN nominations, fix backfill, batch reads
+2026-04-28 | FIX-114 | af13a542 | local-only | feat(usaspending): add grants/assistance bulk pipeline

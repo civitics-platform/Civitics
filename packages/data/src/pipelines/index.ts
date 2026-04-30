@@ -25,6 +25,25 @@ import { runAgenciesHierarchyPipeline } from "./agencies-hierarchy";
 import { runElectionsPipeline } from "./elections";
 import { seedJurisdictions, seedGoverningBodies } from "../jurisdictions/us-states";
 
+// Build a session-pooler connection string for direct pg.Client access (used
+// when an RPC's runtime would exceed PostgREST's gateway timeout). Prefers an
+// explicit SUPABASE_DB_URL when set; otherwise constructs one from the
+// project ref (derived from NEXT_PUBLIC_SUPABASE_URL) + SUPABASE_DB_PASSWORD.
+// Region defaults to us-west-2; override with SUPABASE_DB_REGION if needed.
+// Returns null when neither input is available.
+function buildDbUrl(): string | null {
+  const explicit = process.env["SUPABASE_DB_URL"];
+  if (explicit) return explicit;
+  const password = process.env["SUPABASE_DB_PASSWORD"];
+  const supabaseUrl = process.env["NEXT_PUBLIC_SUPABASE_URL"];
+  if (!password || !supabaseUrl) return null;
+  const m = supabaseUrl.match(/^https?:\/\/([a-z0-9]+)\.supabase\.co/i);
+  if (!m) return null;
+  const projectRef = m[1];
+  const region = process.env["SUPABASE_DB_REGION"] ?? "us-west-2";
+  return `postgresql://postgres.${projectRef}:${encodeURIComponent(password)}@aws-0-${region}.pooler.supabase.com:5432/postgres`;
+}
+
 // Supabase RPC errors come back as plain objects ({ code, message, details, hint })
 // — not Error instances — so String(err) → "[object Object]". Unwrap them so
 // catch sites get a useful message.
@@ -553,7 +572,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
   {
     const t0 = Date.now();
     try {
-      const dbUrl = process.env["SUPABASE_DB_URL"];
+      const dbUrl = buildDbUrl();
       let total = 0;
       if (dbUrl) {
         const { Client } = await import("pg");

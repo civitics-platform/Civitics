@@ -207,3 +207,4 @@
 2026-04-28 | FIX-167 | 5b645881 | prod-only | feat(enrichment): add --pacs-only flag with priority bump for PAC industry tags
 2026-04-29 | FIX-168 | d7a9f35b | local-only | fix(cron): correct data_sync_log column + Congress key env name
 2026-04-29 | FIX-169 | 87403be5 | local-only | fix(vercel): move vercel.json into apps/civitics so crons register
+2026-04-29 | FIX-170 | 86d91a6a | local-only | fix(nightly): wire up actual scheduler in GitHub Actions

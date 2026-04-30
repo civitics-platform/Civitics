@@ -205,3 +205,4 @@
 2026-04-28 | FIX-167 | 5fd6409b | local-only | fix(graph): route industry through entity_tags; drop polluted financial_entities.industry
 2026-04-28 | FIX-167 | 438e2f51 | local+prod | chore(graph): verify FIX-167 against prod
 2026-04-28 | FIX-167 | 5b645881 | prod-only | feat(enrichment): add --pacs-only flag with priority bump for PAC industry tags
+2026-04-29 | FIX-168 | d7a9f35b | local-only | fix(cron): correct data_sync_log column + Congress key env name

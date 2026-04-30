@@ -212,3 +212,4 @@
 2026-04-29 | FIX-170 | 5cf213e4 | local-only | fix(nightly): unwrap Supabase error objects in catch sites
 2026-04-29 | FIX-170 | d1f11601 | local-only | fix(nightly-workflow): pass --allow-prod for the prod-targeting CI run
 2026-04-29 | FIX-171 | e5f65be3 | local+prod | fix(graph): bump rebuild_entity_connections statement_timeout to 15min
+2026-04-29 | FIX-171 | ab9555a4 | local-only | fix(graph): bypass PostgREST gateway for rebuild_entity_connections RPC

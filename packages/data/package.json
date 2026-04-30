@@ -29,7 +29,7 @@
     "data:tag-industry": "tsx --env-file=../../.env.local src/pipelines/tags/ai-classifier.ts",
     "data:tag-all": "tsx --env-file=../../.env.local src/pipelines/tags/rules.ts && tsx --env-file=../../.env.local src/pipelines/tags/ai-tagger.ts -- --confirm && tsx --env-file=../../.env.local src/pipelines/tags/ai-classifier.ts -- --confirm",
     "data:nightly": "tsx --env-file=../../.env.local src/pipelines/index.ts nightly",
-    "data:nightly:ci": "tsx src/pipelines/index.ts nightly",
+    "data:nightly:ci": "tsx src/pipelines/index.ts nightly --allow-prod",
     "data:agencies-hierarchy": "tsx --env-file=../../.env.local src/pipelines/agencies-hierarchy/index.ts",
     "data:votes-backfill": "tsx --env-file=../../.env.local src/pipelines/congress/votes-backfill.ts",
     "data:elections": "tsx --env-file=../../.env.local src/pipelines/elections/index.ts",

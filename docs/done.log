@@ -209,3 +209,6 @@
 2026-04-29 | FIX-169 | 87403be5 | local-only | fix(vercel): move vercel.json into apps/civitics so crons register
 2026-04-29 | FIX-170 | 86d91a6a | local-only | fix(nightly): wire up actual scheduler in GitHub Actions
 2026-04-29 | FIX-170 | 56dd93e4 | local-only | fix(nightly-workflow): drop hardcoded pnpm version, defer to packageManager
+2026-04-29 | FIX-170 | 5cf213e4 | local-only | fix(nightly): unwrap Supabase error objects in catch sites
+2026-04-29 | FIX-170 | d1f11601 | local-only | fix(nightly-workflow): pass --allow-prod for the prod-targeting CI run
+2026-04-29 | FIX-171 | e5f65be3 | local+prod | fix(graph): bump rebuild_entity_connections statement_timeout to 15min

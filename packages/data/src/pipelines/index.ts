@@ -579,6 +579,12 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         const client = new Client({ connectionString: dbUrl });
         await client.connect();
         try {
+          // Raise the session-level statement_timeout above the role default
+          // (120s on Pro). The function's own proconfig sets 15min internally,
+          // but the OUTER SELECT inherits the session/role default, which is
+          // what was firing the timeout. 20min gives the outer call a small
+          // margin over the function-level 15min cap.
+          await client.query("SET statement_timeout = '20min'");
           const res = await client.query<{ connection_type: string; edges_upserted: string | number }>(
             "SELECT * FROM rebuild_entity_connections()"
           );

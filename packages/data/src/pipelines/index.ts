@@ -25,6 +25,25 @@ import { runAgenciesHierarchyPipeline } from "./agencies-hierarchy";
 import { runElectionsPipeline } from "./elections";
 import { seedJurisdictions, seedGoverningBodies } from "../jurisdictions/us-states";
 
+// Supabase RPC errors come back as plain objects ({ code, message, details, hint })
+// — not Error instances — so String(err) → "[object Object]". Unwrap them so
+// catch sites get a useful message.
+function errMsg(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object") {
+    const obj = err as { message?: unknown; code?: unknown; details?: unknown; hint?: unknown };
+    if (typeof obj.message === "string") {
+      const parts: string[] = [obj.message];
+      if (obj.code)    parts.push(`(${String(obj.code)})`);
+      if (obj.details) parts.push(`details=${String(obj.details)}`);
+      if (obj.hint)    parts.push(`hint=${String(obj.hint)}`);
+      return parts.join(" ");
+    }
+    try { return JSON.stringify(err); } catch { return "<unserializable error>"; }
+  }
+  return String(err);
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -113,7 +132,7 @@ export async function runAllPipelines(): Promise<void> {
         const r = await runRegulationsPipeline(apiKey, federalId);
         results.push({ name: "regulations", ...r });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errMsg(err);
         console.error("\n  Regulations pipeline threw:", msg);
         results.push({ name: "regulations", inserted: 0, updated: 0, failed: 1, estimatedMb: 0, error: msg });
       }
@@ -128,7 +147,7 @@ export async function runAllPipelines(): Promise<void> {
       const r = await runFecBulkPipeline();
       results.push({ name: "fec_bulk", ...r });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errMsg(err);
       console.error("\n  FEC bulk pipeline threw:", msg);
       results.push({ name: "fec_bulk", inserted: 0, updated: 0, failed: 1, estimatedMb: 0, error: msg });
     }
@@ -148,7 +167,7 @@ export async function runAllPipelines(): Promise<void> {
         const r = await runOfficialsPipeline({ apiKey, stateIds, senateId: senateGovBodyId, houseId: houseGovBodyId, federalId });
         results.push({ name: "congress_officials", inserted: r.inserted, updated: r.updated, failed: r.skipped, estimatedMb: 0 });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errMsg(err);
         console.error("\n  Congress officials pipeline threw:", msg);
         results.push({ name: "congress_officials", inserted: 0, updated: 0, failed: 1, estimatedMb: 0, error: msg });
       }
@@ -157,7 +176,7 @@ export async function runAllPipelines(): Promise<void> {
         const r = await runVotesPipeline({ apiKey, federalId, senateGovBodyId, houseGovBodyId });
         results.push({ name: "congress_votes", inserted: r.votesInserted, updated: r.proposalsUpserted, failed: 0, estimatedMb: 0 });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errMsg(err);
         console.error("\n  Congress votes pipeline threw:", msg);
         results.push({ name: "congress_votes", inserted: 0, updated: 0, failed: 1, estimatedMb: 0, error: msg });
       }
@@ -172,7 +191,7 @@ export async function runAllPipelines(): Promise<void> {
       const r = await runUsaSpendingPipeline();
       results.push({ name: "usaspending", ...r });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errMsg(err);
       console.error("\n  USASpending pipeline threw:", msg);
       results.push({ name: "usaspending", inserted: 0, updated: 0, failed: 1, estimatedMb: 0, error: msg });
     }
@@ -191,7 +210,7 @@ export async function runAllPipelines(): Promise<void> {
         const r = await runCourtListenerPipeline(apiKey, federalId);
         results.push({ name: "courtlistener", ...r });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errMsg(err);
         console.error("\n  CourtListener pipeline threw:", msg);
         results.push({ name: "courtlistener", inserted: 0, updated: 0, failed: 1, estimatedMb: 0, error: msg });
       }
@@ -206,7 +225,7 @@ export async function runAllPipelines(): Promise<void> {
       const r = await runBulkPeoplePipeline(stateIds);
       results.push({ name: "openstates_bulk", ...r });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errMsg(err);
       console.error("\n  OpenStates bulk people pipeline threw:", msg);
       results.push({ name: "openstates_bulk", inserted: 0, updated: 0, failed: 1, estimatedMb: 0, error: msg });
     }
@@ -220,7 +239,7 @@ export async function runAllPipelines(): Promise<void> {
         const r = await runOpenStatesPipeline(apiKey, stateIds);
         results.push({ name: "openstates_api", ...r });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errMsg(err);
         console.error("\n  OpenStates API pipeline threw:", msg);
         results.push({ name: "openstates_api", inserted: 0, updated: 0, failed: 1, estimatedMb: 0, error: msg });
       }
@@ -353,7 +372,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         const r = await runRegulationsPipeline(apiKey, federalId);
         results.pipelines.regulations = { status: "complete", rows_added: r.inserted, duration_ms: Date.now() - t0 };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errMsg(err);
         console.error("[nightly] regulations failed:", msg);
         results.pipelines.regulations = { status: "failed", error: msg };
         results.errors.push(`Regulations: ${msg}`);
@@ -373,7 +392,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         const r = await runOfficialsPipeline({ apiKey: congressKey, stateIds, senateId: senateGovBodyId, houseId: houseGovBodyId, federalId });
         results.pipelines.congress_officials = { status: "complete", rows_added: r.inserted + r.updated, duration_ms: Date.now() - t0 };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errMsg(err);
         console.error("[nightly] congress officials failed:", msg);
         results.pipelines.congress_officials = { status: "failed", error: msg };
         results.errors.push(`Congress officials: ${msg}`);
@@ -384,7 +403,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         const r = await runVotesPipeline({ apiKey: congressKey, federalId, senateGovBodyId, houseGovBodyId });
         results.pipelines.congress_votes = { status: "complete", rows_added: r.votesInserted, duration_ms: Date.now() - t1 };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errMsg(err);
         console.error("[nightly] congress votes failed:", msg);
         results.pipelines.congress_votes = { status: "failed", error: msg };
         results.errors.push(`Congress votes: ${msg}`);
@@ -403,7 +422,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
       const r = await runBulkPeoplePipeline(stateIds);
       results.pipelines.openstates_bulk_people = { status: "complete", rows_added: r.inserted + r.updated, duration_ms: Date.now() - t0 };
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errMsg(err);
       console.error("[nightly] openstates bulk people failed:", msg);
       results.pipelines.openstates_bulk_people = { status: "failed", error: msg };
       results.errors.push(`OpenStates bulk people: ${msg}`);
@@ -421,7 +440,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         const r = await runFecBulkPipeline();
         results.pipelines.fec_bulk = { status: "complete", rows_added: r.inserted, duration_ms: Date.now() - t0 };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errMsg(err);
         console.error("[nightly] fec-bulk failed:", msg);
         results.pipelines.fec_bulk = { status: "failed", error: msg };
         results.errors.push(`FEC bulk: ${msg}`);
@@ -434,7 +453,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         const r = await runUsaSpendingPipeline();
         results.pipelines.usaspending = { status: "complete", rows_added: r.inserted, duration_ms: Date.now() - t0 };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errMsg(err);
         console.error("[nightly] usaspending failed:", msg);
         results.pipelines.usaspending = { status: "failed", error: msg };
         results.errors.push(`USASpending: ${msg}`);
@@ -447,7 +466,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         const r = await runCourtListenerPipeline(clKey, federalId);
         results.pipelines.courtlistener = { status: "complete", rows_added: r.inserted, duration_ms: Date.now() - t0 };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errMsg(err);
         console.error("[nightly] courtlistener failed:", msg);
         results.pipelines.courtlistener = { status: "failed", error: msg };
         results.errors.push(`CourtListener: ${msg}`);
@@ -462,7 +481,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         const r = await runOpenStatesPipeline(osKey, stateIds);
         results.pipelines.openstates = { status: "complete", rows_added: r.inserted, duration_ms: Date.now() - t0 };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errMsg(err);
         console.error("[nightly] openstates failed:", msg);
         results.pipelines.openstates = { status: "failed", error: msg };
         results.errors.push(`OpenStates: ${msg}`);
@@ -477,7 +496,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         const r = await runAgenciesHierarchyPipeline();
         results.pipelines.agencies_hierarchy = { status: "complete", rows_added: r.updated, duration_ms: Date.now() - t0 };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errMsg(err);
         console.error("[nightly] agencies-hierarchy failed:", msg);
         results.pipelines.agencies_hierarchy = { status: "failed", error: msg };
         results.errors.push(`Agencies hierarchy: ${msg}`);
@@ -490,7 +509,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         const r = await runElectionsPipeline();
         results.pipelines.elections = { status: "complete", rows_added: r.updated, duration_ms: Date.now() - t0 };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errMsg(err);
         console.error("[nightly] elections failed:", msg);
         results.pipelines.elections = { status: "failed", error: msg };
         results.errors.push(`Elections: ${msg}`);
@@ -504,7 +523,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         const r = await runCommitteesPipeline({ federalId });
         results.pipelines.congress_committees = { status: "complete", rows_added: r.inserted + r.updated, duration_ms: Date.now() - t0 };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errMsg(err);
         console.error("[nightly] congress committees failed:", msg);
         results.pipelines.congress_committees = { status: "failed", error: msg };
         results.errors.push(`Congress committees: ${msg}`);
@@ -519,7 +538,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
     const admin = createAdminClient() as any;
     await admin.rpc("refresh_proposal_trending");
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errMsg(err);
     console.error("[nightly] refresh_proposal_trending failed:", msg);
     results.errors.push(`Trending refresh: ${msg}`);
   }
@@ -544,7 +563,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         duration_ms: Date.now() - t0,
       };
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errMsg(err);
       console.error("[nightly] rebuild_entity_connections failed:", msg);
       results.pipelines.entity_connections_rebuild = { status: "failed", error: msg };
       results.errors.push(`Rebuild entity_connections: ${msg}`);
@@ -556,7 +575,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
     await runRuleBasedTagger();
     results.ai.tag_rules = { status: "complete" };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errMsg(err);
     console.error("[nightly] tag-rules failed:", msg);
     results.ai.tag_rules = { status: "failed" };
     results.errors.push(`Tag rules: ${msg}`);
@@ -569,7 +588,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
     results.ai.tag_ai = { status: "complete", entities: r.tagsCreated, cost_usd: costUsd };
     results.total_ai_cost_usd += costUsd;
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errMsg(err);
     console.error("[nightly] tag-ai failed:", msg);
     results.ai.tag_ai = { status: "failed" };
     results.errors.push(`AI tagger: ${msg}`);
@@ -580,7 +599,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
     await runAiSummariesPipeline(true);
     results.ai.ai_summaries = { status: "complete" };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errMsg(err);
     console.error("[nightly] ai-summaries failed:", msg);
     results.ai.ai_summaries = { status: "failed" };
     results.errors.push(`AI summaries: ${msg}`);
@@ -626,7 +645,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
       metadata: results,
     });
   } catch (err) {
-    console.error("[nightly] failed to record results:", err instanceof Error ? err.message : err);
+    console.error("[nightly] failed to record results:", errMsg(err));
   }
 
   return results;

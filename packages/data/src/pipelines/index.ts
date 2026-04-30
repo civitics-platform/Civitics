@@ -616,7 +616,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
     // Also write to data_sync_log
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (db as any).from("data_sync_log").insert({
-      pipeline_name: "nightly_cron",
+      pipeline:      "nightly_cron",
       status,
       started_at:    startedAt.toISOString(),
       completed_at:  results.completed_at.toISOString(),

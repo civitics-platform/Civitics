@@ -1,22 +1,21 @@
 /**
- * Vercel cron route — nightly data sync trigger.
+ * Vercel cron route — nightly canary.
  *
- * Schedule: 0 2 * * * (2am UTC daily) — configured in /vercel.json
+ * Schedule: 0 2 * * * (2am UTC daily) — configured in apps/civitics/vercel.json.
  *
- * Security: CRON_SECRET header checked against Authorization header.
- * Vercel automatically sends the Authorization header for cron jobs.
+ * This route is a canary, not the actual scheduler. Vercel's 10s/300s function
+ * timeout cannot accommodate a ~6-minute pipeline run, so the heavy lifting
+ * happens in the GitHub Actions workflow `.github/workflows/nightly.yml`,
+ * which runs `pnpm --filter @civitics/data data:nightly:ci` and writes
+ * results to pipeline_state key 'cron_last_run'.
  *
- * Architecture: This route records the cron trigger in pipeline_state and
- * data_sync_log. The standalone scheduler (packages/data/src/scheduler.ts)
- * picks up the trigger and calls runNightlySync() which records results back
- * to pipeline_state key 'cron_last_run' for the dashboard.
+ * What this route does: confirms Vercel's scheduler is alive by writing a
+ * `triggered` row to data_sync_log and updating pipeline_state.cron_last_started.
+ * If GitHub Actions fails to run, you'll see a triggered row with no matching
+ * cron_last_run completion — that's the signal something's wrong.
  *
- * Autonomous mode: Sets process.env.AUTONOMOUS=true so the cost gate skips
- * terminal prompts and uses pre-configured rules (see cost-config.ts autonomous section).
- *
- * Required env vars:
- *   CRON_SECRET — generate with: openssl rand -hex 32
- *                 Add to .env.local and Vercel dashboard.
+ * Security: Vercel automatically sends `Authorization: Bearer <CRON_SECRET>`
+ * when CRON_SECRET is set in Vercel project env vars.
  */
 
 export const dynamic = "force-dynamic";
@@ -37,10 +36,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!process.env["CRON_SECRET"] || authHeader !== expected) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
-  // Tell the cost gate we are in autonomous/cron mode.
-  // The standalone scheduler process reads this when it picks up the trigger.
-  process.env["AUTONOMOUS"] = "true";
 
   const startedAt = new Date();
 
@@ -63,7 +58,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       { onConflict: "key" }
     );
 
-    // Record the trigger in data_sync_log so the scheduler knows a run is due
+    // Canary marker — proves Vercel's scheduler is alive. The actual nightly
+    // pipeline runs in .github/workflows/nightly.yml.
     await anyDb.from("data_sync_log").insert({
       pipeline:   "nightly-sync",
       status:     "triggered",
@@ -71,7 +67,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       metadata:   {
         triggered_by: "vercel-cron",
         schedule:     "0 2 * * *",
-        autonomous:   true,
+        runner:       "github-actions",
       },
     });
   } catch (err) {
@@ -83,9 +79,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   return NextResponse.json({
-    triggered:    true,
-    triggeredAt:  startedAt.toISOString(),
-    autonomous:   true,
-    note: "Nightly sync triggered. Scheduler picks it up within minutes. Results written to pipeline_state.cron_last_run.",
+    triggered:   true,
+    triggeredAt: startedAt.toISOString(),
+    runner:      "github-actions",
+    note: "Canary fired. Actual nightly pipeline runs in .github/workflows/nightly.yml; results written to pipeline_state.cron_last_run.",
   });
 }

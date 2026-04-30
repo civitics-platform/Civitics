@@ -65,10 +65,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // Record the trigger in data_sync_log so the scheduler knows a run is due
     await anyDb.from("data_sync_log").insert({
-      pipeline_name: "nightly-sync",
-      status:        "triggered",
-      started_at:    startedAt.toISOString(),
-      metadata:      {
+      pipeline:   "nightly-sync",
+      status:     "triggered",
+      started_at: startedAt.toISOString(),
+      metadata:   {
         triggered_by: "vercel-cron",
         schedule:     "0 2 * * *",
         autonomous:   true,

@@ -138,9 +138,9 @@ export async function runAllPipelines(): Promise<void> {
   // 2b. Congress.gov (officials + votes)
   // -------------------------------------------------------------------------
   {
-    const apiKey = process.env["CONGRESS_GOV_API_KEY"];
+    const apiKey = process.env["CONGRESS_API_KEY"];
     if (!apiKey) {
-      console.warn("\n[2b] Congress.gov — SKIPPED (CONGRESS_GOV_API_KEY not set)");
+      console.warn("\n[2b] Congress.gov — SKIPPED (CONGRESS_API_KEY not set)");
       results.push({ name: "congress_officials", inserted: 0, updated: 0, failed: 0, estimatedMb: 0, error: "API key missing" });
       results.push({ name: "congress_votes", inserted: 0, updated: 0, failed: 0, estimatedMb: 0, error: "API key missing" });
     } else {
@@ -366,7 +366,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
   // 1b. Daily data pipelines — Congress.gov (officials + votes)
   // Votes pipeline has a per-roll skip-if-exists guard, so re-running daily is cheap.
   {
-    const congressKey = process.env["CONGRESS_GOV_API_KEY"];
+    const congressKey = process.env["CONGRESS_API_KEY"];
     if (congressKey) {
       const t0 = Date.now();
       try {
@@ -390,8 +390,8 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         results.errors.push(`Congress votes: ${msg}`);
       }
     } else {
-      results.pipelines.congress_officials = { status: "skipped", error: "CONGRESS_GOV_API_KEY not set" };
-      results.pipelines.congress_votes = { status: "skipped", error: "CONGRESS_GOV_API_KEY not set" };
+      results.pipelines.congress_officials = { status: "skipped", error: "CONGRESS_API_KEY not set" };
+      results.pipelines.congress_votes = { status: "skipped", error: "CONGRESS_API_KEY not set" };
     }
   }
 

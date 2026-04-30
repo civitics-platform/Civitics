@@ -35,7 +35,7 @@ into Supabase. Runs as Node.js scripts, not as part of the Next.js build.
 
 ### Congress.gov
 - Full resolution: bills, votes, vote records, legislator data
-- API key required: `CONGRESS_GOV_API_KEY`
+- API key required: `CONGRESS_API_KEY`
 - Update schedule: daily at 2am
 - Script: `pnpm --filter @civitics/data data:congress`
 

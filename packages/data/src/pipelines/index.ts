@@ -545,18 +545,37 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
 
   // 3c. Rebuild entity_connections via SQL derivation (FIX-100)
   // Full rebuild from financial_relationships, votes, proposal_cosponsors,
-  // career_history, agencies. ~15s today (votes only); will grow as FIX-101
-  // pipelines populate the other source tables.
+  // career_history, agencies. Function-level statement_timeout is 15min
+  // (migration 20260430000000); the call site needs to bypass PostgREST's
+  // ~60s gateway timeout, which it does when SUPABASE_DB_URL is set by
+  // talking to the session pooler directly via pg.Client. Falls back to
+  // PostgREST RPC for local dev where the rebuild completes in <1s.
   {
     const t0 = Date.now();
     try {
-      const { createAdminClient } = await import("@civitics/db");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const admin = createAdminClient() as any;
-      const { data, error } = await admin.rpc("rebuild_entity_connections");
-      if (error) throw error;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const total = (data ?? []).reduce((a: number, r: any) => a + Number(r.edges_upserted ?? 0), 0);
+      const dbUrl = process.env["SUPABASE_DB_URL"];
+      let total = 0;
+      if (dbUrl) {
+        const { Client } = await import("pg");
+        const client = new Client({ connectionString: dbUrl });
+        await client.connect();
+        try {
+          const res = await client.query<{ connection_type: string; edges_upserted: string | number }>(
+            "SELECT * FROM rebuild_entity_connections()"
+          );
+          total = res.rows.reduce((a, r) => a + Number(r.edges_upserted ?? 0), 0);
+        } finally {
+          await client.end();
+        }
+      } else {
+        const { createAdminClient } = await import("@civitics/db");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const admin = createAdminClient() as any;
+        const { data, error } = await admin.rpc("rebuild_entity_connections");
+        if (error) throw error;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        total = (data ?? []).reduce((a: number, r: any) => a + Number(r.edges_upserted ?? 0), 0);
+      }
       results.pipelines.entity_connections_rebuild = {
         status: "complete",
         rows_added: total,

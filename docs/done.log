@@ -221,3 +221,4 @@
 2026-04-30 | FIX-175 | e91e21e2 | local-only | fix(graph): treemap + PAC + group filter audit
 2026-04-30 | FIX-176 | e91e21e2 | local-only | fix(graph): treemap + PAC + group filter audit
 2026-04-30 | FIX-177 | e91e21e2 | local-only | fix(graph): treemap + PAC + group filter audit
+2026-04-30 | FIX-180 | 01fbab8e | local-only | feat(dashboard): merge Pipelines + Quality into one Data Health card

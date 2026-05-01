@@ -1,4 +1,4 @@
-import { createAdminClient, fetchIndustryTagsByEntityId } from "@civitics/db";
+import { createAdminClient, fetchIndustryTagsByEntityId, fetchEntityIdsByIndustryTag } from "@civitics/db";
 import { supabaseUnavailable, unavailableResponse } from "@/lib/supabase-check";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +30,11 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const groupBy = (searchParams.get("groupBy") ?? "sector") as "sector" | "party";
+  // FIX-173: when an industry filter is provided ("Finance", "Energy", etc.),
+  // restrict the PAC set to that single sector and return one group containing
+  // every matching PAC (no per-sector cap). Without this every industry group
+  // rendered the same global all-sectors view.
+  const industryFilter = searchParams.get("industry");
 
   // ── Sector mode ──────────────────────────────────────────────────────────────
 
@@ -39,10 +44,24 @@ export async function GET(request: Request) {
     // in FIX-167 — it had been polluted with FEC `CONNECTED_ORG_NM` values
     // (parent org / candidate / committee names). `entity_tags` is the only
     // source of truth for industry now.
-    const { data: pacEntities, error: pacErr } = await supabase
+    let pacQuery = supabase
       .from("financial_entities")
       .select("id, display_name")
       .in("entity_type", ["pac", "party_committee"]);
+
+    // If an industry filter is set, pre-narrow to PACs tagged with that industry.
+    if (industryFilter) {
+      const taggedIds = await fetchEntityIdsByIndustryTag(supabase, industryFilter);
+      if (taggedIds.length === 0) {
+        return Response.json(
+          { name: industryFilter, children: [] },
+          { headers: { "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=172800" } },
+        );
+      }
+      pacQuery = pacQuery.in("id", taggedIds);
+    }
+
+    const { data: pacEntities, error: pacErr } = await pacQuery;
 
     if (pacErr) {
       console.error("[treemap-pac/sector] query error:", pacErr.message);
@@ -55,7 +74,7 @@ export async function GET(request: Request) {
     const pacInfo = new Map<string, { name: string; sector: string }>();
     for (const p of pacEntities ?? []) {
       const ind = industryByEntityId.get(p.id);
-      if (!ind) continue; // Untagged PACs are simply absent from the treemap.
+      if (!ind) continue; // Untagged PACs are simply absent from the treemap (FIX-179).
       pacInfo.set(p.id, { name: p.display_name, sector: ind.display_label });
     }
 
@@ -91,13 +110,20 @@ export async function GET(request: Request) {
       }
     }
 
-    // Build hierarchy — top 15 sectors, top 20 donors each
+    // FIX-174: Build hierarchy. With an industry filter (FIX-173) we want to see
+    // every PAC in that sector, so no per-sector cap. For the global "all
+    // sectors" view we keep top 15 sectors (any more is too noisy) but raise
+    // per-sector PAC cap from 20 → 100; ~5,000 tagged PACs makes a 20-cap
+    // hide most data when the user drills into a sector cell.
+    const PER_SECTOR_CAP = industryFilter ? Number.POSITIVE_INFINITY : 100;
+    const SECTOR_CAP     = industryFilter ? Number.POSITIVE_INFINITY : 15;
+
     const children: PacGroup[] = Array.from(bySector.entries())
       .map(([sector, donors]) => {
         const leaves: PacLeaf[] = Array.from(donors.entries())
           .map(([name, stats]) => ({ name, value: stats.totalUsd, count: stats.count }))
           .sort((a, b) => b.value - a.value)
-          .slice(0, 20);
+          .slice(0, PER_SECTOR_CAP);
 
         return {
           name:     sector,
@@ -106,9 +132,12 @@ export async function GET(request: Request) {
         };
       })
       .sort((a, b) => b.totalUsd - a.totalUsd)
-      .slice(0, 15);
+      .slice(0, SECTOR_CAP);
 
-    const hierarchy: PacHierarchy = { name: "PAC Money by Sector", children };
+    const hierarchy: PacHierarchy = {
+      name: industryFilter ? `${industryFilter} PACs` : "PAC Money by Sector",
+      children,
+    };
     return Response.json(hierarchy, {
       headers: { "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=172800" },
     });

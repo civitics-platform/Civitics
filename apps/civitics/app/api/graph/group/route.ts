@@ -66,7 +66,13 @@ export async function GET(req: NextRequest) {
         memberQuery = memberQuery.eq("party", party as any);
 
       if (state)
-        memberQuery = memberQuery.filter("metadata->>state", "eq", state);
+        // FIX-175: match metadata.state OR metadata.state_abbr to mirror the
+        // treemap route's filter. FIX-124 backfilled state_abbr for federal
+        // officials whose state lives in source_ids/jurisdictions; checking
+        // only metadata.state silently drops them from state-filtered groups.
+        memberQuery = memberQuery.or(
+          `metadata->>state.eq.${state},metadata->>state_abbr.eq.${state}`,
+        );
 
       // QWEN-ADDED: Add generic type to withDbTimeout for officials query with count
       const { count, data: memberData } = await withDbTimeout<{

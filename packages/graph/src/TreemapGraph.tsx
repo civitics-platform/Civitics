@@ -16,6 +16,8 @@ interface TreemapOfficial {
   state: string;
   chamber: string;
   total_donated_cents: number;
+  connection_count: number;
+  vote_count: number;
 }
 
 interface DonorRow {
@@ -148,11 +150,16 @@ function getGroupKey(official: TreemapOfficial, groupBy: TreemapOptions['groupBy
 }
 
 function getSizeValue(official: TreemapOfficial, sizeBy: TreemapOptions['sizeBy']): number {
+  // Floor at 1 so officials with no data for the chosen sizeBy still render
+  // as visible cells (treemap squarify gives 0-value cells 0 area). The
+  // donation_total view dominated by donating senators makes $0 senators
+  // render as ~1px slivers; switching sizeBy to vote_count or connection_count
+  // gives them real area when donation seeding is incomplete.
   switch (sizeBy) {
-    case 'connection_count': return 1;      // flat; real data not in treemap payload
-    case 'vote_count':       return 1;      // flat; real data not in treemap payload
+    case 'connection_count': return Math.max(1, official.connection_count);
+    case 'vote_count':       return Math.max(1, official.vote_count);
     case 'donation_total':
-    default:                 return official.total_donated_cents;
+    default:                 return Math.max(1, official.total_donated_cents);
   }
 }
 
@@ -204,7 +211,18 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
     // PAC modes — fetch from treemap-pac endpoint
     if (dataMode === 'pac_sector' || dataMode === 'pac_party') {
       const pacGroupBy = dataMode === 'pac_sector' ? 'sector' : 'party';
-      fetch(`/api/graph/treemap-pac?groupBy=${pacGroupBy}`)
+      const params = new URLSearchParams({ groupBy: pacGroupBy });
+      // FIX-173: forward primaryGroup.filter.industry when a single-industry PAC
+      // group is focused ("Finance PACs", "Energy PACs", etc.). Without this,
+      // every industry group renders the same global all-sectors view.
+      if (
+        primaryGroup &&
+        primaryGroup.filter.entity_type === 'pac' &&
+        primaryGroup.filter.industry
+      ) {
+        params.set('industry', primaryGroup.filter.industry);
+      }
+      fetch(`/api/graph/treemap-pac?${params.toString()}`)
         .then((r) => r.json())
         .then((data: PacHierarchy | { error: string }) => {
           if ("error" in data) throw new Error((data as { error: string }).error);
@@ -236,10 +254,6 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
       if (g.party)   params.set('party',   g.party);
       if (g.state)   params.set('state',   g.state);
       url = `/api/graph/treemap?${params.toString()}`;
-    } else if (primaryGroup && primaryGroup.filter.entity_type === 'pac') {
-      // PAC group: redirect to pac endpoint — handled by dataMode guard above
-      // (dataMode should be 'pac_sector' by the time we reach here)
-      url = `/api/graph/treemap-pac?groupBy=sector`;
     } else if (entityIdParam) {
       url = `/api/graph/treemap?entityId=${encodeURIComponent(entityIdParam)}&groupBy=${groupBy}&sizeBy=${sizeBy}`;
     } else {

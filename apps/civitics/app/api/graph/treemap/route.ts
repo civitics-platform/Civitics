@@ -10,6 +10,8 @@ interface TreemapRow {
   state: string;
   chamber: string;
   total_donated_cents: number;
+  connection_count: number;
+  vote_count: number;
 }
 
 export interface DonorRow {
@@ -176,39 +178,81 @@ export async function GET(request: Request) {
     });
   }
 
+  // FIX-172/177: aggregate donation totals + entity_connections counts per official
+  // in parallel batches. We iterate officialById (the full filtered set) to build
+  // rows so officials with $0 donations still appear — required for "Full Senate"
+  // to render all 100 senators when most have no FEC seed yet. sizeBy controls
+  // (connection_count, vote_count) need real data so users can pick a meaningful
+  // size when donations are sparse.
+  const VOTE_CONN_TYPES = new Set([
+    "vote_yes", "vote_no", "vote_abstain",
+    "nomination_vote_yes", "nomination_vote_no",
+  ]);
+
   const totalByOfficial = new Map<string, number>();
+  const connByOfficial  = new Map<string, number>();
+  const votesByOfficial = new Map<string, number>();
+
   const officialIds = [...officialById.keys()];
   if (officialIds.length > 0) {
     const BATCH = 200;
     for (let i = 0; i < officialIds.length; i += BATCH) {
       const batch = officialIds.slice(i, i + BATCH);
-      const { data: donations } = await supabase
-        .from("financial_relationships")
-        .select("to_id, amount_cents")
-        .eq("relationship_type", "donation")
-        .eq("to_type", "official")
-        .in("to_id", batch);
-      for (const d of donations ?? []) {
+      const [donationsRes, connFromRes, connToRes] = await Promise.all([
+        supabase
+          .from("financial_relationships")
+          .select("to_id, amount_cents")
+          .eq("relationship_type", "donation")
+          .eq("to_type", "official")
+          .in("to_id", batch),
+        supabase
+          .from("entity_connections")
+          .select("from_id, connection_type")
+          .eq("from_type", "official")
+          .in("from_id", batch),
+        supabase
+          .from("entity_connections")
+          .select("to_id, connection_type")
+          .eq("to_type", "official")
+          .in("to_id", batch),
+      ]);
+      for (const d of donationsRes.data ?? []) {
         totalByOfficial.set(d.to_id, (totalByOfficial.get(d.to_id) ?? 0) + (d.amount_cents ?? 0));
+      }
+      for (const r of connFromRes.data ?? []) {
+        connByOfficial.set(r.from_id, (connByOfficial.get(r.from_id) ?? 0) + 1);
+        if (VOTE_CONN_TYPES.has(r.connection_type)) {
+          votesByOfficial.set(r.from_id, (votesByOfficial.get(r.from_id) ?? 0) + 1);
+        }
+      }
+      for (const r of connToRes.data ?? []) {
+        connByOfficial.set(r.to_id, (connByOfficial.get(r.to_id) ?? 0) + 1);
+        if (VOTE_CONN_TYPES.has(r.connection_type)) {
+          votesByOfficial.set(r.to_id, (votesByOfficial.get(r.to_id) ?? 0) + 1);
+        }
       }
     }
   }
 
   const rows: TreemapRow[] = [];
-  for (const [officialId, totalCents] of totalByOfficial) {
-    const o = officialById.get(officialId);
-    if (!o) continue;
+  for (const [officialId, o] of officialById) {
     rows.push({
       official_id: officialId,
       official_name: o.full_name,
       party: o.party ?? "Unknown",
       state: o.state,
       chamber: o.role_title === "Senator" ? "senate" : o.role_title === "Representative" ? "house" : (o.role_title ?? ""),
-      total_donated_cents: totalCents,
+      total_donated_cents: totalByOfficial.get(officialId) ?? 0,
+      connection_count:    connByOfficial.get(officialId)  ?? 0,
+      vote_count:          votesByOfficial.get(officialId) ?? 0,
     });
   }
   rows.sort((a, b) => b.total_donated_cents - a.total_donated_cents);
-  const top = rows.slice(0, 200);
+
+  // Cap unfiltered "all officials" view (local dev has 9k+ officials per FIX-113);
+  // chamber-filtered queries are already bounded (100 senators, 435 reps) so no
+  // implicit cap there.
+  const top = chamber ? rows : rows.slice(0, 500);
 
   return Response.json(top, {
     headers: { "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=172800" },

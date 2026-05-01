@@ -99,6 +99,12 @@ export const BUILT_IN_GROUPS: FocusGroup[] = [
     isPremade: true,
     description: 'Republican U.S. Representatives',
   },
+  // FIX-176: Federal Judges group is hidden from the GROUP_TREE — federal
+  // judges aren't in the `officials` table (they're not elected), so this
+  // filter returns the wrong cohort (any active nonpartisan official). The
+  // entry stays in BUILT_IN_GROUPS so saved sessions referencing it still
+  // resolve, but it's no longer offered from the browser. Rewire when a
+  // proper judge data source / role filter is added.
   {
     id: 'group-federal-judges',
     name: 'Federal Judges',
@@ -110,7 +116,7 @@ export const BUILT_IN_GROUPS: FocusGroup[] = [
       party: 'nonpartisan',
     },
     isPremade: true,
-    description: 'Federal judiciary officials',
+    description: 'Federal judiciary officials (no data yet — see FIX-176)',
   },
 
   // ── Industry PACs ──────────────
@@ -269,7 +275,9 @@ export const GROUP_TREE: GroupTreeNode[] = [
           { kind: 'group', id: 'group-full-house' },
           { kind: 'group', id: 'group-house-dems' },
           { kind: 'group', id: 'group-house-reps' },
-          { kind: 'group', id: 'group-federal-judges' },
+          // group-federal-judges removed from tree (FIX-176): backing data
+          // doesn't exist yet — federal judges aren't in `officials`. Re-add
+          // once a proper role filter and judge data source are wired.
         ],
       },
       {

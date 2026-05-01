@@ -227,3 +227,6 @@
 2026-04-30 | FIX-173 | 4daa3b0e | local-only | fix(graph): treemap follows last-added focus + linear/log size toggle
 2026-04-30 | FIX-180 | b1ca0444 | local-only | fix(dashboard): normalize pipeline names; surface entity totals more prominently
 2026-04-30 | FIX-178 | e9829432 | local+prod | fix(fec-bulk): multi-cycle ingestion (2020/2022/2024/2026) so mid-term senators have donor data
+2026-04-30 | FIX-184 | 8259a19c | local-only | feat(graph): pin-the-primary focus driver for single-entity vizes
+2026-04-30 | FIX-185 | effa6647 | local-only | feat(graph): treemap Cohort × Filter — narrow donations by industry
+2026-04-30 | FIX-186 | 4e77b4c0 | local-only | feat(graph): treemap Compare mode — donor-base overlap at a glance

@@ -455,6 +455,17 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
 
     {
       const t0 = Date.now();
+      // Weekly cron only refreshes the current + prior cycle (the only ones
+      // FEC actively updates on a weekly cadence). The pipeline's 4-cycle
+      // default (2020,2022,2024,2026) is reserved for manual backfill via
+      // `pnpm data:fec-bulk`. An explicit FEC_CYCLES env var still wins, so
+      // a cron-time override remains possible without code changes.
+      const prevFecCycles = process.env["FEC_CYCLES"];
+      if (!prevFecCycles) {
+        const yr = new Date().getFullYear();
+        const currentCycle = yr % 2 === 0 ? yr : yr + 1;
+        process.env["FEC_CYCLES"] = `${currentCycle - 2},${currentCycle}`;
+      }
       try {
         const r = await runFecBulkPipeline();
         results.pipelines.fec_bulk = { status: "complete", rows_added: r.inserted, duration_ms: Date.now() - t0 };
@@ -463,6 +474,8 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         console.error("[nightly] fec-bulk failed:", msg);
         results.pipelines.fec_bulk = { status: "failed", error: msg };
         results.errors.push(`FEC bulk: ${msg}`);
+      } finally {
+        if (!prevFecCycles) delete process.env["FEC_CYCLES"];
       }
     }
 

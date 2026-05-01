@@ -226,3 +226,4 @@
 2026-04-30 | FIX-172 | 4daa3b0e | local-only | fix(graph): treemap follows last-added focus + linear/log size toggle
 2026-04-30 | FIX-173 | 4daa3b0e | local-only | fix(graph): treemap follows last-added focus + linear/log size toggle
 2026-04-30 | FIX-180 | b1ca0444 | local-only | fix(dashboard): normalize pipeline names; surface entity totals more prominently
+2026-04-30 | FIX-178 | e9829432 | local+prod | fix(fec-bulk): multi-cycle ingestion (2020/2022/2024/2026) so mid-term senators have donor data

@@ -324,6 +324,14 @@ function TreemapSettings({ view, hooks, graphMeta }: { view: GraphView; hooks: U
   const dataMode = opts?.dataMode ?? defaultDataMode;
   const isPacMode = dataMode === 'pac_sector' || dataMode === 'pac_party';
 
+  // FIX-186: Compare mode is only meaningful when 2+ official entities are
+  // focused. Count them off view.focus.entities so the toggle disables
+  // gracefully when the user has fewer entities focused.
+  const officialEntityCount = view.focus.entities.filter(
+    (e) => e.type === 'official',
+  ).length;
+  const compareModeEligible = officialEntityCount >= 2;
+
   // FIX-130: don't filter — disable. Show every size encoding; mark the ones
   // that lack backing data as disabled with a per-option reason.
   const voteCount     = voteCountFrom(graphMeta);
@@ -391,6 +399,16 @@ function TreemapSettings({ view, hooks, graphMeta }: { view: GraphView; hooks: U
               { value: 'linear', label: 'Linear (true ratios)' },
             ]}
             onChange={v => set('sizeScale', v)}
+          />
+          <LabeledToggle
+            label="Compare mode"
+            value={!!opts?.compareMode}
+            onChange={v => set('compareMode', v)}
+            disabledReason={
+              compareModeEligible
+                ? undefined
+                : 'Focus 2+ officials to compare donor bases'
+            }
           />
           <LabeledSelect
             label="Color by"

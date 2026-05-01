@@ -537,6 +537,7 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
                   !!g.filter.industry,
                 ) ?? null
               }
+              focusEntities={focusEntityList}
             />
           </div>
 

@@ -142,6 +142,14 @@ export interface TreemapOptions {
    * cells are common until FEC seeding catches up (FIX-178).
    */
   sizeScale?: 'log' | 'linear'
+  /**
+   * FIX-186 — Compare mode. When true AND 2+ FocusEntity items are in focus,
+   * render one top-level cell per focused entity, each subdivided by their
+   * donors. Donors that gave to multiple focused entities render in matching
+   * colors so overlap is visible at a glance. Best for "how aligned are
+   * Warren's and Cruz's donor bases?" investigations. Off by default.
+   */
+  compareMode?: boolean
 }
 
 export interface HierarchyOptions {

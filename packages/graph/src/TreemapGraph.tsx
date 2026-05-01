@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as d3 from "d3";
 import type { RefObject } from "react";
-import type { GraphNode as NewGraphNode, NodeActions, TreemapOptions, FocusGroup } from "./types";
+import type { GraphNode as NewGraphNode, NodeActions, TreemapOptions, FocusGroup, FocusEntity } from "./types";
 import { Tooltip, useTooltip } from "./components/Tooltip";
 import { NodePopup } from "./components/NodePopup";
 
@@ -56,6 +56,14 @@ interface GroupDatum {
   official?: TreemapOfficial;
   donor?: DonorRow;
   industryIndex?: number; // entity mode: palette index for the industry group
+  /** FIX-186 — donor cells in compare mode: 'shared' = repeat color across cells */
+  shared?: boolean;
+}
+
+// Compare mode (FIX-186): per-entity donor list
+interface CompareEntry {
+  entity: FocusEntity;
+  donors: DonorRow[];
 }
 
 // ── Industry colors (entity mode) ─────────────────────────────────────────────
@@ -204,9 +212,15 @@ export interface TreemapGraphProps {
    * PACs only".
    */
   secondaryGroup?: FocusGroup | null;
+  /**
+   * FIX-186 — All currently focused single entities. Used by Compare mode
+   * (TreemapOptions.compareMode) to render one cell per entity with their
+   * donors, color-matched across cells where donors overlap.
+   */
+  focusEntities?: FocusEntity[];
 }
 
-export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOptions, primaryEntityId, primaryEntityName, primaryGroup, secondaryGroup }: TreemapGraphProps) {
+export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOptions, primaryEntityId, primaryEntityName, primaryGroup, secondaryGroup, focusEntities = [] }: TreemapGraphProps) {
   const containerRef   = useRef<HTMLDivElement>(null);
   const internalSvgRef = useRef<SVGSVGElement>(null);
   const svgRef         = externalSvgRef ?? internalSvgRef;
@@ -214,6 +228,7 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
   const [officials, setOfficials]         = useState<TreemapOfficial[]>([]);
   const [donors, setDonors]               = useState<DonorRow[]>([]);
   const [pacHierarchy, setPacHierarchy]   = useState<PacHierarchy | null>(null);
+  const [compareEntries, setCompareEntries] = useState<CompareEntry[]>([]);
   const [loading, setLoading]             = useState(true);
   const [error, setError]                 = useState<string | null>(null);
 
@@ -221,10 +236,11 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
   const [popup, setPopup]       = useState<NewGraphNode | null>(null);
   const [drillNode, setDrillNode] = useState<GroupDatum | null>(null);
 
-  const groupBy   = vizOptions?.groupBy   ?? 'party';
-  const sizeBy    = vizOptions?.sizeBy    ?? 'donation_total';
-  const colorBy   = vizOptions?.colorBy   ?? 'party';
-  const sizeScale = vizOptions?.sizeScale ?? 'log';
+  const groupBy     = vizOptions?.groupBy     ?? 'party';
+  const sizeBy      = vizOptions?.sizeBy      ?? 'donation_total';
+  const colorBy     = vizOptions?.colorBy     ?? 'party';
+  const sizeScale   = vizOptions?.sizeScale   ?? 'log';
+  const compareMode = (vizOptions?.compareMode ?? false) && focusEntities.length >= 2;
 
   // Derive the effective data mode from explicit vizOption + focus state.
   // When a PAC group is focused, route to the PAC endpoint regardless of
@@ -239,6 +255,36 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
   // ── Fetch data ──────────────────────────────────────────────────────────────
   useEffect(() => {
     setLoading(true);
+
+    // FIX-186 — Compare mode: parallel fetch donors for each focused entity
+    // and render a top-level cell per entity. Bypasses single-primary logic.
+    if (compareMode) {
+      setPacHierarchy(null);
+      setOfficials([]);
+      setDonors([]);
+
+      const isRealUuid = (id: string) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+      const validEntities = focusEntities.filter(e => e.type === 'official' && isRealUuid(e.id));
+
+      Promise.all(
+        validEntities.map(async (e) => {
+          const res = await fetch(
+            `/api/graph/treemap?entityId=${encodeURIComponent(e.id)}&groupBy=${groupBy}&sizeBy=${sizeBy}`,
+          );
+          const data = (await res.json()) as DonorRow[] | { error: string };
+          if ("error" in data) throw new Error(data.error);
+          return { entity: e, donors: data as DonorRow[] };
+        }),
+      )
+        .then((entries) => setCompareEntries(entries))
+        .catch((err: Error) => setError(err.message))
+        .finally(() => setLoading(false));
+      return;
+    }
+
+    // Single-primary modes clear compare state
+    setCompareEntries([]);
 
     // PAC modes — fetch from treemap-pac endpoint
     if (dataMode === 'pac_sector' || dataMode === 'pac_party') {
@@ -319,9 +365,9 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
-  // Refetch when entity / group / groupBy / sizeBy / dataMode / industry filter change
+  // Refetch when entity / group / groupBy / sizeBy / dataMode / industry filter / compare change
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [primaryEntityId, primaryGroup, secondaryGroup, groupBy, sizeBy, dataMode]);
+  }, [primaryEntityId, primaryGroup, secondaryGroup, groupBy, sizeBy, dataMode, compareMode, focusEntities]);
 
   // Reset drill state when the view changes
   useEffect(() => {
@@ -337,11 +383,14 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
     const isPacMode       = dataMode === 'pac_sector' || dataMode === 'pac_party';
     const isPacSectorMode = dataMode === 'pac_sector';
     const isPacPartyMode  = dataMode === 'pac_party';
-    const isEntityMode    = !!primaryEntityId && donors.length > 0;
+    const isEntityMode    = !compareMode && !!primaryEntityId && donors.length > 0;
+    const isCompareMode   = compareMode && compareEntries.length >= 2;
 
-    if (isPacMode && !pacHierarchy) return;
-    if (!isPacMode && !isEntityMode && officials.length === 0) return;
-    if (!isPacMode && isEntityMode && donors.length === 0) return;
+    if (isCompareMode) {
+      // ok — compare mode
+    } else if (isPacMode && !pacHierarchy) return;
+    else if (!isPacMode && !isEntityMode && officials.length === 0) return;
+    else if (!isPacMode && isEntityMode && donors.length === 0) return;
 
     const width  = container.clientWidth;
     const height = container.clientHeight;
@@ -349,7 +398,38 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
 
     let root: GroupDatum;
 
-    if (isPacMode && pacHierarchy) {
+    if (isCompareMode) {
+      // FIX-186 — Compare mode: top-level cell per focused entity, each
+      // subdivided by their donors. Donors common to multiple entities use
+      // a stable color across cells so overlap pops visually.
+      const donorOccurrence = new Map<string, number>();
+      for (const entry of compareEntries) {
+        for (const d of entry.donors) {
+          donorOccurrence.set(d.donor_id, (donorOccurrence.get(d.donor_id) ?? 0) + 1);
+        }
+      }
+      // Stable palette index per donor — collisions across entities produce
+      // matching colors automatically.
+      function donorPaletteIndex(donor_id: string): number {
+        let h = 0;
+        for (let i = 0; i < donor_id.length; i++) h = (h * 31 + donor_id.charCodeAt(i)) | 0;
+        return Math.abs(h);
+      }
+      root = {
+        name: "root",
+        children: compareEntries.map((entry, idx) => ({
+          name: entry.entity.name,
+          industryIndex: idx,
+          children: entry.donors.map((d) => ({
+            name:  d.donor_name,
+            value: Math.max(1, d.amount_usd),
+            donor: d,
+            shared: (donorOccurrence.get(d.donor_id) ?? 0) >= 2,
+            industryIndex: donorPaletteIndex(d.donor_id),
+          })),
+        })),
+      };
+    } else if (isPacMode && pacHierarchy) {
       // PAC hierarchy — pre-grouped from the API
       root = {
         name: "root",
@@ -440,7 +520,7 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
       .attr("y", (d) => d.y0)
       .attr("width", (d) => d.x1 - d.x0)
       .attr("height", (d) => d.y1 - d.y0)
-      .attr("fill", (d) => (isPacSectorMode || isEntityMode)
+      .attr("fill", (d) => (isPacSectorMode || isEntityMode || isCompareMode)
         ? getIndustryFill(d.data.industryIndex ?? 0)
         : isPacPartyMode
           ? (PARTY_FILL[d.data.name.toLowerCase()] ?? "#1e3040")
@@ -461,7 +541,7 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
       .attr("class", "group-label")
       .attr("x", (d) => d.x0 + 6)
       .attr("y", (d) => d.y0 + 14)
-      .attr("fill", (d) => (isPacSectorMode || isEntityMode)
+      .attr("fill", (d) => (isPacSectorMode || isEntityMode || isCompareMode)
         ? getIndustryStroke(d.data.industryIndex ?? 0)
         : isPacPartyMode
           ? (PARTY_STROKE[d.data.name.toLowerCase()] ?? "#64748b")
@@ -472,9 +552,11 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
       .attr("pointer-events", "none")
       .style("user-select", "none")
       .style("-webkit-user-select", "none")
-      .text((d) => isEntityMode
-        ? d.data.name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
-        : getGroupLabel(d.data.name, groupBy));
+      .text((d) => isCompareMode
+        ? d.data.name
+        : isEntityMode
+          ? d.data.name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+          : getGroupLabel(d.data.name, groupBy));
 
     // Drill hint on group cells (only when not already drilled)
     if (!drillNode) {
@@ -513,7 +595,7 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
       .append("rect")
       .attr("width",  (d) => Math.max(0, d.x1 - d.x0 - 1))
       .attr("height", (d) => Math.max(0, d.y1 - d.y0 - 1))
-      .attr("fill",   (d) => (isPacSectorMode || isEntityMode)
+      .attr("fill",   (d) => (isPacSectorMode || isEntityMode || isCompareMode)
         ? getIndustryFill(d.data.industryIndex ?? 0)
         : isPacPartyMode
           ? (PARTY_FILL[(d.data.donor?.industry_category ?? "").toLowerCase()] ?? "#1e3040")
@@ -521,7 +603,7 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
               const key = d.data.official ? getGroupKey(d.data.official, colorBy === 'chamber' ? 'chamber' : 'party') : 'nonpartisan';
               return getFill(key, colorBy as 'party' | 'chamber');
             })())
-      .attr("stroke", (d) => (isPacSectorMode || isEntityMode)
+      .attr("stroke", (d) => (isPacSectorMode || isEntityMode || isCompareMode)
         ? getIndustryStroke(d.data.industryIndex ?? 0)
         : isPacPartyMode
           ? (PARTY_STROKE[(d.data.donor?.industry_category ?? "").toLowerCase()] ?? "#64748b")
@@ -529,7 +611,9 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
               const key = d.data.official ? getGroupKey(d.data.official, colorBy === 'chamber' ? 'chamber' : 'party') : 'nonpartisan';
               return getStroke(key, colorBy as 'party' | 'chamber');
             })())
-      .attr("stroke-width", 0.5)
+      // FIX-186: shared donors in compare mode get a thicker stroke so the
+      // overlap reads as a "they both took money from this donor" signal.
+      .attr("stroke-width", (d) => isCompareMode && d.data.shared ? 1.5 : 0.5)
       .attr("rx", 2)
       .on("mouseenter", function (event: MouseEvent, d) {
         d3.select(this).attr("stroke-width", 2).attr("fill-opacity", 0.85);
@@ -641,7 +725,7 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
           ?? (d.data.official ? d.data.official.total_donated_cents / 100 : 0);
         return "$" + amount.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 1 });
       });
-  }, [officials, donors, pacHierarchy, primaryEntityId, groupBy, sizeBy, sizeScale, colorBy, dataMode, drillNode, showTip, hideTip]);
+  }, [officials, donors, pacHierarchy, compareEntries, compareMode, primaryEntityId, groupBy, sizeBy, sizeScale, colorBy, dataMode, drillNode, showTip, hideTip]);
 
   // Render on data change + resize
   useEffect(() => {
@@ -730,11 +814,13 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
     );
   }
 
-  const hasData = isPacMode
-    ? !!pacHierarchy && pacHierarchy.children.length > 0
-    : primaryEntityId
-      ? donors.length > 0
-      : officials.length > 0;
+  const hasData = compareMode
+    ? compareEntries.length >= 2 && compareEntries.some(e => e.donors.length > 0)
+    : isPacMode
+      ? !!pacHierarchy && pacHierarchy.children.length > 0
+      : primaryEntityId
+        ? donors.length > 0
+        : officials.length > 0;
   if (!hasData) {
     return (
       <div className={`flex items-center justify-center ${className}`}>
@@ -750,7 +836,9 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
     secondaryGroup?.filter.entity_type === 'pac' && secondaryGroup.filter.industry
       ? secondaryGroup.filter.industry
       : null;
-  const baseLabel = isPacMode
+  const baseLabel = compareMode
+    ? `Compare donors — ${compareEntries.map(e => e.entity.name).join(' vs ')}`
+    : isPacMode
     ? (dataMode === 'pac_sector' ? "PAC Money by Sector" : "PAC Money by Party")
     : primaryEntityId && primaryEntityName
       ? `${primaryEntityName} — Top Donors`

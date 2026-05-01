@@ -384,6 +384,15 @@ function TreemapSettings({ view, hooks, graphMeta }: { view: GraphView; hooks: U
             onChange={v => set('sizeBy', v)}
           />
           <LabeledSelect
+            label="Size scale"
+            value={opts?.sizeScale ?? 'log'}
+            options={[
+              { value: 'log',    label: 'Log (all visible)' },
+              { value: 'linear', label: 'Linear (true ratios)' },
+            ]}
+            onChange={v => set('sizeScale', v)}
+          />
+          <LabeledSelect
             label="Color by"
             value={opts?.colorBy ?? 'party'}
             options={[

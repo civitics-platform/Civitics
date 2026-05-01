@@ -149,23 +149,32 @@ function getGroupKey(official: TreemapOfficial, groupBy: TreemapOptions['groupBy
   }
 }
 
-function getSizeValue(official: TreemapOfficial, sizeBy: TreemapOptions['sizeBy']): number {
-  // Log-scale all sizes. Donation totals span $0 to >$1M (8 orders of
-  // magnitude), so a linear scale gives top earners virtually all the area
-  // and renders the rest as sub-pixel slivers. log10(value+1)+1 maps:
-  //   $0      → 1     (visible floor)
-  //   $1k     → 4     (small but legible)
-  //   $1M     → 7     (big)
-  //   $10M    → 8     (biggest)
-  // Ratio compresses to ~8:1 instead of millions:1, all cells visible.
-  // Bigger values still render as bigger cells — the ordering is preserved.
-  // Tooltips and labels show the actual value, not the log-scaled one.
+function getRawSizeValue(official: TreemapOfficial, sizeBy: TreemapOptions['sizeBy']): number {
   switch (sizeBy) {
-    case 'connection_count': return Math.log10(Math.max(0, official.connection_count) + 1) + 1;
-    case 'vote_count':       return Math.log10(Math.max(0, official.vote_count)       + 1) + 1;
+    case 'connection_count': return Math.max(0, official.connection_count);
+    case 'vote_count':       return Math.max(0, official.vote_count);
     case 'donation_total':
-    default:                 return Math.log10(Math.max(0, official.total_donated_cents) + 1) + 1;
+    default:                 return Math.max(0, official.total_donated_cents);
   }
+}
+
+function getSizeValue(
+  official:  TreemapOfficial,
+  sizeBy:    TreemapOptions['sizeBy'],
+  sizeScale: TreemapOptions['sizeScale'],
+  linearMin: number,
+): number {
+  const raw = getRawSizeValue(official, sizeBy);
+  // 'log'    → compresses ratio so every cell is visible. Donation totals span
+  //            $0 to >$1M (8 orders of magnitude); on a linear scale, top
+  //            earners get virtually all area and others render as sub-pixel.
+  //            log10(value+1)+1 maps $0→1, $1k→4, $1M→7 — ordering preserved,
+  //            ratio capped near 8:1.
+  // 'linear' → raw value with a small floor so 0-data cells stay visible.
+  //            Preserves true ratios; useful when the user wants to see who
+  //            actually dominates fundraising.
+  if (sizeScale === 'linear') return Math.max(linearMin, raw);
+  return Math.log10(raw + 1) + 1;
 }
 
 function officialToNode(o: TreemapOfficial): NewGraphNode {
@@ -204,10 +213,20 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
   const [popup, setPopup]       = useState<NewGraphNode | null>(null);
   const [drillNode, setDrillNode] = useState<GroupDatum | null>(null);
 
-  const groupBy  = vizOptions?.groupBy  ?? 'party';
-  const sizeBy   = vizOptions?.sizeBy   ?? 'donation_total';
-  const colorBy  = vizOptions?.colorBy  ?? 'party';
-  const dataMode = vizOptions?.dataMode ?? 'officials';
+  const groupBy   = vizOptions?.groupBy   ?? 'party';
+  const sizeBy    = vizOptions?.sizeBy    ?? 'donation_total';
+  const colorBy   = vizOptions?.colorBy   ?? 'party';
+  const sizeScale = vizOptions?.sizeScale ?? 'log';
+
+  // Derive the effective data mode from explicit vizOption + focus state.
+  // When a PAC group is focused, route to the PAC endpoint regardless of
+  // whether dataMode was explicitly toggled — adding "Finance PACs" to focus
+  // should drive the treemap whether or not the user clicked "view as treemap".
+  const explicitDataMode = vizOptions?.dataMode ?? 'officials';
+  const isPacGroupFocus  = primaryGroup?.filter.entity_type === 'pac';
+  const dataMode = isPacGroupFocus && explicitDataMode === 'officials'
+    ? 'pac_sector'
+    : explicitDataMode;
 
   // ── Fetch data ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -361,7 +380,7 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
           name: key,
           children: items.map((o) => ({
             name:    o.official_name,
-            value:   getSizeValue(o, sizeBy),
+            value:   getSizeValue(o, sizeBy, sizeScale, 1),
             official: o,
           })),
         })),
@@ -602,7 +621,7 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
           ?? (d.data.official ? d.data.official.total_donated_cents / 100 : 0);
         return "$" + amount.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 1 });
       });
-  }, [officials, donors, pacHierarchy, primaryEntityId, groupBy, sizeBy, colorBy, dataMode, drillNode, showTip, hideTip]);
+  }, [officials, donors, pacHierarchy, primaryEntityId, groupBy, sizeBy, sizeScale, colorBy, dataMode, drillNode, showTip, hideTip]);
 
   // Render on data change + resize
   useEffect(() => {
@@ -666,7 +685,7 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
           </div>
         ))}
         <span className="text-[10px] text-gray-600 border-l border-gray-700 pl-3 ml-1">
-          Size = donations (log scale)
+          Size = donations ({sizeScale === 'linear' ? 'linear' : 'log scale'})
         </span>
       </>
     );

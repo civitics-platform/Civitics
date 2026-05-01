@@ -132,6 +132,16 @@ export interface TreemapOptions {
    * 'pac_party'  = PAC donations grouped by recipient party
    */
   dataMode?: 'officials' | 'pac_sector' | 'pac_party'
+  /**
+   * How treemap cell area encodes the size value.
+   * 'log'    = log10(value+1)+1 — every cell visible regardless of distribution
+   * 'linear' = raw value with a small floor — preserves true ratios but
+   *            renders sub-pixel cells when distribution is skewed (e.g. one
+   *            senator at $1M next to one at $0).
+   * Default: 'log' — the donation distribution is heavily skewed and zero-data
+   * cells are common until FEC seeding catches up (FIX-178).
+   */
+  sizeScale?: 'log' | 'linear'
 }
 
 export interface HierarchyOptions {

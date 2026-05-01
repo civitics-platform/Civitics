@@ -393,18 +393,21 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
   }
 
   const vizType      = view.style.vizType;
-  const primaryEntity = (view.focus.entities.find(isFocusEntity) ?? null);
+
+  // "Primary" = the most recently added focus item of each type. Single-entity
+  // visualizations (treemap, sunburst, chord) follow this signal so adding a
+  // new focus item drives them — picking the FIRST element silently sticks the
+  // treemap to whatever was added first regardless of subsequent clicks.
+  const focusEntityList = view.focus.entities.filter(isFocusEntity);
+  const focusGroupList  = view.focus.entities.filter(isFocusGroup) as FocusGroup[];
+  const primaryEntity   = focusEntityList[focusEntityList.length - 1] ?? null;
+  const primaryGroup    = focusGroupList[focusGroupList.length  - 1] ?? null;
+  const focusGroups     = focusGroupList;
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const sunburstEntityId = primaryEntity?.id && UUID_RE.test(primaryEntity.id)
     ? primaryEntity.id
     : null;
-
-  // ── Group-aware chord props ────────────────────────────────────────────────
-  const primaryGroup =
-    (view.focus.entities.find(isFocusGroup) as FocusGroup | undefined) ?? null;
-  const focusGroups =
-    view.focus.entities.filter(isFocusGroup) as FocusGroup[];
 
   // ── Matrix viz props — UUID-validated official IDs in focus ───────────────
   const matrixOfficialIds = useMemo(() => {

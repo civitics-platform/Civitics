@@ -573,7 +573,9 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
     const t0 = Date.now();
     try {
       const dbUrl = buildDbUrl();
+      console.log(`[nightly] rebuild_entity_connections — starting (${dbUrl ? "direct pg" : "PostgREST RPC"})`);
       let total = 0;
+      let breakdown: { connection_type: string; edges_upserted: string | number }[] = [];
       if (dbUrl) {
         const { Client } = await import("pg");
         const client = new Client({ connectionString: dbUrl });
@@ -588,6 +590,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
           const res = await client.query<{ connection_type: string; edges_upserted: string | number }>(
             "SELECT * FROM rebuild_entity_connections()"
           );
+          breakdown = res.rows;
           total = res.rows.reduce((a, r) => a + Number(r.edges_upserted ?? 0), 0);
         } finally {
           await client.end();
@@ -598,13 +601,17 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         const admin = createAdminClient() as any;
         const { data, error } = await admin.rpc("rebuild_entity_connections");
         if (error) throw error;
+        breakdown = data ?? [];
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         total = (data ?? []).reduce((a: number, r: any) => a + Number(r.edges_upserted ?? 0), 0);
       }
+      const dur = Date.now() - t0;
+      console.log(`[nightly] rebuild_entity_connections — complete in ${(dur / 1000).toFixed(1)}s, ${total} edges`);
+      for (const r of breakdown) console.log(`  ${r.connection_type}: ${r.edges_upserted}`);
       results.pipelines.entity_connections_rebuild = {
         status: "complete",
         rows_added: total,
-        duration_ms: Date.now() - t0,
+        duration_ms: dur,
       };
     } catch (err) {
       const msg = errMsg(err);

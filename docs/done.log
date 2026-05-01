@@ -223,3 +223,5 @@
 2026-04-30 | FIX-177 | e91e21e2 | local-only | fix(graph): treemap + PAC + group filter audit
 2026-04-30 | FIX-180 | 01fbab8e | local-only | feat(dashboard): merge Pipelines + Quality into one Data Health card
 2026-04-30 | FIX-172 | 48ba8ec5 | local-only | fix(graph): log-scale treemap cell size so $0 senators are visible
+2026-04-30 | FIX-172 | 4daa3b0e | local-only | fix(graph): treemap follows last-added focus + linear/log size toggle
+2026-04-30 | FIX-173 | 4daa3b0e | local-only | fix(graph): treemap follows last-added focus + linear/log size toggle

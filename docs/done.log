@@ -225,3 +225,4 @@
 2026-04-30 | FIX-172 | 48ba8ec5 | local-only | fix(graph): log-scale treemap cell size so $0 senators are visible
 2026-04-30 | FIX-172 | 4daa3b0e | local-only | fix(graph): treemap follows last-added focus + linear/log size toggle
 2026-04-30 | FIX-173 | 4daa3b0e | local-only | fix(graph): treemap follows last-added focus + linear/log size toggle
+2026-04-30 | FIX-180 | b1ca0444 | local-only | fix(dashboard): normalize pipeline names; surface entity totals more prominently

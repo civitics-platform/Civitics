@@ -27,6 +27,7 @@ import {
   type PipelineHistoryRun,
   type ActivitySectionData,
   type OfficialsBreakdown,
+  type DatabaseStats,
 } from "./useDashboardData";
 import dynamic from "next/dynamic";
 
@@ -58,62 +59,158 @@ interface DashboardClientProps {
 
 // ── Pipeline display name mapping ────────────────────────────────────────────
 
-const PIPELINE_NAMES: Record<string, string> = {
-  congress: "Congress.gov",
-  regulations: "Regulations.gov",
-  connections: "Connections",
-  fec: "FEC / Donors",
-  fec_bulk: "FEC / Donors",
-  ai_summaries: "AI Summaries",
-  nightly_cron: "Nightly Sync",
-  tag_rules: "Rule Tagger",
-  tag_ai: "AI Tagger",
-  tag_industry: "Industry Tagger",
-  usaspending: "USAspending",
+// One row on the Data Health card. `aliases` holds every writer-side name that
+// should be merged into this row's history — pipeline naming has historically
+// been inconsistent (hyphens vs underscores, sub-pipeline subkeys) so we
+// normalize at the read layer instead of forcing a writer-side rename. The
+// list of writers is the audit ground truth from `grep startSync`.
+type PipelineDef = {
+  key: string; // canonical key (used as React key + display name fallback)
+  display: string; // user-facing label
+  aliases: string[]; // writer-side `pipeline` strings that map to this row
+  dbTotals?: (db: DatabaseStats) => Array<{ value: number; label: string }>;
+  source?: { label: string; href: string };
+  retryCmd?: string;
+  note?: string; // optional caveat shown in the expansion (e.g. "no log writer yet")
 };
 
-const KNOWN_PIPELINES = [
-  "congress",
-  "regulations",
-  "fec_bulk",
-  "usaspending",
-  "ai_summaries",
-  "tag_industry",
-  "tag_ai",
-  "connections",
-];
-
-// Static per-pipeline metadata for the expanded drawer: source link + a
-// retry hint pointing at the local pnpm script. Read-only — we don't trigger
-// runs from the dashboard (HIT_LIST plans a separate dev tool for that).
-const PIPELINE_META: Record<
-  string,
-  { source?: { label: string; href: string }; retryCmd?: string }
-> = {
-  congress: {
+const PIPELINES: PipelineDef[] = [
+  {
+    key: "congress",
+    display: "Congress.gov",
+    // congress.officials.ts + congress.votes.ts don't call startSync today —
+    // only committees.ts does. Tracked as FIX-183. The DB totals below still
+    // show officials + bills counts which Congress is the source for.
+    aliases: ["congress", "congress_committees", "congress_officials", "congress_votes"],
+    dbTotals: (db) => [
+      { value: db.officials, label: "officials" },
+      { value: db.proposals_bills, label: "bills + resolutions" },
+    ],
     source: { label: "Congress.gov", href: "https://congress.gov" },
-    retryCmd: "pnpm data:officials   # or data:votes / data:committees",
+    retryCmd: "pnpm data:officials  /  data:votes  /  data:committees",
+    note:
+      "Officials and Votes pipelines do not call startSync yet (FIX-183); only Committees writes data_sync_log rows.",
   },
-  regulations: {
+  {
+    key: "regulations",
+    display: "Regulations.gov",
+    aliases: ["regulations", "federal-register"],
+    dbTotals: (db) => [
+      { value: db.proposals_regulations, label: "regulations" },
+    ],
     source: { label: "Regulations.gov", href: "https://regulations.gov" },
     retryCmd: "pnpm data:regulations",
   },
-  fec_bulk: {
+  {
+    key: "fec_bulk",
+    display: "FEC / Donors",
+    aliases: ["fec_bulk", "fec"],
+    dbTotals: (db) => [
+      { value: db.financial_entities, label: "donors / PACs" },
+      { value: db.financial_relationships, label: "donations" },
+    ],
     source: { label: "FEC.gov", href: "https://www.fec.gov" },
     retryCmd: "pnpm data:fec-bulk",
   },
-  usaspending: {
+  {
+    key: "usaspending",
+    display: "USAspending",
+    aliases: ["usaspending", "usaspending_bulk", "usaspending_bulk_assistance"],
+    dbTotals: (db) => [
+      { value: db.financial_relationships, label: "spending records (shared)" },
+    ],
     source: { label: "USAspending.gov", href: "https://usaspending.gov" },
     retryCmd: "pnpm data:usaspending-bulk",
   },
-  ai_summaries: { retryCmd: "pnpm data:ai-summaries" },
-  tag_industry: { retryCmd: "pnpm data:tag-industry" },
-  tag_ai: { retryCmd: "pnpm data:tag-ai" },
-  connections: {
-    retryCmd:
-      "psql … -c 'SELECT * FROM rebuild_entity_connections();'  # see CLAUDE.md",
+  {
+    key: "openstates",
+    display: "OpenStates",
+    aliases: ["openstates", "openstates_bulk_people"],
+    source: { label: "OpenStates.org", href: "https://openstates.org" },
+    retryCmd: "pnpm data:states  /  data:states-api",
   },
-};
+  {
+    key: "courtlistener",
+    display: "CourtListener",
+    aliases: ["courtlistener"],
+    source: { label: "CourtListener", href: "https://www.courtlistener.com" },
+    retryCmd: "pnpm data:courts",
+  },
+  {
+    key: "elections",
+    display: "Elections",
+    aliases: ["elections"],
+    retryCmd: "pnpm data:elections",
+  },
+  {
+    key: "opensecrets",
+    display: "OpenSecrets",
+    aliases: ["opensecrets-bulk"],
+    retryCmd: "pnpm data:opensecrets-bulk",
+  },
+  {
+    key: "govtrack",
+    display: "GovTrack Cosponsors",
+    aliases: ["govtrack-cosponsors"],
+    retryCmd: "pnpm data:govtrack-cosponsors",
+  },
+  {
+    key: "legistar",
+    display: "Legistar (local)",
+    aliases: ["legistar"],
+    retryCmd: "pnpm data:legistar",
+  },
+  {
+    key: "agencies",
+    display: "Agencies (hierarchy)",
+    aliases: ["agencies-hierarchy"],
+    retryCmd: "pnpm data:agencies",
+  },
+  {
+    key: "districts",
+    display: "TIGER Districts",
+    aliases: ["tiger_districts"],
+    retryCmd: "pnpm data:districts",
+  },
+  {
+    key: "ai_summaries",
+    display: "AI Summaries",
+    // No startSync writer exists — tracked as FIX-183. Total still shows.
+    aliases: ["ai_summaries", "ai-summaries"],
+    dbTotals: (db) => [
+      { value: db.ai_summary_cache, label: "summaries cached" },
+    ],
+    retryCmd: "pnpm data:ai-summaries",
+    note:
+      "ai-summaries pipeline does not call startSync yet (FIX-183); rhythm will stay empty until that lands.",
+  },
+  {
+    key: "tag_ai",
+    display: "AI Tagger",
+    // Writer uses hyphen — alias both forms.
+    aliases: ["tag_ai", "tag-ai"],
+    dbTotals: (db) => [
+      { value: db.entity_tags, label: "entity_tags rows (all categories)" },
+    ],
+    retryCmd: "pnpm data:tag-ai",
+  },
+  {
+    key: "tag_rules",
+    display: "Rule Tagger",
+    aliases: ["tag_rules", "tag-rules"],
+    retryCmd: "pnpm data:tag-rules",
+  },
+  {
+    key: "connections",
+    display: "Connections (derived)",
+    aliases: ["connections"],
+    dbTotals: (db) => [
+      { value: db.entity_connections, label: "edges" },
+    ],
+    retryCmd:
+      "psql … -c 'SELECT * FROM rebuild_entity_connections();' (see CLAUDE.md)",
+  },
+];
 
 const PIPELINE_STATUS_COLOR: Record<string, string> = {
   complete: "bg-green-500",
@@ -122,6 +219,14 @@ const PIPELINE_STATUS_COLOR: Record<string, string> = {
   failed: "bg-red-500",
   pending: "bg-gray-300",
 };
+
+// Lookup: writer-side alias → canonical PipelineDef (used to bucket history
+// rows whose `pipeline` string matches any alias).
+const ALIAS_TO_DEF: Record<string, PipelineDef> = (() => {
+  const map: Record<string, PipelineDef> = {};
+  for (const def of PIPELINES) for (const a of def.aliases) map[a] = def;
+  return map;
+})();
 
 // ── Self-test display labels ──────────────────────────────────────────────────
 
@@ -340,37 +445,6 @@ function CommentPeriodsSection({ openProposals }: { openProposals: OpenProposal[
   );
 }
 
-// Returns total-rows-in-DB for a pipeline based on the entity table it owns.
-// Returns null when there isn't a clean 1:1 mapping (e.g. ai_summaries shares
-// proposals with congress) or when the database section failed to load.
-function pipelineDbTotal(
-  pipeline: string,
-  database:
-    | NonNullable<ReturnType<typeof useDashboardData>["data"]>["status"]["database"]
-    | null,
-): { value: number; label: string } | null {
-  if (!database || isPartial(database)) return null;
-  switch (pipeline) {
-    case "congress":
-      return { value: database.proposals_bills, label: "bills + resolutions" };
-    case "regulations":
-      return { value: database.proposals_regulations, label: "regulations" };
-    case "fec_bulk":
-      return { value: database.financial_relationships, label: "donations + records" };
-    case "usaspending":
-      return { value: database.financial_relationships, label: "spending records" };
-    case "connections":
-      return { value: database.entity_connections, label: "edges" };
-    case "ai_summaries":
-      return { value: database.ai_summary_cache, label: "summaries cached" };
-    case "tag_industry":
-    case "tag_ai":
-      return { value: database.entity_tags, label: "tags applied" };
-    default:
-      return null;
-  }
-}
-
 // 7-day status indicator: oldest run on the left, newest on the right.
 // Empty squares for pipelines with fewer than 7 logged runs so the visual
 // width stays constant — operators can see "no rhythm" pipelines instantly.
@@ -428,12 +502,12 @@ function HealthMetricTile({
 }
 
 function DataHealthRow({
-  pipeline,
+  def,
   history,
   database,
   quality,
 }: {
-  pipeline: string;
+  def: PipelineDef;
   history: PipelineHistoryRun[];
   database:
     | NonNullable<ReturnType<typeof useDashboardData>["data"]>["status"]["database"]
@@ -445,8 +519,6 @@ function DataHealthRow({
   const [expanded, setExpanded] = useState(false);
   const latest = history[0] ?? null;
   const prior = history[1] ?? null;
-  const meta = PIPELINE_META[pipeline] ?? {};
-  const displayName = PIPELINE_NAMES[pipeline] ?? pipeline;
 
   const freshness = latest?.completed_at
     ? pipelineFreshness(latest.completed_at)
@@ -460,14 +532,14 @@ function DataHealthRow({
       ? "interrupted"
       : ((latest.status as "complete" | "running" | "interrupted" | "failed" | "pending"));
 
-  const dbTotal = pipelineDbTotal(pipeline, database);
+  const dbResolved = database && !isPartial(database) ? database : null;
+  const totals = dbResolved && def.dbTotals ? def.dbTotals(dbResolved) : [];
+  const primaryTotal = totals[0] ?? null;
   const lastInserted = latest?.rows_inserted ?? 0;
   const delta = lastInserted - (prior?.rows_inserted ?? 0);
 
   const lastFailed = history.find((r) => r.status === "failed" && r.error_message);
-
   const q = quality && !isPartial(quality) ? quality : null;
-  const dbResolved = database && !isPartial(database) ? database : null;
 
   return (
     <div className="border-t border-gray-100 first:border-t-0">
@@ -481,16 +553,21 @@ function DataHealthRow({
           {expanded ? "▾" : "▸"}
         </span>
         <span className="flex-1 min-w-0 flex items-center gap-3">
-          <span className="text-sm font-medium text-gray-900 truncate w-44 shrink-0">
-            {displayName}
+          <span className="text-sm font-medium text-gray-900 truncate w-40 shrink-0">
+            {def.display}
           </span>
-          {dbTotal ? (
-            <span className="text-xs text-gray-600 tabular-nums w-44 shrink-0">
-              {formatNumber(dbTotal.value)}{" "}
-              <span className="text-gray-400">{dbTotal.label}</span>
+          {/* Total entities — the primary fact for this row. Show the first
+              total from the def's dbTotals(); secondary totals (e.g. donors
+              count under FEC) appear in the expanded panel. */}
+          {primaryTotal ? (
+            <span className="tabular-nums w-52 shrink-0">
+              <span className="text-sm font-semibold text-gray-900">
+                {formatNumber(primaryTotal.value)}
+              </span>{" "}
+              <span className="text-xs text-gray-500">{primaryTotal.label}</span>
             </span>
           ) : (
-            <span className="text-xs text-gray-400 w-44 shrink-0">—</span>
+            <span className="text-xs text-gray-400 w-52 shrink-0">no DB mapping</span>
           )}
           <span
             className={`text-xs tabular-nums w-20 shrink-0 ${
@@ -499,7 +576,7 @@ function DataHealthRow({
             title="Δ rows_inserted vs prior run"
           >
             {latest
-              ? `${delta >= 0 ? "+" : ""}${formatNumber(delta)}`
+              ? `${delta >= 0 ? "+" : ""}${formatNumber(delta)} Δ`
               : ""}
           </span>
           <StatusSparkline runs={history} />
@@ -512,8 +589,29 @@ function DataHealthRow({
 
       {expanded && (
         <div className="bg-gray-50/60 border-t border-gray-100 px-6 py-4 space-y-4">
+          {/* Author note (e.g. "no startSync writer yet") if present */}
+          {def.note && (
+            <div className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-900">
+              {def.note}
+            </div>
+          )}
+
+          {/* Secondary DB totals (3+ wide grid; primary already shown above) */}
+          {totals.length > 1 && (
+            <div className="flex flex-wrap gap-x-6 gap-y-2">
+              {totals.slice(1).map((t) => (
+                <div key={t.label} className="text-xs text-gray-600">
+                  <span className="font-semibold text-gray-900 tabular-nums">
+                    {formatNumber(t.value)}
+                  </span>{" "}
+                  <span className="text-gray-500">{t.label}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Coverage bars relevant to this pipeline */}
-          {pipeline === "congress" && q && (
+          {def.key === "congress" && q && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <DataQualityBar
                 label="FEC ID coverage"
@@ -531,7 +629,7 @@ function DataHealthRow({
               </div>
             </div>
           )}
-          {pipeline === "fec_bulk" && q && (
+          {def.key === "fec_bulk" && q && (
             <DataQualityBar
               label="Industry tags on PACs"
               pct={q.industry_tags.pct}
@@ -540,10 +638,10 @@ function DataHealthRow({
               color="blue"
             />
           )}
-          {pipeline === "fec_bulk" && q?.industry_tags.note && (
+          {def.key === "fec_bulk" && q?.industry_tags.note && (
             <p className="text-xs text-gray-500 -mt-2">{q.industry_tags.note}</p>
           )}
-          {pipeline === "ai_summaries" && dbResolved && (
+          {def.key === "ai_summaries" && dbResolved && (
             <DataQualityBar
               label="AI summaries cached"
               pct={
@@ -646,19 +744,27 @@ function DataHealthRow({
 
           {/* Footer: source link + retry hint */}
           <div className="flex flex-wrap items-center gap-3 pt-1 text-xs text-gray-600">
-            {meta.source && (
+            {def.source && (
               <a
-                href={meta.source.href}
+                href={def.source.href}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center rounded-full border border-gray-200 bg-white px-2.5 py-0.5 font-medium hover:border-blue-300 hover:text-blue-700 transition-colors"
               >
-                {meta.source.label} ↗
+                {def.source.label} ↗
               </a>
             )}
-            {meta.retryCmd && (
+            {def.retryCmd && (
               <span className="font-mono text-[11px] text-gray-500">
-                ↻ <code>{meta.retryCmd}</code>
+                ↻ <code>{def.retryCmd}</code>
+              </span>
+            )}
+            {def.aliases.length > 1 && (
+              <span
+                className="text-[11px] text-gray-400"
+                title="data_sync_log writer-side names that get merged into this row"
+              >
+                aliases: {def.aliases.join(", ")}
               </span>
             )}
           </div>
@@ -701,22 +807,47 @@ function DataHealthSection({
     );
   }
 
-  // Build per-pipeline rows in declared order, then append any unknown
-  // pipelines that have history but aren't in KNOWN_PIPELINES.
-  const seen = new Set<string>();
-  const rows: Array<{ pipeline: string; history: PipelineHistoryRun[] }> = [];
-  for (const name of KNOWN_PIPELINES) {
-    seen.add(name);
-    rows.push({ pipeline: name, history: pipelines.history?.[name] ?? [] });
-  }
-  for (const name of Object.keys(pipelines.history ?? {})) {
-    if (!seen.has(name)) {
-      rows.push({ pipeline: name, history: pipelines.history[name] ?? [] });
+  // Build per-pipeline rows from the canonical PIPELINES registry. For each
+  // def, gather every history row whose writer-side `pipeline` string matches
+  // any of the def's aliases, then sort newest-first and trim to 7. This is
+  // where pipeline-name normalization happens — writer-side inconsistencies
+  // (hyphens vs underscores, sub-pipeline subkeys) collapse into one row.
+  const historyMap = pipelines.history ?? {};
+  const rows: Array<{ def: PipelineDef; history: PipelineHistoryRun[] }> = PIPELINES.map(
+    (def) => {
+      const merged = def.aliases.flatMap((a) => historyMap[a] ?? []);
+      merged.sort((a, b) => {
+        const at = a.completed_at ? new Date(a.completed_at).getTime() : 0;
+        const bt = b.completed_at ? new Date(b.completed_at).getTime() : 0;
+        return bt - at;
+      });
+      return { def, history: merged.slice(0, 7) };
+    },
+  );
+
+  // Append any unknown writer-side pipeline strings as orphan rows so they're
+  // never silently dropped from the dashboard. If we see one of these in
+  // production, it usually means a new pipeline shipped without a PIPELINES
+  // entry (or a writer was renamed).
+  const knownAliases = new Set(Object.keys(ALIAS_TO_DEF));
+  for (const name of Object.keys(historyMap)) {
+    if (!knownAliases.has(name)) {
+      rows.push({
+        def: {
+          key: name,
+          display: `${name} (orphan)`,
+          aliases: [name],
+          note:
+            "This pipeline is logging to data_sync_log but isn't registered in PIPELINES. Add an entry to apps/civitics/app/dashboard/DashboardClient.tsx to give it a proper display name and DB total.",
+        },
+        history: historyMap[name] ?? [],
+      });
     }
   }
 
-  // Health score: fraction of known pipelines that ran <48h ago AND completed.
-  const healthyCount = rows.filter((r) => {
+  // Health score: fraction of registered pipelines that ran <48h ago AND completed.
+  const registeredRows = rows.filter((r) => !r.def.display.endsWith("(orphan)"));
+  const healthyCount = registeredRows.filter((r) => {
     const latest = r.history[0];
     return (
       latest?.status === "complete" &&
@@ -724,7 +855,9 @@ function DataHealthSection({
       pipelineFreshness(latest.completed_at) === "ok"
     );
   }).length;
-  const healthPct = rows.length ? Math.round((healthyCount / rows.length) * 100) : 0;
+  const healthPct = registeredRows.length
+    ? Math.round((healthyCount / registeredRows.length) * 100)
+    : 0;
   const healthTone =
     healthPct >= 80 ? "ok" : healthPct >= 50 ? "warning" : "error";
 
@@ -778,7 +911,7 @@ function DataHealthSection({
         <div className="mt-4 flex flex-wrap gap-2">
           <HealthMetricTile
             label="Pipeline health"
-            value={`${healthyCount}/${rows.length} fresh`}
+            value={`${healthyCount}/${registeredRows.length} fresh`}
             sub={`${healthPct}% of pipelines complete and < 48h old`}
             tone={healthTone}
           />
@@ -834,8 +967,8 @@ function DataHealthSection({
       <div>
         {rows.map((r) => (
           <DataHealthRow
-            key={r.pipeline}
-            pipeline={r.pipeline}
+            key={r.def.key}
+            def={r.def}
             history={r.history}
             database={database}
             quality={quality}

@@ -150,16 +150,21 @@ function getGroupKey(official: TreemapOfficial, groupBy: TreemapOptions['groupBy
 }
 
 function getSizeValue(official: TreemapOfficial, sizeBy: TreemapOptions['sizeBy']): number {
-  // Floor at 1 so officials with no data for the chosen sizeBy still render
-  // as visible cells (treemap squarify gives 0-value cells 0 area). The
-  // donation_total view dominated by donating senators makes $0 senators
-  // render as ~1px slivers; switching sizeBy to vote_count or connection_count
-  // gives them real area when donation seeding is incomplete.
+  // Log-scale all sizes. Donation totals span $0 to >$1M (8 orders of
+  // magnitude), so a linear scale gives top earners virtually all the area
+  // and renders the rest as sub-pixel slivers. log10(value+1)+1 maps:
+  //   $0      → 1     (visible floor)
+  //   $1k     → 4     (small but legible)
+  //   $1M     → 7     (big)
+  //   $10M    → 8     (biggest)
+  // Ratio compresses to ~8:1 instead of millions:1, all cells visible.
+  // Bigger values still render as bigger cells — the ordering is preserved.
+  // Tooltips and labels show the actual value, not the log-scaled one.
   switch (sizeBy) {
-    case 'connection_count': return Math.max(1, official.connection_count);
-    case 'vote_count':       return Math.max(1, official.vote_count);
+    case 'connection_count': return Math.log10(Math.max(0, official.connection_count) + 1) + 1;
+    case 'vote_count':       return Math.log10(Math.max(0, official.vote_count)       + 1) + 1;
     case 'donation_total':
-    default:                 return Math.max(1, official.total_donated_cents);
+    default:                 return Math.log10(Math.max(0, official.total_donated_cents) + 1) + 1;
   }
 }
 
@@ -661,7 +666,7 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
           </div>
         ))}
         <span className="text-[10px] text-gray-600 border-l border-gray-700 pl-3 ml-1">
-          Size = donations received
+          Size = donations (log scale)
         </span>
       </>
     );
@@ -722,9 +727,17 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
           </span>
           <span className="text-gray-500 ml-auto">
             {drillNode.children?.length ?? 0} officials
-            {drillNode.value
-              ? ` · $${(drillNode.value / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-              : ""}
+            {(() => {
+              // drillNode.value is the log-scaled treemap area, not a dollar
+              // amount — sum the actual donation cents from leaves instead.
+              const realCents = drillNode.children?.reduce(
+                (s, c) => s + (c.official?.total_donated_cents ?? 0),
+                0,
+              ) ?? 0;
+              return realCents > 0
+                ? ` · $${(realCents / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                : "";
+            })()}
           </span>
         </div>
       )}

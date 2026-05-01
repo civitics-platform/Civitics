@@ -53,6 +53,9 @@ export function useGraphView(initialView?: Partial<GraphView>) {
         focus: {
           ...v.focus,
           entities: v.focus.entities.filter(e => e.id !== id),
+          // FIX-184: clear pinned primary if it was the removed item
+          primaryEntityId: v.focus.primaryEntityId === id ? undefined : v.focus.primaryEntityId,
+          primaryGroupId:  v.focus.primaryGroupId  === id ? undefined : v.focus.primaryGroupId,
         },
       })),
 
@@ -98,8 +101,31 @@ export function useGraphView(initialView?: Partial<GraphView>) {
         focus: {
           ...v.focus,
           entities: v.focus.entities.filter(e => e.id !== groupId),
+          primaryEntityId: v.focus.primaryEntityId === groupId ? undefined : v.focus.primaryEntityId,
+          primaryGroupId:  v.focus.primaryGroupId  === groupId ? undefined : v.focus.primaryGroupId,
         },
       })),
+
+    /**
+     * FIX-184 — toggle the pinned primary for a focus item. Pinning is
+     * mutually exclusive within type (one entity + one group max). Clicking
+     * an already-pinned item unpins it. Single-entity vizes (treemap,
+     * sunburst, chord) read these refs first; if unset they fall back to
+     * the last-added item.
+     */
+    togglePrimary: (id: string) =>
+      setView(v => {
+        const item = v.focus.entities.find(e => e.id === id);
+        if (!item) return v;
+        const isGroup = isFocusGroup(item);
+        const currentKey = isGroup ? 'primaryGroupId' : 'primaryEntityId';
+        const currentVal = isGroup ? v.focus.primaryGroupId : v.focus.primaryEntityId;
+        const nextVal = currentVal === id ? undefined : id;
+        return markDirty({
+          ...v,
+          focus: { ...v.focus, [currentKey]: nextVal },
+        });
+      }),
 
     setDepth: (depth: 1 | 2 | 3) =>
       setView(v => markDirty({

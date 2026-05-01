@@ -321,6 +321,14 @@ export interface GraphView {
     scope: 'all' | 'federal' | 'state' | 'senate' | 'house'
     depth: 1 | 2 | 3
     includeProcedural: boolean
+    /**
+     * FIX-184 — pinned focus item that drives single-entity vizes
+     * (treemap, sunburst, chord). One per type so the user can pin a
+     * cohort entity and a filter group simultaneously. When unset the
+     * single-entity vizes fall back to the last-added item of each type.
+     */
+    primaryEntityId?: string
+    primaryGroupId?: string
   }
 
   // LAYER 2 — CONNECTIONS

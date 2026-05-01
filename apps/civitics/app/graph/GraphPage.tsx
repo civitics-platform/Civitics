@@ -394,14 +394,21 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
 
   const vizType      = view.style.vizType;
 
-  // "Primary" = the most recently added focus item of each type. Single-entity
-  // visualizations (treemap, sunburst, chord) follow this signal so adding a
-  // new focus item drives them — picking the FIRST element silently sticks the
-  // treemap to whatever was added first regardless of subsequent clicks.
+  // FIX-184: "Primary" drives single-entity vizes (treemap, sunburst, chord).
+  // Resolution order:
+  //   1. Explicitly pinned via the ★ in FocusTree (focus.primaryEntityId / primaryGroupId)
+  //   2. Last-added of each type — picking the FIRST element silently sticks
+  //      the treemap to whatever was added first regardless of later clicks.
   const focusEntityList = view.focus.entities.filter(isFocusEntity);
   const focusGroupList  = view.focus.entities.filter(isFocusGroup) as FocusGroup[];
-  const primaryEntity   = focusEntityList[focusEntityList.length - 1] ?? null;
-  const primaryGroup    = focusGroupList[focusGroupList.length  - 1] ?? null;
+  const pinnedEntity    = view.focus.primaryEntityId
+    ? focusEntityList.find(e => e.id === view.focus.primaryEntityId) ?? null
+    : null;
+  const pinnedGroup     = view.focus.primaryGroupId
+    ? focusGroupList.find(g => g.id === view.focus.primaryGroupId) ?? null
+    : null;
+  const primaryEntity   = pinnedEntity ?? focusEntityList[focusEntityList.length - 1] ?? null;
+  const primaryGroup    = pinnedGroup  ?? focusGroupList[focusGroupList.length  - 1] ?? null;
   const focusGroups     = focusGroupList;
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

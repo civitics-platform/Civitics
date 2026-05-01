@@ -143,7 +143,9 @@ export function FocusTree({
             <UserNodeRow userNode={userNode} onToggle={onToggleUserNode} />
           )}
           {/* FocusGroup items */}
-          {entities.filter(isFocusGroup).map(item => (
+          {entities.filter(isFocusGroup).map(item => {
+            const isPrimary = focus.primaryGroupId === item.id;
+            return (
             <div
               key={item.id}
               className="flex items-center justify-between px-3 py-2 bg-indigo-50/50 border-b border-gray-100"
@@ -155,21 +157,38 @@ export function FocusTree({
                 />
                 <span className="text-sm shrink-0">{item.icon}</span>
                 <div className="min-w-0">
-                  <div className="text-xs font-medium text-gray-800 truncate">{item.name}</div>
+                  <div className="text-xs font-medium text-gray-800 truncate flex items-center gap-1.5">
+                    {item.name}
+                    {isPrimary && (
+                      <span className="text-[9px] uppercase tracking-wide text-amber-600 bg-amber-100 px-1 rounded">
+                        Primary
+                      </span>
+                    )}
+                  </div>
                   <div className="text-[10px] text-gray-400">
                     Group{item.count ? ` · ${item.count} members` : ''}
                   </div>
                 </div>
               </div>
-              <button
-                onClick={() => hooks.removeGroup(item.id)}
-                className="shrink-0 ml-2 text-gray-300 hover:text-red-400 text-xs transition-colors"
-                title="Remove group"
-              >
-                ×
-              </button>
+              <div className="flex items-center gap-1 shrink-0 ml-2">
+                <button
+                  onClick={() => hooks.togglePrimary(item.id)}
+                  className={`text-sm transition-colors ${isPrimary ? 'text-amber-500 hover:text-amber-600' : 'text-gray-300 hover:text-amber-500'}`}
+                  title={isPrimary ? 'Unset primary group' : 'Pin as primary group (drives treemap / sunburst / chord)'}
+                >
+                  {isPrimary ? '★' : '☆'}
+                </button>
+                <button
+                  onClick={() => hooks.removeGroup(item.id)}
+                  className="text-gray-300 hover:text-red-400 text-xs transition-colors"
+                  title="Remove group"
+                >
+                  ×
+                </button>
+              </div>
             </div>
-          ))}
+            );
+          })}
 
           {/* Tagged entity groups with Remove all header */}
           {taggedGroups.map(([tag, members]) => (
@@ -186,14 +205,14 @@ export function FocusTree({
                 </button>
               </div>
               {members.map(entity => (
-                <EntityRow key={entity.id} entity={entity} hooks={hooks} depth={depth} />
+                <EntityRow key={entity.id} entity={entity} hooks={hooks} depth={depth} isPrimary={focus.primaryEntityId === entity.id} />
               ))}
             </div>
           ))}
 
           {/* Ungrouped entities */}
           {ungrouped.map(entity => (
-            <EntityRow key={entity.id} entity={entity} hooks={hooks} depth={depth} />
+            <EntityRow key={entity.id} entity={entity} hooks={hooks} depth={depth} isPrimary={focus.primaryEntityId === entity.id} />
           ))}
         </TreeSection>
       )}
@@ -348,19 +367,35 @@ function EntityRow({
   entity,
   hooks,
   depth,
+  isPrimary,
 }: {
   entity: FocusEntity;
   hooks: UseGraphViewReturn;
   depth: 1 | 2 | 3;
+  isPrimary: boolean;
 }) {
   const label = entity.groupTag ? (
     <span className="flex items-center gap-1">
       {entity.name}
+      {isPrimary && (
+        <span className="text-[9px] uppercase tracking-wide text-amber-600 bg-amber-100 px-1 rounded">
+          Primary
+        </span>
+      )}
       <span className="text-[9px] bg-gray-100 text-gray-500 px-1 rounded">
         {entity.groupTag}
       </span>
     </span>
-  ) : entity.name;
+  ) : (
+    <span className="flex items-center gap-1">
+      {entity.name}
+      {isPrimary && (
+        <span className="text-[9px] uppercase tracking-wide text-amber-600 bg-amber-100 px-1 rounded">
+          Primary
+        </span>
+      )}
+    </span>
+  );
 
   return (
     <TreeNode
@@ -375,8 +410,15 @@ function EntityRow({
       separator={false}
       actions={[
         {
+          icon: isPrimary ? '★' : '☆',
+          label: isPrimary
+            ? 'Unset primary entity'
+            : 'Pin as primary entity (drives treemap / sunburst / chord)',
+          onClick: () => hooks.togglePrimary(entity.id),
+        },
+        {
           icon: entity.pinned ? '📌' : '📍',
-          label: entity.pinned ? 'Unpin' : 'Pin',
+          label: entity.pinned ? 'Unpin position' : 'Pin position',
           onClick: () => hooks.updateEntity(entity.id, { pinned: !entity.pinned }),
         },
         {

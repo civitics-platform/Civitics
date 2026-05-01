@@ -10,6 +10,8 @@ type PartialError = { error: string; partial: true };
 export type DatabaseStats = {
   officials: number;
   proposals: number;
+  proposals_bills: number;
+  proposals_regulations: number;
   votes: number;
   entity_connections: number;
   financial_relationships: number;
@@ -26,9 +28,29 @@ export type PipelineRun = {
   rows_inserted: number;
 };
 
+export type PipelineHistoryRun = {
+  pipeline: string;
+  status: string;
+  started_at: string | null;
+  completed_at: string | null;
+  rows_inserted: number;
+  rows_updated: number;
+  rows_failed: number;
+  estimated_mb: number;
+  error_message: string | null;
+};
+
+export type EnrichmentBacklog = {
+  pending_tag: number;
+  pending_summary: number;
+  in_progress: number;
+};
+
 export type PipelinesData = {
   recent_runs: PipelineRun[];
   cron_last_run: Record<string, unknown> | null;
+  history: Record<string, PipelineHistoryRun[]>;
+  enrichment_backlog: EnrichmentBacklog;
 };
 
 type TokenPeriod = {

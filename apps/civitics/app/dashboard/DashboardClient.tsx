@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import {
   Users, ScrollText, Vote, Network, DollarSign, Sparkles,
-  RefreshCw, BarChart3, Lightbulb, Eye, Rocket, CircleCheck, CircleX,
+  RefreshCw, Lightbulb, Eye, Rocket, CircleCheck, CircleX,
   Megaphone,
 } from "lucide-react";
 import {
@@ -12,7 +12,6 @@ import {
   SectionHeader,
   EmptyState,
   CommentPeriodCard,
-  PipelineRow,
   DataQualityBar,
   ConnectionHighlight,
   ActivityItem,
@@ -25,7 +24,7 @@ import {
   useDashboardData,
   isPartial,
   type AiCosts,
-  type PipelineRun,
+  type PipelineHistoryRun,
   type ActivitySectionData,
   type OfficialsBreakdown,
 } from "./useDashboardData";
@@ -69,9 +68,60 @@ const PIPELINE_NAMES: Record<string, string> = {
   nightly_cron: "Nightly Sync",
   tag_rules: "Rule Tagger",
   tag_ai: "AI Tagger",
+  tag_industry: "Industry Tagger",
+  usaspending: "USAspending",
 };
 
-const KNOWN_PIPELINES = ["congress", "regulations", "connections", "fec_bulk", "ai_summaries"];
+const KNOWN_PIPELINES = [
+  "congress",
+  "regulations",
+  "fec_bulk",
+  "usaspending",
+  "ai_summaries",
+  "tag_industry",
+  "tag_ai",
+  "connections",
+];
+
+// Static per-pipeline metadata for the expanded drawer: source link + a
+// retry hint pointing at the local pnpm script. Read-only — we don't trigger
+// runs from the dashboard (HIT_LIST plans a separate dev tool for that).
+const PIPELINE_META: Record<
+  string,
+  { source?: { label: string; href: string }; retryCmd?: string }
+> = {
+  congress: {
+    source: { label: "Congress.gov", href: "https://congress.gov" },
+    retryCmd: "pnpm data:officials   # or data:votes / data:committees",
+  },
+  regulations: {
+    source: { label: "Regulations.gov", href: "https://regulations.gov" },
+    retryCmd: "pnpm data:regulations",
+  },
+  fec_bulk: {
+    source: { label: "FEC.gov", href: "https://www.fec.gov" },
+    retryCmd: "pnpm data:fec-bulk",
+  },
+  usaspending: {
+    source: { label: "USAspending.gov", href: "https://usaspending.gov" },
+    retryCmd: "pnpm data:usaspending-bulk",
+  },
+  ai_summaries: { retryCmd: "pnpm data:ai-summaries" },
+  tag_industry: { retryCmd: "pnpm data:tag-industry" },
+  tag_ai: { retryCmd: "pnpm data:tag-ai" },
+  connections: {
+    retryCmd:
+      "psql … -c 'SELECT * FROM rebuild_entity_connections();'  # see CLAUDE.md",
+  },
+};
+
+const PIPELINE_STATUS_COLOR: Record<string, string> = {
+  complete: "bg-green-500",
+  running: "bg-blue-500",
+  interrupted: "bg-amber-500",
+  failed: "bg-red-500",
+  pending: "bg-gray-300",
+};
 
 // ── Self-test display labels ──────────────────────────────────────────────────
 
@@ -290,10 +340,342 @@ function CommentPeriodsSection({ openProposals }: { openProposals: OpenProposal[
   );
 }
 
-function PipelinesSection({
+// Returns total-rows-in-DB for a pipeline based on the entity table it owns.
+// Returns null when there isn't a clean 1:1 mapping (e.g. ai_summaries shares
+// proposals with congress) or when the database section failed to load.
+function pipelineDbTotal(
+  pipeline: string,
+  database:
+    | NonNullable<ReturnType<typeof useDashboardData>["data"]>["status"]["database"]
+    | null,
+): { value: number; label: string } | null {
+  if (!database || isPartial(database)) return null;
+  switch (pipeline) {
+    case "congress":
+      return { value: database.proposals_bills, label: "bills + resolutions" };
+    case "regulations":
+      return { value: database.proposals_regulations, label: "regulations" };
+    case "fec_bulk":
+      return { value: database.financial_relationships, label: "donations + records" };
+    case "usaspending":
+      return { value: database.financial_relationships, label: "spending records" };
+    case "connections":
+      return { value: database.entity_connections, label: "edges" };
+    case "ai_summaries":
+      return { value: database.ai_summary_cache, label: "summaries cached" };
+    case "tag_industry":
+    case "tag_ai":
+      return { value: database.entity_tags, label: "tags applied" };
+    default:
+      return null;
+  }
+}
+
+// 7-day status indicator: oldest run on the left, newest on the right.
+// Empty squares for pipelines with fewer than 7 logged runs so the visual
+// width stays constant — operators can see "no rhythm" pipelines instantly.
+function StatusSparkline({ runs }: { runs: PipelineHistoryRun[] }) {
+  const ordered = [...runs].reverse();
+  const padded: Array<PipelineHistoryRun | null> = [
+    ...Array<null>(Math.max(0, 7 - ordered.length)).fill(null),
+    ...ordered,
+  ].slice(-7);
+  return (
+    <div className="flex items-center gap-1">
+      {padded.map((run, i) => (
+        <span
+          key={i}
+          title={
+            run
+              ? `${run.status} · ${run.completed_at ? formatRelativeTime(run.completed_at) : "—"} · +${formatNumber(run.rows_inserted ?? 0)}`
+              : "no run"
+          }
+          className={`block h-3 w-3 rounded-sm ${
+            run ? PIPELINE_STATUS_COLOR[run.status] ?? "bg-gray-300" : "bg-gray-100"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function HealthMetricTile({
+  label,
+  value,
+  sub,
+  tone = "neutral",
+}: {
+  label: string;
+  value: React.ReactNode;
+  sub?: React.ReactNode;
+  tone?: "ok" | "warning" | "error" | "neutral";
+}) {
+  const toneCls =
+    tone === "ok"
+      ? "text-green-700"
+      : tone === "warning"
+      ? "text-amber-700"
+      : tone === "error"
+      ? "text-red-700"
+      : "text-gray-900";
+  return (
+    <div className="flex-1 min-w-[140px] rounded-lg border border-gray-100 bg-gray-50/60 px-4 py-3">
+      <div className="text-[11px] uppercase tracking-wide text-gray-500">{label}</div>
+      <div className={`mt-1 text-lg font-semibold tabular-nums ${toneCls}`}>{value}</div>
+      {sub && <div className="text-xs text-gray-500 mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+function DataHealthRow({
+  pipeline,
+  history,
+  database,
+  quality,
+}: {
+  pipeline: string;
+  history: PipelineHistoryRun[];
+  database:
+    | NonNullable<ReturnType<typeof useDashboardData>["data"]>["status"]["database"]
+    | null;
+  quality:
+    | NonNullable<ReturnType<typeof useDashboardData>["data"]>["status"]["quality"]
+    | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const latest = history[0] ?? null;
+  const prior = history[1] ?? null;
+  const meta = PIPELINE_META[pipeline] ?? {};
+  const displayName = PIPELINE_NAMES[pipeline] ?? pipeline;
+
+  const freshness = latest?.completed_at
+    ? pipelineFreshness(latest.completed_at)
+    : "error";
+  const rowStatus =
+    !latest || !latest.completed_at
+      ? "pending"
+      : freshness === "error"
+      ? "failed"
+      : freshness === "warning"
+      ? "interrupted"
+      : ((latest.status as "complete" | "running" | "interrupted" | "failed" | "pending"));
+
+  const dbTotal = pipelineDbTotal(pipeline, database);
+  const lastInserted = latest?.rows_inserted ?? 0;
+  const delta = lastInserted - (prior?.rows_inserted ?? 0);
+
+  const lastFailed = history.find((r) => r.status === "failed" && r.error_message);
+
+  const q = quality && !isPartial(quality) ? quality : null;
+  const dbResolved = database && !isPartial(database) ? database : null;
+
+  return (
+    <div className="border-t border-gray-100 first:border-t-0">
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        aria-expanded={expanded}
+        className="w-full flex items-center gap-3 px-6 py-3 hover:bg-gray-50 transition-colors text-left"
+      >
+        <span className="text-gray-400 text-xs w-3 shrink-0">
+          {expanded ? "▾" : "▸"}
+        </span>
+        <span className="flex-1 min-w-0 flex items-center gap-3">
+          <span className="text-sm font-medium text-gray-900 truncate w-44 shrink-0">
+            {displayName}
+          </span>
+          {dbTotal ? (
+            <span className="text-xs text-gray-600 tabular-nums w-44 shrink-0">
+              {formatNumber(dbTotal.value)}{" "}
+              <span className="text-gray-400">{dbTotal.label}</span>
+            </span>
+          ) : (
+            <span className="text-xs text-gray-400 w-44 shrink-0">—</span>
+          )}
+          <span
+            className={`text-xs tabular-nums w-20 shrink-0 ${
+              delta > 0 ? "text-green-700" : delta < 0 ? "text-rose-700" : "text-gray-400"
+            }`}
+            title="Δ rows_inserted vs prior run"
+          >
+            {latest
+              ? `${delta >= 0 ? "+" : ""}${formatNumber(delta)}`
+              : ""}
+          </span>
+          <StatusSparkline runs={history} />
+        </span>
+        <StatusBadge status={rowStatus} size="sm" />
+        <span className="text-xs text-gray-400 w-24 text-right shrink-0">
+          {latest?.completed_at ? formatRelativeTime(latest.completed_at) : "never"}
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="bg-gray-50/60 border-t border-gray-100 px-6 py-4 space-y-4">
+          {/* Coverage bars relevant to this pipeline */}
+          {pipeline === "congress" && q && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <DataQualityBar
+                label="FEC ID coverage"
+                pct={q.fec_coverage.pct}
+                value={q.fec_coverage.has_fec}
+                total={q.fec_coverage.total}
+                color="green"
+              />
+              <div className="text-xs text-gray-600 self-end">
+                Missing state metadata:{" "}
+                <span className="font-medium tabular-nums">
+                  {formatNumber(q.missing_state)}
+                </span>{" "}
+                congress members
+              </div>
+            </div>
+          )}
+          {pipeline === "fec_bulk" && q && (
+            <DataQualityBar
+              label="Industry tags on PACs"
+              pct={q.industry_tags.pct}
+              value={q.industry_tags.tagged}
+              total={q.industry_tags.total}
+              color="blue"
+            />
+          )}
+          {pipeline === "fec_bulk" && q?.industry_tags.note && (
+            <p className="text-xs text-gray-500 -mt-2">{q.industry_tags.note}</p>
+          )}
+          {pipeline === "ai_summaries" && dbResolved && (
+            <DataQualityBar
+              label="AI summaries cached"
+              pct={
+                dbResolved.proposals > 0
+                  ? Math.round((dbResolved.ai_summary_cache / dbResolved.proposals) * 1000) / 10
+                  : 0
+              }
+              value={dbResolved.ai_summary_cache}
+              total={dbResolved.proposals}
+              color="amber"
+            />
+          )}
+
+          {/* Last 5 runs */}
+          {history.length > 0 ? (
+            <div>
+              <div className="text-xs font-medium text-gray-700 mb-1.5">Recent runs</div>
+              <div className="overflow-hidden rounded-md border border-gray-100">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-100 text-gray-600">
+                    <tr>
+                      <th className="text-left font-medium px-3 py-1.5">Started</th>
+                      <th className="text-right font-medium px-3 py-1.5">Inserted</th>
+                      <th className="text-right font-medium px-3 py-1.5">Updated</th>
+                      <th className="text-right font-medium px-3 py-1.5">Failed</th>
+                      <th className="text-right font-medium px-3 py-1.5">MB</th>
+                      <th className="text-left font-medium px-3 py-1.5">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 bg-white">
+                    {history.slice(0, 5).map((r, i) => (
+                      <tr key={`${r.completed_at ?? r.started_at}-${i}`}>
+                        <td className="px-3 py-1.5 text-gray-700">
+                          {r.started_at
+                            ? new Date(r.started_at).toLocaleString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })
+                            : "—"}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          {formatNumber(r.rows_inserted ?? 0)}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-gray-600">
+                          {formatNumber(r.rows_updated ?? 0)}
+                        </td>
+                        <td
+                          className={`px-3 py-1.5 text-right tabular-nums ${
+                            (r.rows_failed ?? 0) > 0 ? "text-rose-700" : "text-gray-400"
+                          }`}
+                        >
+                          {formatNumber(r.rows_failed ?? 0)}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-gray-500">
+                          {r.estimated_mb != null
+                            ? Math.round(Number(r.estimated_mb) * 10) / 10
+                            : "—"}
+                        </td>
+                        <td className="px-3 py-1.5">
+                          <StatusBadge
+                            status={
+                              (r.status as
+                                | "complete"
+                                | "running"
+                                | "interrupted"
+                                | "failed"
+                                | "pending") ?? "pending"
+                            }
+                            size="sm"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-gray-500">
+              No runs logged in <code>data_sync_log</code> for this pipeline.
+            </p>
+          )}
+
+          {/* Most recent error */}
+          {lastFailed?.error_message && (
+            <div className="rounded-md border border-rose-200 bg-rose-50/60 px-3 py-2">
+              <div className="text-xs font-medium text-rose-800 mb-0.5">
+                Latest failure ·{" "}
+                {lastFailed.completed_at
+                  ? formatRelativeTime(lastFailed.completed_at)
+                  : "unknown time"}
+              </div>
+              <pre className="text-[11px] text-rose-900 whitespace-pre-wrap break-words font-mono">
+                {lastFailed.error_message}
+              </pre>
+            </div>
+          )}
+
+          {/* Footer: source link + retry hint */}
+          <div className="flex flex-wrap items-center gap-3 pt-1 text-xs text-gray-600">
+            {meta.source && (
+              <a
+                href={meta.source.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center rounded-full border border-gray-200 bg-white px-2.5 py-0.5 font-medium hover:border-blue-300 hover:text-blue-700 transition-colors"
+              >
+                {meta.source.label} ↗
+              </a>
+            )}
+            {meta.retryCmd && (
+              <span className="font-mono text-[11px] text-gray-500">
+                ↻ <code>{meta.retryCmd}</code>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DataHealthSection({
   pipelines,
+  quality,
+  database,
 }: {
   pipelines: NonNullable<ReturnType<typeof useDashboardData>["data"]>["status"]["pipelines"];
+  quality: NonNullable<ReturnType<typeof useDashboardData>["data"]>["status"]["quality"];
+  database: NonNullable<ReturnType<typeof useDashboardData>["data"]>["status"]["database"];
 }) {
   const [hoursUntilNext, setHoursUntilNext] = useState(0);
 
@@ -313,197 +695,151 @@ function PipelinesSection({
   if (isPartial(pipelines)) {
     return (
       <SectionCard>
-        <SectionHeader icon={<RefreshCw size={16} />} title="Data Pipelines" status="error" />
+        <SectionHeader icon={<RefreshCw size={16} />} title="Data Health" status="error" />
         <p className="mt-3 text-sm text-rose-600">{pipelines.error}</p>
       </SectionCard>
     );
   }
 
-  // Deduplicate recent_runs — keep latest per pipeline
-  const latestByPipeline = new Map<string, PipelineRun>();
-  for (const run of pipelines.recent_runs) {
-    if (!latestByPipeline.has(run.pipeline)) {
-      latestByPipeline.set(run.pipeline, run);
+  // Build per-pipeline rows in declared order, then append any unknown
+  // pipelines that have history but aren't in KNOWN_PIPELINES.
+  const seen = new Set<string>();
+  const rows: Array<{ pipeline: string; history: PipelineHistoryRun[] }> = [];
+  for (const name of KNOWN_PIPELINES) {
+    seen.add(name);
+    rows.push({ pipeline: name, history: pipelines.history?.[name] ?? [] });
+  }
+  for (const name of Object.keys(pipelines.history ?? {})) {
+    if (!seen.has(name)) {
+      rows.push({ pipeline: name, history: pipelines.history[name] ?? [] });
     }
   }
 
-  // Build display rows: known pipelines first, then anything else
-  const pipelineRows: PipelineRun[] = [];
-  for (const name of KNOWN_PIPELINES) {
-    const run = latestByPipeline.get(name);
-    if (run) pipelineRows.push(run);
-    else {
-      pipelineRows.push({
-        pipeline: name,
-        status: "pending",
-        completed_at: "",
-        rows_inserted: 0,
-      });
-    }
-  }
+  // Health score: fraction of known pipelines that ran <48h ago AND completed.
+  const healthyCount = rows.filter((r) => {
+    const latest = r.history[0];
+    return (
+      latest?.status === "complete" &&
+      latest.completed_at &&
+      pipelineFreshness(latest.completed_at) === "ok"
+    );
+  }).length;
+  const healthPct = rows.length ? Math.round((healthyCount / rows.length) * 100) : 0;
+  const healthTone =
+    healthPct >= 80 ? "ok" : healthPct >= 50 ? "warning" : "error";
+
+  // Latest run anywhere (for header status)
+  const latestAcrossAll = rows
+    .map((r) => r.history[0])
+    .filter((r): r is PipelineHistoryRun => !!r && !!r.completed_at)
+    .sort(
+      (a, b) =>
+        new Date(b.completed_at!).getTime() - new Date(a.completed_at!).getTime(),
+    )[0];
 
   // Cron summary
   const cron = pipelines.cron_last_run as Record<string, unknown> | null;
-  const cronAt = (cron?.["completed_at"] as string | undefined) ?? (cron?.["started_at"] as string | undefined) ?? null;
-  const cronStatus = (cron?.["status"] as string | undefined) ?? "unknown";
+  const cronAt =
+    (cron?.["completed_at"] as string | undefined) ??
+    (cron?.["started_at"] as string | undefined) ??
+    null;
   const cronDurationSec = cron?.["duration_seconds"] as number | undefined;
   const cronCost = cron?.["cost_usd"] as number | undefined;
 
-  // Overall freshness for header status
-  const latestRun = pipelines.recent_runs[0];
-  const overallFreshness = latestRun ? pipelineFreshness(latestRun.completed_at) : "error";
+  const backlog = pipelines.enrichment_backlog ?? {
+    pending_tag: 0,
+    pending_summary: 0,
+    in_progress: 0,
+  };
+  const backlogTotal = backlog.pending_tag + backlog.pending_summary;
+  const backlogTone =
+    backlogTotal > 50_000 ? "warning" : backlogTotal > 0 ? "neutral" : "ok";
 
   return (
     <SectionCard noPadding>
-      <div className="p-6 pb-0">
+      <div className="p-6 pb-4">
         <SectionHeader
           icon={<RefreshCw size={16} />}
-          title="Data Pipelines"
-          status={overallFreshness === "ok" ? "ok" : overallFreshness === "warning" ? "warning" : "error"}
+          title="Data Health"
+          status={healthTone === "ok" ? "ok" : healthTone === "warning" ? "warning" : "error"}
           description={
-            latestRun ? (
+            latestAcrossAll ? (
               <>
-                Last sync: {formatRelativeTime(latestRun.completed_at)} · Next sync: in{" "}
-                <span suppressHydrationWarning>{hoursUntilNext}</span>h
+                Last sync: {formatRelativeTime(latestAcrossAll.completed_at!)} · Next
+                nightly in <span suppressHydrationWarning>{hoursUntilNext}</span>h
               </>
             ) : (
               "No recent runs found"
             )
           }
         />
-      </div>
 
-      {/* Cron summary */}
-      {cron && (
-        <div className="mx-6 mt-4 rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600">
-            <span>
-              <span className="font-medium text-gray-900">Last nightly:</span>{" "}
-              {cronAt ? new Date(cronAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) + ", " + new Date(cronAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "—"}
-            </span>
-            {cronDurationSec != null && (
-              <span>
-                <span className="font-medium text-gray-900">Duration:</span>{" "}
-                {cronDurationSec < 60
-                  ? `${cronDurationSec}s`
-                  : `${Math.round(cronDurationSec / 60)} minutes`}
-              </span>
-            )}
-            {cronCost != null && (
-              <span>
-                <span className="font-medium text-gray-900">Cost:</span>{" "}
-                ${cronCost.toFixed(2)}
-              </span>
-            )}
-            <span>
-              <StatusBadge status={cronStatus === "complete" ? "complete" : cronStatus === "failed" ? "failed" : "pending"} size="sm" />
-            </span>
-          </div>
+        {/* Top strip */}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <HealthMetricTile
+            label="Pipeline health"
+            value={`${healthyCount}/${rows.length} fresh`}
+            sub={`${healthPct}% of pipelines complete and < 48h old`}
+            tone={healthTone}
+          />
+          <HealthMetricTile
+            label="Enrichment backlog"
+            value={
+              <>
+                {formatNumber(backlog.pending_tag)} <span className="text-gray-400 text-sm">tag</span> ·{" "}
+                {formatNumber(backlog.pending_summary)} <span className="text-gray-400 text-sm">sum</span>
+              </>
+            }
+            sub={
+              backlog.in_progress > 0
+                ? `${formatNumber(backlog.in_progress)} in progress`
+                : "queue idle"
+            }
+            tone={backlogTone}
+          />
+          <HealthMetricTile
+            label="Last nightly"
+            value={
+              cronAt
+                ? new Date(cronAt).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                  }) +
+                  " " +
+                  new Date(cronAt).toLocaleTimeString("en-US", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })
+                : "—"
+            }
+            sub={
+              cronAt ? (
+                <>
+                  {cronDurationSec != null
+                    ? cronDurationSec < 60
+                      ? `${cronDurationSec}s`
+                      : `${Math.round(cronDurationSec / 60)}m`
+                    : "—"}
+                  {cronCost != null && ` · $${cronCost.toFixed(2)}`}
+                </>
+              ) : (
+                "no cron_last_run recorded"
+              )
+            }
+          />
         </div>
-      )}
+      </div>
 
       {/* Pipeline rows */}
-      <div className="mt-3 divide-y divide-gray-100">
-        {pipelineRows.map((run) => {
-          const freshness = run.completed_at ? pipelineFreshness(run.completed_at) : "error";
-          const status =
-            !run.completed_at
-              ? "pending"
-              : freshness === "error"
-              ? "failed"
-              : freshness === "warning"
-              ? "interrupted"
-              : (run.status as "complete" | "running" | "interrupted" | "failed" | "pending");
-
-          return (
-            <PipelineRow
-              key={run.pipeline}
-              name={run.pipeline}
-              displayName={PIPELINE_NAMES[run.pipeline] ?? run.pipeline}
-              status={status}
-              completedAt={run.completed_at || null}
-              rowsInserted={run.rows_inserted}
-            />
-          );
-        })}
-      </div>
-
-    </SectionCard>
-  );
-}
-
-function DataQualitySection({
-  quality,
-  database,
-}: {
-  quality: NonNullable<ReturnType<typeof useDashboardData>["data"]>["status"]["quality"];
-  database: NonNullable<ReturnType<typeof useDashboardData>["data"]>["status"]["database"];
-}) {
-  if (isPartial(quality)) {
-    return (
-      <SectionCard>
-        <SectionHeader icon={<BarChart3 size={16} />} title="Data Quality & Coverage" />
-        <p className="mt-3 text-sm text-rose-600">{quality.error}</p>
-      </SectionCard>
-    );
-  }
-
-  const db = isPartial(database) ? null : database;
-
-  const aiPct =
-    db && db.proposals > 0
-      ? Math.round((db.ai_summary_cache / db.proposals) * 1000) / 10
-      : 0;
-
-  return (
-    <SectionCard>
-      <SectionHeader icon={<BarChart3 size={16} />} title="Data Quality & Coverage" />
-      <div className="mt-4 space-y-5">
-        <DataQualityBar
-          label="FEC ID coverage"
-          pct={quality.fec_coverage.pct}
-          value={quality.fec_coverage.has_fec}
-          total={quality.fec_coverage.total}
-          color="green"
-        />
-        <DataQualityBar
-          label="Vote records"
-          pct={quality.vote_connections > 0 ? 100 : 0}
-          value={quality.vote_connections}
-          color="green"
-        />
-        <DataQualityBar
-          label="Industry tags"
-          pct={quality.industry_tags.pct}
-          value={quality.industry_tags.tagged}
-          total={quality.industry_tags.total}
-          color="blue"
-        />
-        <DataQualityBar
-          label="AI summaries"
-          pct={aiPct}
-          value={db?.ai_summary_cache ?? 0}
-          total={db?.proposals ?? 0}
-          color="amber"
-        />
-      </div>
-      <div className="mt-6 flex flex-wrap gap-2 border-t border-gray-100 pt-4">
-        <span className="text-xs text-gray-500 mr-1">Data sources:</span>
-        {[
-          { label: "FEC.gov", href: "https://www.fec.gov" },
-          { label: "Congress.gov", href: "https://congress.gov" },
-          { label: "Regulations.gov", href: "https://regulations.gov" },
-          { label: "OpenStates.org", href: "https://openstates.org" },
-        ].map((src) => (
-          <a
-            key={src.label}
-            href={src.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center rounded-full border border-gray-200 px-2.5 py-0.5 text-xs font-medium text-gray-600 hover:border-blue-300 hover:text-blue-700 transition-colors duration-150"
-          >
-            {src.label} ↗
-          </a>
+      <div>
+        {rows.map((r) => (
+          <DataHealthRow
+            key={r.pipeline}
+            pipeline={r.pipeline}
+            history={r.history}
+            database={database}
+            quality={quality}
+          />
         ))}
       </div>
     </SectionCard>
@@ -910,16 +1246,12 @@ export function DashboardClient({
         aiCosts={data?.status.ai_costs ?? { error: "Loading", partial: true }}
       />
 
-      {/* ── Two-column: Pipelines + Quality ── */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <PipelinesSection
-          pipelines={data?.status.pipelines ?? { error: "Loading", partial: true }}
-        />
-        <DataQualitySection
-          quality={data?.status.quality ?? { error: "Loading", partial: true }}
-          database={data?.status.database ?? { error: "Loading", partial: true }}
-        />
-      </div>
+      {/* ── Unified Data Health (replaces Pipelines + Quality cards) ── */}
+      <DataHealthSection
+        pipelines={data?.status.pipelines ?? { error: "Loading", partial: true }}
+        quality={data?.status.quality ?? { error: "Loading", partial: true }}
+        database={data?.status.database ?? { error: "Loading", partial: true }}
+      />
 
       {/* ── Platform Costs ── */}
       <PlatformCostsSection

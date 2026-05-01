@@ -68,6 +68,8 @@ export async function getDatabase(db: Db, yesterday: string) {
   const [
     officials,
     proposals,
+    proposalsBills,
+    proposalsRegs,
     votes,
     connections,
     finRel,
@@ -78,6 +80,14 @@ export async function getDatabase(db: Db, yesterday: string) {
   ] = await Promise.all([
     db.from("officials").select("*", { count: "exact", head: true }),
     db.from("proposals").select("*", { count: "exact", head: true }),
+    db
+      .from("proposals")
+      .select("*", { count: "exact", head: true })
+      .in("type", ["bill", "resolution", "amendment"]),
+    db
+      .from("proposals")
+      .select("*", { count: "exact", head: true })
+      .eq("type", "regulation"),
     db.from("votes").select("*", { count: "exact", head: true }),
     db.from("entity_connections").select("*", { count: "exact", head: true }),
     db.from("financial_relationships").select("*", { count: "exact", head: true }),
@@ -93,6 +103,8 @@ export async function getDatabase(db: Db, yesterday: string) {
   return {
     officials: officials.count ?? 0,
     proposals: proposals.count ?? 0,
+    proposals_bills: proposalsBills.count ?? 0,
+    proposals_regulations: proposalsRegs.count ?? 0,
     votes: votes.count ?? 0,
     entity_connections: connections.count ?? 0,
     financial_relationships: finRel.count ?? 0,
@@ -121,22 +133,90 @@ export async function getConnectionTypes(db: Db) {
 }
 
 // ── 4. Pipeline status ───────────────────────────────────────────────────────
+//
+// Returns enough state for the unified Data Health card on /dashboard:
+//   - recent_runs: latest 10 (kept for back-compat / quick "last sync" reads)
+//   - cron_last_run: nightly cron summary blob
+//   - history: per-pipeline last 7 runs (newest first), grouped from a 100-row
+//     fetch so the dashboard can render sparklines + a "last 5 runs" mini-table
+//     without a per-pipeline round-trip
+//   - enrichment_backlog: enrichment_queue depth split by tag/summary/in_progress
+//     (table is from FIX-101 stage 1 schema; fall back to zeros if unavailable
+//     so a missing/renamed table doesn't black out the whole pipelines card)
+export type PipelineHistoryRun = {
+  pipeline: string;
+  status: string;
+  started_at: string | null;
+  completed_at: string | null;
+  rows_inserted: number;
+  rows_updated: number;
+  rows_failed: number;
+  estimated_mb: number;
+  error_message: string | null;
+};
+
 export async function getPipelines(db: Db) {
-  const [recentRuns, cronState] = await Promise.all([
+  const [recentRunsRes, cronState, queueResults] = await Promise.all([
     db
       .from("data_sync_log")
-      .select("pipeline, status, completed_at, rows_inserted")
+      .select(
+        "pipeline, status, started_at, completed_at, rows_inserted, rows_updated, rows_failed, estimated_mb, error_message",
+      )
       .order("completed_at", { ascending: false })
-      .limit(10),
+      .limit(100),
     db
       .from("pipeline_state")
       .select("value")
       .eq("key", "cron_last_run")
       .maybeSingle(),
+    Promise.allSettled([
+      db
+        .from("enrichment_queue")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "pending")
+        .eq("enrichment_type", "tag"),
+      db
+        .from("enrichment_queue")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "pending")
+        .eq("enrichment_type", "summarize"),
+      db
+        .from("enrichment_queue")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "in_progress"),
+    ]),
   ]);
+
+  const allRuns = (recentRunsRes.data ?? []) as PipelineHistoryRun[];
+
+  const history: Record<string, PipelineHistoryRun[]> = {};
+  for (const run of allRuns) {
+    const bucket = (history[run.pipeline] ??= []);
+    if (bucket.length < 7) bucket.push(run);
+  }
+
+  // First 10 runs in (pipeline, completed_at desc) order — back-compat shape
+  // expected by callers that only want the slim PipelineRun fields.
+  const recent_runs = allRuns.slice(0, 10).map((r) => ({
+    pipeline: r.pipeline,
+    status: r.status,
+    completed_at: r.completed_at ?? "",
+    rows_inserted: r.rows_inserted ?? 0,
+  }));
+
+  const safeCount = (
+    r: PromiseSettledResult<{ count: number | null }>,
+  ): number => (r.status === "fulfilled" ? (r.value.count ?? 0) : 0);
+
   return {
-    recent_runs: recentRuns.data ?? [],
+    recent_runs,
     cron_last_run: cronState.data?.value ?? null,
+    history,
+    enrichment_backlog: {
+      pending_tag: safeCount(queueResults[0]),
+      pending_summary: safeCount(queueResults[1]),
+      in_progress: safeCount(queueResults[2]),
+    },
   };
 }
 

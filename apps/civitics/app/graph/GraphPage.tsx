@@ -526,6 +526,17 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
               primaryEntityId={primaryEntity?.id ?? null}
               primaryEntityName={primaryEntity?.name ?? null}
               primaryGroup={primaryGroup}
+              secondaryGroup={
+                // FIX-185 — Cohort × Filter. If a non-primary PAC industry
+                // group is also focused alongside an officials cohort, treat
+                // it as a donor-side filter ("Senate Democrats sized by
+                // donations from Finance PACs only").
+                focusGroups.find(g =>
+                  g.id !== primaryGroup?.id &&
+                  g.filter.entity_type === 'pac' &&
+                  !!g.filter.industry,
+                ) ?? null
+              }
             />
           </div>
 

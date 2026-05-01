@@ -1,4 +1,4 @@
-import { createAdminClient, fetchIndustryTagsByEntityId } from "@civitics/db";
+import { createAdminClient, fetchIndustryTagsByEntityId, fetchEntityIdsByIndustryTag } from "@civitics/db";
 import { supabaseUnavailable, unavailableResponse } from "@/lib/supabase-check";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +28,26 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const entityId = searchParams.get("entityId");
+  // FIX-185 — Cohort × Filter: when an industry filter is supplied alongside
+  // the cohort filters, restrict donation aggregation to donors tagged with
+  // that industry. Answers questions like "which Senate Democrats got the
+  // most money from Finance PACs?" Falls through to the current behavior
+  // when unset — no breaking change.
+  const industryFilter = searchParams.get("industry_filter");
+
+  // Resolve filter PAC ids once. Used in both entity mode and aggregate mode.
+  let filterPacIds: string[] | null = null;
+  if (industryFilter) {
+    filterPacIds = await fetchEntityIdsByIndustryTag(supabase, industryFilter);
+    if (filterPacIds.length === 0) {
+      // No PACs tagged with this industry — return empty result rather than
+      // running a query against an empty .in() filter (which PostgREST may
+      // mis-interpret as "match anything").
+      return Response.json([], {
+        headers: { "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=172800" },
+      });
+    }
+  }
 
   // Validate UUID format — reject group IDs like 'group-pac-finance'
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -37,13 +57,17 @@ export async function GET(request: Request) {
   // get_official_donors RPC was retired in the shadow→public promotion.
   // Direct query: financial_relationships → aggregate by from_id → join financial_entities.
   if (validEntityId) {
-    const { data: donations, error: donationsErr } = await supabase
+    let donationsQuery = supabase
       .from("financial_relationships")
       .select("from_id, amount_cents")
       .eq("relationship_type", "donation")
       .eq("to_type", "official")
       .eq("to_id", validEntityId)
       .eq("from_type", "financial_entity");
+
+    if (filterPacIds) donationsQuery = donationsQuery.in("from_id", filterPacIds);
+
+    const { data: donations, error: donationsErr } = await donationsQuery;
 
     if (donationsErr) {
       console.error("[graph/treemap/entity] donations error:", donationsErr.message);
@@ -198,13 +222,19 @@ export async function GET(request: Request) {
     const BATCH = 200;
     for (let i = 0; i < officialIds.length; i += BATCH) {
       const batch = officialIds.slice(i, i + BATCH);
+      // FIX-185: when industry_filter is set, restrict donor side to PACs
+      // tagged with that industry — turns "donations received" into
+      // "donations from {industry} PACs received" without changing cohort.
+      let donationsQuery = supabase
+        .from("financial_relationships")
+        .select("to_id, amount_cents")
+        .eq("relationship_type", "donation")
+        .eq("to_type", "official")
+        .in("to_id", batch);
+      if (filterPacIds) donationsQuery = donationsQuery.in("from_id", filterPacIds);
+
       const [donationsRes, connFromRes, connToRes] = await Promise.all([
-        supabase
-          .from("financial_relationships")
-          .select("to_id, amount_cents")
-          .eq("relationship_type", "donation")
-          .eq("to_type", "official")
-          .in("to_id", batch),
+        donationsQuery,
         supabase
           .from("entity_connections")
           .select("from_id, connection_type")

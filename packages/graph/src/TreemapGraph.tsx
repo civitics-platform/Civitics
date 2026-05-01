@@ -196,9 +196,17 @@ export interface TreemapGraphProps {
   primaryEntityId?: string | null;
   primaryEntityName?: string | null;
   primaryGroup?: FocusGroup | null;
+  /**
+   * FIX-185 — Cohort × Filter. When set to a PAC industry group, the treemap
+   * cohort comes from primaryEntity / primaryGroup (officials side) but the
+   * donation aggregate is restricted to donors tagged with this group's
+   * industry. Use case: "Senate Democrats sized by donations from Finance
+   * PACs only".
+   */
+  secondaryGroup?: FocusGroup | null;
 }
 
-export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOptions, primaryEntityId, primaryEntityName, primaryGroup }: TreemapGraphProps) {
+export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOptions, primaryEntityId, primaryEntityName, primaryGroup, secondaryGroup }: TreemapGraphProps) {
   const containerRef   = useRef<HTMLDivElement>(null);
   const internalSvgRef = useRef<SVGSVGElement>(null);
   const svgRef         = externalSvgRef ?? internalSvgRef;
@@ -268,6 +276,13 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
     const entityIdParam =
       primaryEntityId && isRealUuid(primaryEntityId) ? primaryEntityId : null;
 
+    // FIX-185: when a secondary PAC industry group is in focus alongside an
+    // officials cohort, narrow the donation aggregate to that industry.
+    const industryFilter =
+      secondaryGroup?.filter.entity_type === 'pac'
+        ? secondaryGroup.filter.industry ?? null
+        : null;
+
     let url: string;
 
     if (primaryGroup && primaryGroup.filter.entity_type === 'official') {
@@ -277,11 +292,16 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
       if (g.chamber) params.set('chamber', g.chamber);
       if (g.party)   params.set('party',   g.party);
       if (g.state)   params.set('state',   g.state);
+      if (industryFilter) params.set('industry_filter', industryFilter);
       url = `/api/graph/treemap?${params.toString()}`;
     } else if (entityIdParam) {
-      url = `/api/graph/treemap?entityId=${encodeURIComponent(entityIdParam)}&groupBy=${groupBy}&sizeBy=${sizeBy}`;
+      const params = new URLSearchParams({ entityId: entityIdParam, groupBy, sizeBy });
+      if (industryFilter) params.set('industry_filter', industryFilter);
+      url = `/api/graph/treemap?${params.toString()}`;
     } else {
-      url = `/api/graph/treemap?groupBy=${groupBy}&sizeBy=${sizeBy}`;
+      const params = new URLSearchParams({ groupBy, sizeBy });
+      if (industryFilter) params.set('industry_filter', industryFilter);
+      url = `/api/graph/treemap?${params.toString()}`;
     }
 
     fetch(url)
@@ -299,9 +319,9 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
-  // Refetch when entity / group / groupBy / sizeBy / dataMode change
+  // Refetch when entity / group / groupBy / sizeBy / dataMode / industry filter change
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [primaryEntityId, primaryGroup, groupBy, sizeBy, dataMode]);
+  }, [primaryEntityId, primaryGroup, secondaryGroup, groupBy, sizeBy, dataMode]);
 
   // Reset drill state when the view changes
   useEffect(() => {
@@ -723,11 +743,23 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
     );
   }
 
-  const contextLabel = isPacMode
+  // FIX-185: when an industry filter is active, surface it in the context
+  // label so the user knows the cell sizes are restricted ("Senate Dems —
+  // Finance PACs only").
+  const filterIndustryLabel =
+    secondaryGroup?.filter.entity_type === 'pac' && secondaryGroup.filter.industry
+      ? secondaryGroup.filter.industry
+      : null;
+  const baseLabel = isPacMode
     ? (dataMode === 'pac_sector' ? "PAC Money by Sector" : "PAC Money by Party")
     : primaryEntityId && primaryEntityName
       ? `${primaryEntityName} — Top Donors`
-      : "All Officials by Party";
+      : primaryGroup?.name
+        ? `${primaryGroup.name} by ${groupBy}`
+        : "All Officials by Party";
+  const contextLabel = filterIndustryLabel && !isPacMode
+    ? `${baseLabel} — ${filterIndustryLabel} PACs only`
+    : baseLabel;
 
   return (
     <div ref={containerRef} className={`relative overflow-hidden flex flex-col ${className}`}>

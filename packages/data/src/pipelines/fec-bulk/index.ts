@@ -1,5 +1,8 @@
 /**
  * FEC bulk data pipeline — post-cutover, writes directly to public.
+ * Multi-cycle (FIX-178): processes 2020/2022/2024/2026 by default so that
+ * mid-term senators (Class II/III, not running in 2024) still have donor
+ * records. Override with FEC_CYCLES env var ("2024" for legacy single-cycle).
  *
  * After the shadow→public promotion (migration 20260422000000), financial_*
  * tables live in public. This pipeline writes PAC committees and their
@@ -8,14 +11,18 @@
  *     - fec_committee_id UNIQUE — primary dedup key
  *     - entity_type derived from FEC CMTE_TP (N/Q/V/W → pac, O → super_pac,
  *                                             X/Y/Z → party_committee)
- *     - total_donated_cents refreshed each run
+ *     - total_donated_cents refreshed each run as SUM across all processed
+ *       cycles (cross-cycle final pass after the per-cycle loop)
  *
  *   public.financial_relationships    one row per (PAC, candidate, cycle)
  *     - relationship_type='donation', from=financial_entity, to=official
  *     - amount_cents aggregated across all 24K/24Z txns in the cycle
  *     - occurred_at = latest txn date in the aggregation
+ *     - cycle_year discriminates rows from different cycles
  *
  * Not written here:
+ *   - No individual contributions (indiv*.zip is ~2GB, pending Cloudflare R2
+ *     setup — see FIX-181). PACs only.
  *   - No weball synthetic-donor rows ("Individual Contributors" etc.). Those
  *     were rollups forced to fit the old narrow schema; in the new shape they
  *     belong in a nightly aggregate view / official_financials rollup.
@@ -23,21 +30,28 @@
  *     rebuild_entity_connections() SQL function handles donation edges.
  *
  * Data flow:
- *   1. Download bulk zips (weball, cm24, pas2)
- *   2. Parse weball → filter to known candidate FEC IDs
- *   3. Load public.officials + build fuzzy-match index
- *   4. Parse cm24 (committee master)
- *   5. Stream pas224 line-by-line, aggregating 24K/24Z $5k+ txns by
- *      (CMTE_ID × CAND_ID)
- *   6. For each aggregate:
- *        - upsert public.financial_entities  (one-per-committee cache)
- *        - upsert public.financial_relationships
+ *   Once (before cycle loop):
+ *     - Load public.officials + build fuzzy-match index
+ *   Per cycle:
+ *     1. Download bulk zips (weball, cm, pas2) for this cycle
+ *     2. Parse weball → grow match index, queue newly discovered FEC IDs
+ *     3. Parse cm (committee master) → merge into cross-cycle map
+ *     4. Stream pas2 line-by-line, aggregating 24K/24Z $5k+ txns by
+ *        (CMTE_ID × CAND_ID)
+ *     5. Upsert per-cycle entities (cycle-local total) + relationships
+ *        (cycle_year=<cycle>)
+ *     6. Cleanup cycle-local temp files
+ *   Once (after cycle loop):
+ *     - Persist newFecIds back to officials.source_ids
+ *     - Cross-cycle final entity upsert: total_donated_cents = SUM across cycles
  *
- * Files downloaded to /tmp and deleted after processing.
+ * Files downloaded to /tmp and deleted between cycles, so peak disk usage
+ * stays under ~250MB regardless of how many cycles are processed.
  * No API key, no rate limits. FEC refreshes bulk files weekly.
  *
  * Run standalone:
  *   pnpm --filter @civitics/data data:fec-bulk
+ *   FEC_CYCLES=2022,2024 pnpm --filter @civitics/data data:fec-bulk
  */
 
 import * as https    from "https";
@@ -536,105 +550,129 @@ async function streamPas224(
 // ---------------------------------------------------------------------------
 
 export async function runFecBulkPipeline(): Promise<PipelineResult> {
-  console.log("\n=== FEC bulk data pipeline (public) ===");
+  console.log("\n=== FEC bulk data pipeline (public, multi-cycle) ===");
   const logId = await startSync("fec_bulk");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = createAdminClient() as any;
 
+  // Cycle list — overridable via FEC_CYCLES env var. Default covers the four
+  // most recent biennial cycles so that all current senators (Class I/II/III,
+  // 6-year terms) and reps (current term + prior incumbency) appear in at
+  // least one cycle. 2026 is the in-progress cycle and may 404 until FEC
+  // publishes the first bulk drop — handled gracefully.
+  const CYCLES = (process.env.FEC_CYCLES ?? "2020,2022,2024,2026")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  console.log(`  Cycles to process: ${CYCLES.join(", ")}`);
+
   let pacEntitiesUpserted = 0, pacEntitiesFailed = 0;
   let pacRelsUpserted = 0, pacRelsFailed = 0;
   let matchedByFecId = 0, matchedByName = 0, notMatched = 0;
-  let totalFileMb = "0";
-  let tempFreedMb = "0";
+  let totalFileMb = 0;
+
+  // Cross-cycle accumulators
+  const cmteTotalsAllCycles = new Map<string, number>();
+  const cmteInfoSeen        = new Map<string, CommitteeInfo>();
+  const entityIdByCmteAcc   = new Map<string, string>();
+  const newFecIds: Array<{
+    officialId: string;
+    fecId:      string;
+    storageKey: "fec_id" | "fec_candidate_id";
+  }> = [];
+  const newFecIdSeen = new Set<string>(); // dedup key: `${officialId}|${fecId}`
 
   try {
-    // ── Step 1: Download bulk files ──────────────────────────────────────────
-    console.log("\n  [1/6] Downloading FEC bulk files...");
     ensureTmpDir();
 
-    const CYCLE = "2024";
-    const bulkFiles = [
-      {
-        url:  `https://www.fec.gov/files/bulk-downloads/${CYCLE}/weball${CYCLE.slice(2)}.zip`,
-        name: `weball${CYCLE.slice(2)}.zip`,
-      },
-      {
-        url:  `https://www.fec.gov/files/bulk-downloads/${CYCLE}/cm${CYCLE.slice(2)}.zip`,
-        name: `cm${CYCLE.slice(2)}.zip`,
-      },
-      {
-        url:  `https://www.fec.gov/files/bulk-downloads/${CYCLE}/pas2${CYCLE.slice(2)}.zip`,
-        name: `pas2${CYCLE.slice(2)}.zip`,
-      },
-    ];
-
-    for (const f of bulkFiles) {
-      const destPath = path.join(TMP_DIR, f.name);
-      console.log(`    Downloading ${f.name}...`);
-      await downloadFile(f.url, destPath);
-      const sizeMb = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
-      console.log(`    ✓ ${f.name} (${sizeMb} MB)`);
-    }
-
-    // ── Step 2: Extract and parse weball ────────────────────────────────────
-    console.log("\n  [2/6] Extracting and parsing candidate summary...");
-    const weballZip  = path.join(TMP_DIR, `weball${CYCLE.slice(2)}.zip`);
-    const extracted  = await extractZip(weballZip, TMP_DIR);
-    const weballFile = extracted.find(
-      (f) => path.basename(f).toLowerCase().startsWith("weball") && f.endsWith(".txt")
-    );
-    if (!weballFile) throw new Error("weball .txt not found inside zip");
-
-    const weballBuf  = fs.readFileSync(weballFile);
-    const weballRows = parseWeBall(weballBuf);
-    totalFileMb = (weballBuf.byteLength / 1024 / 1024).toFixed(1);
-    console.log(`    Parsed ${weballRows.length} candidate rows (${totalFileMb} MB)`);
-
-    // ── Step 3: Load officials + build match index ───────────────────────────
-    console.log("\n  [3/6] Loading officials and matching to FEC candidates...");
+    // ── Load officials + match index (once, shared across all cycles) ───────
+    console.log("\n  Loading officials and building match index...");
     const officials   = await loadOfficials(db);
     const index       = buildMatchIndex(officials);
     const officialMap = new Map(officials.map((o) => [o.id, o]));
     console.log(`    Loaded ${officials.length} active officials`);
+    console.log(`    Initial FEC ID index size: ${index.byFecId.size}`);
 
-    // Build candidate set used to filter the pas224 stream
-    const candidateSet = new Set<string>(index.byFecId.keys());
+    // ── Per-cycle loop ──────────────────────────────────────────────────────
+    for (const CYCLE of CYCLES) {
+      console.log(`\n────────── Cycle ${CYCLE} ──────────`);
 
-    const newFecIds: Array<{
-      officialId:  string;
-      fecId:       string;
-      storageKey:  "fec_id" | "fec_candidate_id";
-    }> = [];
+      // Step 1: Download bulk files for this cycle
+      console.log(`  [${CYCLE} 1/5] Downloading FEC bulk files...`);
+      const bulkFiles = [
+        { url:  `https://www.fec.gov/files/bulk-downloads/${CYCLE}/weball${CYCLE.slice(2)}.zip`,
+          name: `weball${CYCLE.slice(2)}.zip` },
+        { url:  `https://www.fec.gov/files/bulk-downloads/${CYCLE}/cm${CYCLE.slice(2)}.zip`,
+          name: `cm${CYCLE.slice(2)}.zip` },
+        { url:  `https://www.fec.gov/files/bulk-downloads/${CYCLE}/pas2${CYCLE.slice(2)}.zip`,
+          name: `pas2${CYCLE.slice(2)}.zip` },
+      ];
 
-    // Walk weball — we don't persist weball aggregates any more (per comment at
-    // top of file). The only reason we process weball is to (a) grow the
-    // candidateSet used to filter pas224 and (b) discover FEC IDs for our
-    // officials that aren't yet stored.
-    for (const row of weballRows) {
-      const match = matchRow(row, index);
-      if (!match) { notMatched++; continue; }
-
-      if (match.byFecId) {
-        matchedByFecId++;
-      } else {
-        matchedByName++;
-        index.byFecId.set(match.fecId, match.officialId);
-        newFecIds.push({ officialId: match.officialId, fecId: match.fecId, storageKey: "fec_id" });
-        candidateSet.add(match.fecId);
+      let downloadFailed = false;
+      for (const f of bulkFiles) {
+        const destPath = path.join(TMP_DIR, f.name);
+        console.log(`    Downloading ${f.name}...`);
+        try {
+          await downloadFile(f.url, destPath);
+          const sizeMb = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
+          console.log(`    ✓ ${f.name} (${sizeMb} MB)`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`    ✗ ${f.name} unavailable: ${msg} — skipping cycle ${CYCLE}`);
+          downloadFailed = true;
+          break;
+        }
       }
-    }
+      if (downloadFailed) {
+        // Common for the in-progress cycle (e.g. 2026 before first FEC drop).
+        for (const f of bulkFiles) {
+          try { fs.unlinkSync(path.join(TMP_DIR, f.name)); } catch { /* ok */ }
+        }
+        continue;
+      }
 
-    console.log(`    Matched by fec_id: ${matchedByFecId}`);
-    console.log(`    Matched by name:   ${matchedByName}`);
-    console.log(`    Not matched:       ${notMatched}`);
+      // Step 2: Extract + parse weball
+      console.log(`  [${CYCLE} 2/5] Extracting and parsing candidate summary...`);
+      const weballZip  = path.join(TMP_DIR, `weball${CYCLE.slice(2)}.zip`);
+      const extracted  = await extractZip(weballZip, TMP_DIR);
+      const weballFile = extracted.find(
+        (f) => path.basename(f).toLowerCase().startsWith("weball") && f.endsWith(".txt")
+      );
+      if (!weballFile) {
+        console.warn(`    weball .txt not found in ${weballZip} — skipping cycle ${CYCLE}`);
+        continue;
+      }
+      const weballBuf  = fs.readFileSync(weballFile);
+      const weballRows = parseWeBall(weballBuf);
+      const cycleMb    = weballBuf.byteLength / 1024 / 1024;
+      totalFileMb     += cycleMb;
+      console.log(`    Parsed ${weballRows.length} candidate rows (${cycleMb.toFixed(1)} MB)`);
 
-    // ── Name-fallback for officials with no stored FEC ID at all ─────────────
-    //
-    // Officials whose source_ids contain neither fec_candidate_id nor fec_id
-    // get a second chance: look up their last-name + first-3 + state against
-    // weball. Matches are stored as fec_candidate_id (the authoritative key)
-    // so future runs use the direct byFecId path and the candidateSet grows.
-    {
+      // Step 3: Match weball → officials, growing index across cycles
+      let cycMatchedByFecId = 0, cycMatchedByName = 0, cycNotMatched = 0;
+      for (const row of weballRows) {
+        const match = matchRow(row, index);
+        if (!match) { cycNotMatched++; continue; }
+        if (match.byFecId) {
+          cycMatchedByFecId++;
+        } else {
+          cycMatchedByName++;
+          index.byFecId.set(match.fecId, match.officialId);
+          const dedupKey = `${match.officialId}|${match.fecId}`;
+          if (!newFecIdSeen.has(dedupKey)) {
+            newFecIdSeen.add(dedupKey);
+            newFecIds.push({ officialId: match.officialId, fecId: match.fecId, storageKey: "fec_id" });
+          }
+        }
+      }
+      matchedByFecId += cycMatchedByFecId;
+      matchedByName  += cycMatchedByName;
+      notMatched     += cycNotMatched;
+      console.log(`    Matched by fec_id: ${cycMatchedByFecId}  by name: ${cycMatchedByName}  not matched: ${cycNotMatched}`);
+
+      // Name-fallback for officials with no stored FEC ID at all. Re-run per
+      // cycle — a senator who didn't run in 2024 may appear in 2020/2022's
+      // weball under their incumbent committee.
       const alreadyIndexed = new Set(index.byFecId.values());
       const noFecIdOfficials = officials.filter((o) => {
         if (alreadyIndexed.has(o.id)) return false;
@@ -666,19 +704,111 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
 
           fallbackMatched++;
           index.byFecId.set(row.candId, official.id);
-          candidateSet.add(row.candId);
-          newFecIds.push({ officialId: official.id, fecId: row.candId, storageKey: "fec_candidate_id" });
+          const dedupKey = `${official.id}|${row.candId}`;
+          if (!newFecIdSeen.has(dedupKey)) {
+            newFecIdSeen.add(dedupKey);
+            newFecIds.push({ officialId: official.id, fecId: row.candId, storageKey: "fec_candidate_id" });
+          }
         }
 
         if (fallbackMatched > 0) {
           console.log(`    Name fallback matched: ${fallbackMatched} additional officials`);
         }
       }
-    }
 
-    // Persist newly discovered FEC IDs back into officials.source_ids
+      const candidateSet = new Set<string>(index.byFecId.keys());
+
+      // Step 4: Parse cm + stream pas2
+      console.log(`  [${CYCLE} 3/5] Building PAC committee index and streaming contributions...`);
+      const cmZip       = path.join(TMP_DIR, `cm${CYCLE.slice(2)}.zip`);
+      const cmExtracted = await extractZip(cmZip, TMP_DIR);
+      const cmFile      = cmExtracted.find(
+        (f) => path.basename(f).toLowerCase().startsWith("cm") && f.endsWith(".txt")
+      );
+      if (!cmFile) {
+        console.warn(`    cm .txt not found in ${cmZip} — skipping cycle ${CYCLE}`);
+        continue;
+      }
+      const cmLookup = parseCm24(fs.readFileSync(cmFile));
+      console.log(`    Committee master: ${cmLookup.size.toLocaleString()} committees indexed`);
+      // Merge into cross-cycle map (later cycles override — keep freshest committee name)
+      for (const [cmteId, info] of cmLookup.entries()) {
+        cmteInfoSeen.set(cmteId, info);
+      }
+
+      console.log(`    Streaming pas2 (filtering to ${candidateSet.size} known fec_ids)...`);
+      const pasZip  = path.join(TMP_DIR, `pas2${CYCLE.slice(2)}.zip`);
+      const pacAggs = await streamPas224(pasZip, candidateSet);
+      console.log(`    PAC pairs matched (committee × candidate): ${pacAggs.size.toLocaleString()}`);
+
+      // Step 5: Upsert entities + relationships for this cycle
+      console.log(`  [${CYCLE} 4/5] Upserting entities + relationships...`);
+
+      // Cycle-local committee totals (used as initial total_donated_cents;
+      // the cross-cycle final pass below will overwrite with the proper sum)
+      const cycleCmteTotals = new Map<string, number>();
+      for (const agg of pacAggs.values()) {
+        cycleCmteTotals.set(agg.cmteId, (cycleCmteTotals.get(agg.cmteId) ?? 0) + agg.totalCents);
+        cmteTotalsAllCycles.set(
+          agg.cmteId,
+          (cmteTotalsAllCycles.get(agg.cmteId) ?? 0) + agg.totalCents,
+        );
+      }
+
+      const entityInputs = [];
+      for (const [cmteId, totalCents] of cycleCmteTotals.entries()) {
+        const info = cmLookup.get(cmteId);
+        if (!info) continue;
+        entityInputs.push({
+          cmteId,
+          name:              info.name,
+          cmteType:          info.type,
+          connectedOrg:      info.connectedOrg,
+          totalDonatedCents: totalCents,
+        });
+      }
+
+      const entityResult = await upsertPacEntitiesBatch(db, entityInputs);
+      pacEntitiesUpserted += entityResult.upserted;
+      pacEntitiesFailed   += entityResult.failed;
+      for (const [cmteId, id] of entityResult.entityIdByCmte.entries()) {
+        entityIdByCmteAcc.set(cmteId, id);
+      }
+      console.log(`    Entities — upserted: ${entityResult.upserted}  failed: ${entityResult.failed}`);
+
+      const relInputs = [];
+      for (const agg of pacAggs.values()) {
+        const entityId = entityIdByCmteAcc.get(agg.cmteId);
+        if (!entityId) continue;
+        const officialId = index.byFecId.get(agg.candId);
+        if (!officialId) continue;
+        relInputs.push({
+          fromEntityId: entityId,
+          toOfficialId: officialId,
+          cycleYear:    parseInt(CYCLE, 10),
+          amountCents:  agg.totalCents,
+          occurredAt:   agg.latestDate ? parseFecDate(agg.latestDate) : null,
+          cmteId:       agg.cmteId,
+          txCount:      agg.txCount,
+        });
+      }
+
+      const relResult = await upsertDonationRelationshipsBatch(db, relInputs);
+      pacRelsUpserted += relResult.upserted;
+      pacRelsFailed   += relResult.failed;
+      console.log(`    Relationships — upserted: ${relResult.upserted}  failed: ${relResult.failed}`);
+
+      // Step 6: cleanup cycle-specific temp files (keeps disk under ~250MB
+      // even when processing 4 cycles in one run)
+      console.log(`  [${CYCLE} 5/5] Cleaning up cycle ${CYCLE} temp files...`);
+      for (const f of fs.readdirSync(TMP_DIR)) {
+        try { fs.unlinkSync(path.join(TMP_DIR, f)); } catch { /* ok */ }
+      }
+    } // end per-cycle loop
+
+    // ── Persist newly discovered FEC IDs ────────────────────────────────────
     if (newFecIds.length > 0) {
-      console.log(`    Storing ${newFecIds.length} FEC ID associations...`);
+      console.log(`\n  Storing ${newFecIds.length} FEC ID associations across cycles...`);
       for (const { officialId, fecId, storageKey } of newFecIds) {
         const o = officialMap.get(officialId);
         if (!o) continue;
@@ -689,51 +819,16 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
       }
     }
 
-    // ── Step 4: Parse cm24, stream pas224 ───────────────────────────────────
-    console.log("\n  [4/6] Building PAC committee index and streaming contributions...");
-
-    const cmZip       = path.join(TMP_DIR, `cm${CYCLE.slice(2)}.zip`);
-    const cmExtracted = await extractZip(cmZip, TMP_DIR);
-    const cmFile      = cmExtracted.find(
-      (f) => path.basename(f).toLowerCase().startsWith("cm") && f.endsWith(".txt")
-    );
-    if (!cmFile) throw new Error("cm .txt not found inside zip");
-
-    const cmLookup = parseCm24(fs.readFileSync(cmFile));
-    console.log(`    Committee master: ${cmLookup.size.toLocaleString()} committees indexed`);
-
-    console.log(`    Streaming pas224 (filtering to ${candidateSet.size} known fec_ids)...`);
-    const pasZip  = path.join(TMP_DIR, `pas2${CYCLE.slice(2)}.zip`);
-    const pacAggs = await streamPas224(pasZip, candidateSet);
-    console.log(`    PAC pairs matched (committee × candidate): ${pacAggs.size.toLocaleString()}`);
-
-    // ── Step 5: Upsert financial_entities + financial_relationships ──────────
-    //
-    // Two-pass, both batched:
-    //   pass A  unique-committees → chunked upsert of financial_entities,
-    //           dedup on fec_committee_id UNIQUE. Returns cmte → UUID map.
-    //   pass B  (committee × candidate × cycle) aggregates → chunked upsert
-    //           of financial_relationships, dedup on the partial unique
-    //           index financial_relationships_donation_unique (added in
-    //           migration 20260423000000).
-    //
-    // Chunk size 500 rows per call = ~4 round-trips for entities, ~33 for
-    // relationships — orders of magnitude faster than per-row round-trips.
-    // ---------------------------------------------------------------------------
-    console.log("\n  [5/6] Upserting financial_entities and financial_relationships...");
-
-    // Per-committee totals (for total_donated_cents)
-    const cmteTotals = new Map<string, number>();
-    for (const agg of pacAggs.values()) {
-      cmteTotals.set(agg.cmteId, (cmteTotals.get(agg.cmteId) ?? 0) + agg.totalCents);
-    }
-
-    // Pass A — batched entity upsert
-    const entityInputs = [];
-    for (const [cmteId, totalCents] of cmteTotals.entries()) {
-      const info = cmLookup.get(cmteId);
-      if (!info) continue; // not in cm24 — skip silently
-      entityInputs.push({
+    // ── Cross-cycle entity total recompute ──────────────────────────────────
+    // Per-cycle upserts wrote each cycle's local total to total_donated_cents,
+    // so the last-cycle-processed value is what's currently in the row. Final
+    // pass overwrites with the SUM across every cycle observed in this run.
+    console.log("\n  Recomputing financial_entities.total_donated_cents across all cycles...");
+    const finalEntityInputs = [];
+    for (const [cmteId, totalCents] of cmteTotalsAllCycles.entries()) {
+      const info = cmteInfoSeen.get(cmteId);
+      if (!info) continue;
+      finalEntityInputs.push({
         cmteId,
         name:              info.name,
         cmteType:          info.type,
@@ -741,71 +836,30 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
         totalDonatedCents: totalCents,
       });
     }
+    const finalResult = await upsertPacEntitiesBatch(db, finalEntityInputs);
+    console.log(`    Cross-cycle entity totals — upserted: ${finalResult.upserted}  failed: ${finalResult.failed}`);
 
-    const entityResult = await upsertPacEntitiesBatch(db, entityInputs);
-    pacEntitiesUpserted = entityResult.upserted;
-    pacEntitiesFailed   = entityResult.failed;
-    const entityIdByCmte = entityResult.entityIdByCmte;
-
-    console.log(
-      `    Entities — upserted: ${pacEntitiesUpserted}  failed: ${pacEntitiesFailed}`
-    );
-
-    // Pass B — batched relationship upsert
-    const relInputs = [];
-    for (const agg of pacAggs.values()) {
-      const entityId = entityIdByCmte.get(agg.cmteId);
-      if (!entityId) continue; // entity upsert failed / missing from cm24
-
-      const officialId = index.byFecId.get(agg.candId);
-      if (!officialId) continue; // should never happen — candidateSet was derived from this index
-
-      relInputs.push({
-        fromEntityId: entityId,
-        toOfficialId: officialId,
-        cycleYear:    parseInt(CYCLE, 10),
-        amountCents:  agg.totalCents,
-        occurredAt:   agg.latestDate ? parseFecDate(agg.latestDate) : null,
-        cmteId:       agg.cmteId,
-        txCount:      agg.txCount,
-      });
-    }
-
-    const relResult = await upsertDonationRelationshipsBatch(db, relInputs);
-    pacRelsUpserted = relResult.upserted;
-    pacRelsFailed   = relResult.failed;
-
-    console.log(
-      `    Relationships — upserted: ${pacRelsUpserted}  failed: ${pacRelsFailed}`
-    );
-
-    // ── Step 6: Cleanup + report ─────────────────────────────────────────────
-    console.log("\n  [6/6] Cleaning up temp files...");
-    const tmpBytes = fs.readdirSync(TMP_DIR).reduce(
-      (acc, f) => acc + fs.statSync(path.join(TMP_DIR, f)).size,
-      0
-    );
-    tempFreedMb = (tmpBytes / 1024 / 1024).toFixed(1);
+    // ── Final cleanup + report ──────────────────────────────────────────────
     deleteTmpDir();
-    console.log(`    Freed ~${tempFreedMb} MB ✓`);
 
-    const totalUpserted = pacEntitiesUpserted + pacRelsUpserted;
-    const totalFailed   = pacEntitiesFailed   + pacRelsFailed;
+    const totalUpserted = pacEntitiesUpserted + pacRelsUpserted + finalResult.upserted;
+    const totalFailed   = pacEntitiesFailed   + pacRelsFailed   + finalResult.failed;
 
     console.log("\n  ──────────────────────────────────────────────────");
-    console.log("  FEC Bulk Pipeline Report");
+    console.log("  FEC Bulk Pipeline Report (multi-cycle)");
     console.log("  ──────────────────────────────────────────────────");
+    console.log(`  ${"Cycles processed:".padEnd(38)} ${CYCLES.join(", ")}`);
     console.log(`  ${"Officials matched by fec_id:".padEnd(38)} ${matchedByFecId}`);
     console.log(`  ${"Officials matched by name:".padEnd(38)} ${matchedByName}`);
     console.log(`  ${"Officials not matched:".padEnd(38)} ${notMatched}`);
-    console.log(`  ${"entities upserted:".padEnd(38)} ${pacEntitiesUpserted}`);
-    console.log(`  ${"entities failed:".padEnd(38)} ${pacEntitiesFailed}`);
-    console.log(`  ${"relationships upserted:".padEnd(38)} ${pacRelsUpserted}`);
-    console.log(`  ${"relationships failed:".padEnd(38)} ${pacRelsFailed}`);
-    console.log(`  ${"Financial data processed:".padEnd(38)} ~${totalFileMb} MB`);
-    console.log(`  ${"Temp files deleted:".padEnd(38)} ✓`);
+    console.log(`  ${"Per-cycle entity upserts:".padEnd(38)} ${pacEntitiesUpserted}`);
+    console.log(`  ${"Per-cycle entity failures:".padEnd(38)} ${pacEntitiesFailed}`);
+    console.log(`  ${"Cross-cycle final entity upserts:".padEnd(38)} ${finalResult.upserted}`);
+    console.log(`  ${"Relationships upserted:".padEnd(38)} ${pacRelsUpserted}`);
+    console.log(`  ${"Relationships failed:".padEnd(38)} ${pacRelsFailed}`);
+    console.log(`  ${"Financial data processed:".padEnd(38)} ~${totalFileMb.toFixed(1)} MB`);
 
-    // Sanity check — top 10 PAC donors by total contributed
+    // Sanity check — top 10 PAC donors by total contributed (cross-cycle)
     const { data: top10pacs } = await db
       .from("financial_entities")
       .select("display_name, total_donated_cents")
@@ -813,7 +867,7 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
       .limit(10);
 
     if (top10pacs && top10pacs.length > 0) {
-      console.log("\n  Top 10 PAC donors (sanity check — expect EMILY'S LIST, NRA, SEIU, etc.):");
+      console.log("\n  Top 10 PAC donors (cross-cycle):");
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for (const row of top10pacs as any[]) {
         const name = String(row.display_name ?? "Unknown").padEnd(52);
@@ -822,42 +876,41 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
       }
     }
 
-    // Sanity check — top 5 officials by total PAC contributions received
-    const { data: top5 } = await db
-      .from("financial_relationships")
-      .select("to_id, amount_cents")
-      .eq("relationship_type", "donation")
-      .eq("to_type", "official")
-      .eq("cycle_year", parseInt(CYCLE, 10))
-      .order("amount_cents", { ascending: false })
-      .limit(5);
+    // Sanity check — federal Senate coverage (the main FIX-178 metric)
+    const { data: senatorRows } = await db
+      .from("officials")
+      .select("id, full_name, source_ids")
+      .eq("is_active", true)
+      .eq("role_title", "Senator")
+      .limit(200);
 
-    if (top5 && top5.length > 0) {
-      // Fetch the official full_names in one round-trip
+    if (senatorRows && senatorRows.length > 0) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const ids = (top5 as any[]).map((r) => r.to_id);
-      const { data: people } = await db
-        .from("officials")
-        .select("id, full_name")
-        .in("id", ids);
-      const byId = new Map<string, string>();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      for (const p of (people ?? []) as any[]) byId.set(p.id as string, p.full_name as string);
-
-      console.log("\n  Top 5 officials by single PAC relationship amount:");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      for (const row of top5 as any[]) {
-        const name = byId.get(row.to_id as string) ?? "Unknown";
-        const amt  = `$${(Number(row.amount_cents) / 100).toLocaleString()}`;
-        console.log(`    ${String(name).padEnd(40)} ${amt}`);
+      const fedSenators = (senatorRows as any[]).filter((s) => s.source_ids?.congress_gov);
+      // Per-senator head:true count — avoids PostgREST's 1000-row default cap
+      // truncating a naive .in() + .select("to_id") query when senators with
+      // hundreds of donations exhaust the page before less-funded senators are
+      // sampled. ~100 round-trips, ~20s on Pro.
+      let withDonations = 0;
+      for (const s of fedSenators) {
+        const { count } = await db
+          .from("financial_relationships")
+          .select("*", { count: "exact", head: true })
+          .eq("relationship_type", "donation")
+          .eq("to_type", "official")
+          .eq("to_id", s.id as string);
+        if ((count ?? 0) > 0) withDonations++;
       }
+      console.log(
+        `\n  Senate coverage: ${withDonations}/${fedSenators.length} federal senators have ≥1 donation`,
+      );
     }
 
     const result: PipelineResult = {
       inserted: totalUpserted,
       updated:  0,
       failed:   totalFailed,
-      estimatedMb: parseFloat(totalFileMb),
+      estimatedMb: totalFileMb,
     };
     await completeSync(logId, result);
     return result;

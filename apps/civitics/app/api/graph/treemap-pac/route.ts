@@ -20,6 +20,13 @@ interface PacGroup {
 interface PacHierarchy {
   name: string;
   children: PacGroup[];
+  // FIX-179: surface tag-coverage so the UI can warn when a sector view is
+  // partial. Untagged PACs are silently absent from `children`.
+  meta?: {
+    pacsTotal: number;
+    pacsTagged: number;
+    pacsUntagged: number;
+  };
 }
 
 // ── Route handler ────────────────────────────────────────────────────────────
@@ -72,11 +79,17 @@ export async function GET(request: Request) {
     const industryByEntityId = await fetchIndustryTagsByEntityId(supabase, allIds);
 
     const pacInfo = new Map<string, { name: string; sector: string }>();
+    let untaggedCount = 0;
     for (const p of pacEntities ?? []) {
       const ind = industryByEntityId.get(p.id);
-      if (!ind) continue; // Untagged PACs are simply absent from the treemap (FIX-179).
+      if (!ind) {
+        untaggedCount++;
+        continue; // Untagged PACs are silently absent from the treemap (FIX-179).
+      }
       pacInfo.set(p.id, { name: p.display_name, sector: ind.display_label });
     }
+    const pacsTotal = (pacEntities ?? []).length;
+    const pacsTagged = pacInfo.size;
 
     // Step 2: their donations.
     const pacIds = [...pacInfo.keys()];
@@ -137,6 +150,7 @@ export async function GET(request: Request) {
     const hierarchy: PacHierarchy = {
       name: industryFilter ? `${industryFilter} PACs` : "PAC Money by Sector",
       children,
+      meta: { pacsTotal, pacsTagged, pacsUntagged: untaggedCount },
     };
     return Response.json(hierarchy, {
       headers: { "Cache-Control": "public, max-age=0, s-maxage=86400, stale-while-revalidate=172800" },

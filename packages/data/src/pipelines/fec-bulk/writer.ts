@@ -146,6 +146,120 @@ export async function upsertPacEntitiesBatch(
 }
 
 // ---------------------------------------------------------------------------
+// Batched individual-donor entity upsert (FIX-181)
+// ---------------------------------------------------------------------------
+
+export interface IndividualDonorInput {
+  fingerprint: string;     // donor dedup key — `${nameNorm}|${zip5}`
+  displayName: string;     // freeform NAME from FEC, source-cased
+  city:        string;
+  state:       string;     // 2-letter state
+  zip5:        string;
+  employer:    string;
+  occupation:  string;
+  totalDonatedCents: number; // sum across the cycle being processed (initial value;
+                             // financial_entities is shared across cycles, so this
+                             // gets refreshed cycle-by-cycle in the same way the
+                             // PAC pipeline refreshes total_donated_cents)
+}
+
+export interface IndividualDonorBatchResult {
+  /** Map from fingerprint → entity UUID for every successfully upserted row. */
+  donorIdByFingerprint: Map<string, string>;
+  upserted: number;
+  failed:   number;
+}
+
+/**
+ * Upsert individual-donor entities. Dedup via UNIQUE(donor_fingerprint) added
+ * by migration 20260502120000 (FIX-181). PACs continue to dedup on
+ * fec_committee_id UNIQUE (per FIX-101); the two paths don't interfere
+ * because PAC rows leave donor_fingerprint NULL and Postgres allows
+ * multiple NULLs in a unique index by default.
+ *
+ * canonical_name carries the searchable normalized name (NO zip), so
+ * existing GIN trigram search on canonical_name still finds donors by name.
+ */
+export async function upsertIndividualDonorsBatch(
+  db:     Db,
+  inputs: IndividualDonorInput[],
+): Promise<IndividualDonorBatchResult> {
+  const donorIdByFingerprint = new Map<string, string>();
+  let upserted = 0;
+  let failed   = 0;
+
+  if (inputs.length === 0) return { donorIdByFingerprint, upserted, failed };
+
+  // Client-side dedupe by fingerprint — Postgres rejects two rows that hit
+  // the same conflict arbiter in a single statement. Sum totals so the
+  // surviving row carries the merged donation total. Prefer the longer/
+  // more complete metadata when merging.
+  const merged = new Map<string, IndividualDonorInput>();
+  for (const input of inputs) {
+    const existing = merged.get(input.fingerprint);
+    if (!existing) {
+      merged.set(input.fingerprint, { ...input });
+      continue;
+    }
+    existing.totalDonatedCents += input.totalDonatedCents;
+    if (input.displayName.length > existing.displayName.length) existing.displayName = input.displayName;
+    if (!existing.employer   && input.employer)   existing.employer   = input.employer;
+    if (!existing.occupation && input.occupation) existing.occupation = input.occupation;
+    if (!existing.city       && input.city)       existing.city       = input.city;
+    if (!existing.state      && input.state)      existing.state      = input.state;
+    if (!existing.zip5       && input.zip5)       existing.zip5       = input.zip5;
+  }
+
+  // canonical_name = fingerprint up to the "|" — name without zip, suitable
+  // for the existing canonical_name trgm search index.
+  const records = [...merged.values()].map((input) => {
+    const pipeIdx = input.fingerprint.indexOf("|");
+    const namePart = pipeIdx >= 0 ? input.fingerprint.slice(0, pipeIdx) : input.fingerprint;
+    return {
+      canonical_name:       namePart,
+      display_name:         input.displayName,
+      entity_type:          "individual" as const,
+      fec_committee_id:     null,
+      donor_fingerprint:    input.fingerprint,
+      total_donated_cents:  input.totalDonatedCents,
+      total_received_cents: 0,
+      metadata: {
+        city:       input.city       || null,
+        state:      input.state      || null,
+        zip5:       input.zip5       || null,
+        employer:   input.employer   || null,
+        occupation: input.occupation || null,
+        source:     "fec_bulk_indiv",
+      },
+    };
+  });
+
+  for (let i = 0; i < records.length; i += ENTITY_CHUNK) {
+    const chunk = records.slice(i, i + ENTITY_CHUNK);
+
+    const { data, error } = await db
+      .from("financial_entities")
+      .upsert(chunk, { onConflict: "donor_fingerprint" })
+      .select("id, donor_fingerprint");
+
+    if (error) {
+      console.error(
+        `    individual-donor chunk ${i}-${i + chunk.length} failed: ${error.message}`,
+      );
+      failed += chunk.length;
+      continue;
+    }
+
+    for (const row of (data ?? []) as Array<{ id: string; donor_fingerprint: string | null }>) {
+      if (row.donor_fingerprint) donorIdByFingerprint.set(row.donor_fingerprint, row.id);
+    }
+    upserted += chunk.length;
+  }
+
+  return { donorIdByFingerprint, upserted, failed };
+}
+
+// ---------------------------------------------------------------------------
 // Batched relationship upsert
 // ---------------------------------------------------------------------------
 
@@ -240,6 +354,101 @@ export async function upsertDonationRelationshipsBatch(
     if (error) {
       console.error(
         `    financial_relationships chunk ${i}-${i + chunk.length} failed: ${error.message}`,
+      );
+      failed += chunk.length;
+      continue;
+    }
+
+    upserted += chunk.length;
+  }
+
+  return { upserted, failed };
+}
+
+// ---------------------------------------------------------------------------
+// Batched individual-donation relationship upsert (FIX-181)
+// ---------------------------------------------------------------------------
+
+export interface IndividualDonationInput {
+  fromEntityId:     string; // financial_entities.id of the individual donor
+  toOfficialId:     string;
+  cycleYear:        number;
+  amountCents:      number; // cycle-level aggregate
+  occurredAt:       string | null;
+  donorFingerprint: string; // for provenance — also the donor entity's canonical_name
+  txCount:          number;
+}
+
+/**
+ * Upsert individual-donor → official donation relationships. Same target
+ * table and unique constraint as the PAC writer; metadata differs to mark
+ * source='fec_bulk_indiv' and embed the donor fingerprint instead of an
+ * FEC committee id.
+ */
+export async function upsertIndividualDonationsBatch(
+  db:     Db,
+  inputs: IndividualDonationInput[],
+): Promise<RelationshipBatchResult> {
+  let upserted = 0;
+  let failed   = 0;
+
+  if (inputs.length === 0) return { upserted, failed };
+
+  // Same client-side dedup as PAC: collapse rows that would collide on
+  // (relationship_type, from_id, to_id, cycle_year). For indiv this only
+  // happens if our donor-fingerprint hash collides for two distinct people
+  // donating to the same candidate in the same cycle — unlikely but cheap
+  // to defend against.
+  const merged = new Map<string, IndividualDonationInput>();
+  for (const input of inputs) {
+    const key = `${input.fromEntityId}|${input.toOfficialId}|${input.cycleYear}`;
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, { ...input });
+      continue;
+    }
+    existing.amountCents += input.amountCents;
+    existing.txCount     += input.txCount;
+    if (input.occurredAt && (!existing.occurredAt || input.occurredAt > existing.occurredAt)) {
+      existing.occurredAt = input.occurredAt;
+    }
+  }
+
+  const records = [...merged.values()].map((input) => {
+    const occurredAt = input.occurredAt ?? `${input.cycleYear}-01-01`;
+    return {
+      relationship_type: "donation" as const,
+      from_type:         "financial_entity",
+      from_id:           input.fromEntityId,
+      to_type:           "official",
+      to_id:             input.toOfficialId,
+      amount_cents:      input.amountCents,
+      occurred_at:       occurredAt,
+      started_at:        null,
+      ended_at:          null,
+      cycle_year:        input.cycleYear,
+      source_url:        "https://www.fec.gov/data/receipts/individual-contributions/",
+      metadata: {
+        donor_fingerprint: input.donorFingerprint,
+        tx_count:          input.txCount,
+        source:            "fec_bulk_indiv",
+        aggregated:        true,
+      },
+    };
+  });
+
+  for (let i = 0; i < records.length; i += RELATIONSHIP_CHUNK) {
+    const chunk = records.slice(i, i + RELATIONSHIP_CHUNK);
+
+    const { error } = await db
+      .from("financial_relationships")
+      .upsert(chunk, {
+        onConflict: "relationship_type,from_id,to_id,cycle_year",
+      });
+
+    if (error) {
+      console.error(
+        `    indiv-donation chunk ${i}-${i + chunk.length} failed: ${error.message}`,
       );
       failed += chunk.length;
       continue;

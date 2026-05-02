@@ -47,6 +47,8 @@ into Supabase. Runs as Node.js scripts, not as part of the Next.js build.
 | `weball24.zip` | `fec.gov/files/bulk-downloads/2024/weball24.zip` | All-candidates summary: total raised, individual/PAC/party/self contributions per candidate |
 | `cm24.zip` | `fec.gov/files/bulk-downloads/2024/cm24.zip` | Committee master — maps committee IDs to names, types, and parent organizations |
 | `pas224.zip` | `fec.gov/files/bulk-downloads/2024/pas224.zip` | PAC to candidate contributions (~200 MB compressed) — **streamed line-by-line, never fully loaded** |
+| `ccl24.zip` | `fec.gov/files/bulk-downloads/2024/ccl24.zip` | Candidate-committee linkage — maps committee IDs to candidate IDs (FIX-181). Tiny (~0.5 MB). |
+| `indiv24.zip` | `fec.gov/files/bulk-downloads/2024/indiv24.zip` | Itemized individual contributions (~2 GB compressed, ~10 GB uncompressed) — streamed line-by-line, aggregated in-memory per cycle (FIX-181). Skip with `FEC_INCLUDE_INDIV=false`. |
 
 Step 2b (PAC contributions):
 - Parses cm24 into a committee ID → name/type/connected-org lookup map
@@ -54,6 +56,15 @@ Step 2b (PAC contributions):
 - Aggregates total contributions per committee × candidate pair
 - Upserts `financial_entities` rows for named PAC donors (keyed on `source_ids->>'fec_committee_id'`)
 - Upserts `financial_relationships` rows per PAC × candidate pair (keyed on `official_id + fec_committee_id + cycle_year`)
+
+Step 2c (individual contributions, FIX-181):
+- Parses ccl into a `CMTE_ID → CAND_ID` lookup, restricted to principal ('P') and authorized ('A') committees
+- Streams indiv line-by-line, filtering to transaction types `15` and `15E`, amount ≥ $200, and recipient CMTE_ID mapping to a candidate in our DB
+- Donor identity is `fingerprint = upper(NAME) + "|" + ZIP5` (FEC's standard near-duplicate convention). No donor IDs exist in FEC data
+- Aggregates to (donor × candidate × cycle) tuples in memory (~500 MB peak per presidential cycle); bump `NODE_OPTIONS=--max-old-space-size=4096` if OOM
+- Upserts donor `financial_entities` rows with `entity_type='individual'`, deduped by `donor_fingerprint` UNIQUE (added by migration `20260502120000_financial_entities_donor_fingerprint.sql`). Multiple NULL fingerprints are allowed, so non-individual entities (PACs etc.) are unaffected.
+- Upserts `financial_relationships` rows with `relationship_type='donation'`, source='fec_bulk_indiv'
+- Disable per-run with `FEC_INCLUDE_INDIV=false`. Caches FEC bulk files in R2 is a planned follow-up (FIX-192)
 
 - No API key required, no rate limits
 - FEC updates bulk files weekly — run on weekly cron
@@ -142,11 +153,15 @@ Pipeline code is ready; waiting on account/payment method.
 
 ---
 
-## Full 2GB FEC Individual File
+## Full 2 GB FEC Individual File (FIX-181 — landed)
 
-The individual-level FEC donor file (`indiv24.zip`, ~2GB) is pending Cloudflare R2 setup.
-Too large to process through Supabase Storage. Once R2 is available:
-- Download to temp dir
-- Process in streaming chunks
-- Match individuals to `financial_entities`
-- Delete immediately after processing
+The individual-level FEC donor file (`indiv{yy}.zip`, ~2 GB) is now ingested
+by the FEC bulk pipeline. Each cycle:
+- Downloads `indiv{yy}.zip` + `ccl{yy}.zip` to OS temp dir
+- Streams line-by-line via readline (never loads full file)
+- Aggregates to (donor × candidate × cycle) tuples in-memory
+- Upserts donor entities + donation relationships, then deletes the temp files
+- ~500 MB peak heap per cycle; bump `NODE_OPTIONS=--max-old-space-size=4096` if OOM
+
+R2 is configured but unused for FEC files — see FIX-192 for the planned
+mirror cache. Until then, FEC is hit fresh on each run.

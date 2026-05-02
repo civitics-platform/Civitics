@@ -20,9 +20,14 @@
  *     - occurred_at = latest txn date in the aggregation
  *     - cycle_year discriminates rows from different cycles
  *
+ * Individual contributions (FIX-181, indiv{yy}.zip + ccl{yy}.zip):
+ *   Per cycle, the indiv stage downloads ccl + indiv (~2 GB), parses ccl
+ *   into a CMTE_ID → CAND_ID lookup, streams indiv line-by-line, aggregates
+ *   to (donor_fingerprint × CAND_ID) pairs, upserts donor entities
+ *   (entity_type='individual', dedup by canonical_name=fingerprint), and
+ *   upserts donation relationships. Skip with FEC_INCLUDE_INDIV=false.
+ *
  * Not written here:
- *   - No individual contributions (indiv*.zip is ~2GB, pending Cloudflare R2
- *     setup — see FIX-181). PACs only.
  *   - No weball synthetic-donor rows ("Individual Contributors" etc.). Those
  *     were rollups forced to fit the old narrow schema; in the new shape they
  *     belong in a nightly aggregate view / official_financials rollup.
@@ -70,7 +75,12 @@ import {
 import {
   upsertPacEntitiesBatch,
   upsertDonationRelationshipsBatch,
+  upsertIndividualDonorsBatch,
+  upsertIndividualDonationsBatch,
+  type IndividualDonationInput,
 } from "./writer";
+import { extractZipEntryToDisk, parseFecDate } from "./util";
+import { parseCcl, streamIndiv } from "./indiv";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -411,52 +421,9 @@ function parseCm24(buffer: Buffer): Map<string, CommitteeInfo> {
   return lookup;
 }
 
-/** Convert FEC date "MMDDYYYY" → ISO "YYYY-MM-DD". Returns null if invalid. */
-function parseFecDate(mmddyyyy: string): string | null {
-  if (!mmddyyyy || mmddyyyy.length !== 8) return null;
-  const mm   = mmddyyyy.slice(0, 2);
-  const dd   = mmddyyyy.slice(2, 4);
-  const yyyy = mmddyyyy.slice(4, 8);
-  if (!/^\d+$/.test(mm + dd + yyyy)) return null;
-  return `${yyyy}-${mm}-${dd}`;
-}
-
 // ---------------------------------------------------------------------------
-// Stream PAC contributions (pas224) — unchanged from legacy pipeline
+// Stream PAC contributions (pas224)
 // ---------------------------------------------------------------------------
-
-/**
- * Extract a single entry from a zip file to disk via pipe (streaming — no buffering).
- * Returns true if the entry was found, false if not.
- */
-async function extractZipEntryToDisk(
-  zipPath:   string,
-  matchName: (name: string) => boolean,
-  destPath:  string,
-): Promise<boolean> {
-  return new Promise((resolve, reject) => {
-    let found = false;
-
-    fs.createReadStream(zipPath)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .pipe((unzipper as any).Parse())
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .on("entry", (entry: any) => {
-        const name = path.basename(entry.path as string).toLowerCase();
-        if (!found && matchName(name.toLowerCase())) {
-          found = true;
-          const out = fs.createWriteStream(destPath);
-          entry.pipe(out);
-          out.on("finish", () => resolve(true));
-          out.on("error", reject);
-        } else {
-          entry.autodrain();
-        }
-      })
-      .on("finish", () => { if (!found) resolve(false); })
-      .on("error", reject);
-  });
-}
 
 /**
  * Stream pas224.txt (extracted to disk) line-by-line.
@@ -568,8 +535,17 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
 
   let pacEntitiesUpserted = 0, pacEntitiesFailed = 0;
   let pacRelsUpserted = 0, pacRelsFailed = 0;
+  let indivDonorsUpserted = 0, indivDonorsFailed = 0;
+  let indivRelsUpserted = 0, indivRelsFailed = 0;
+  let indivCyclesProcessed = 0, indivCyclesSkipped = 0;
   let matchedByFecId = 0, matchedByName = 0, notMatched = 0;
   let totalFileMb = 0;
+
+  // FIX-181: indiv ingest is on by default; flip to "false" to run PAC-only.
+  const INCLUDE_INDIV = (process.env.FEC_INCLUDE_INDIV ?? "true").toLowerCase() !== "false";
+  if (!INCLUDE_INDIV) {
+    console.log("  FEC_INCLUDE_INDIV=false — skipping individual contributions stage");
+  }
 
   // Cross-cycle accumulators
   const cmteTotalsAllCycles = new Map<string, number>();
@@ -798,9 +774,139 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
       pacRelsFailed   += relResult.failed;
       console.log(`    Relationships — upserted: ${relResult.upserted}  failed: ${relResult.failed}`);
 
-      // Step 6: cleanup cycle-specific temp files (keeps disk under ~250MB
-      // even when processing 4 cycles in one run)
-      console.log(`  [${CYCLE} 5/5] Cleaning up cycle ${CYCLE} temp files...`);
+      // Step 5: individual contributions (indiv{yy}.zip + ccl{yy}.zip) — FIX-181
+      // Tolerant of FEC outages on these files: if either download fails, log
+      // and continue with PAC-only data for the cycle. Indiv files may also be
+      // unpublished for a not-yet-closed cycle (e.g. mid-2026).
+      if (INCLUDE_INDIV) {
+        const yy        = CYCLE.slice(2);
+        const cclName   = `ccl${yy}.zip`;
+        const indivName = `indiv${yy}.zip`;
+        const cclUrl    = `https://www.fec.gov/files/bulk-downloads/${CYCLE}/${cclName}`;
+        const indivUrl  = `https://www.fec.gov/files/bulk-downloads/${CYCLE}/${indivName}`;
+        const cclPath   = path.join(TMP_DIR, cclName);
+        const indivPath = path.join(TMP_DIR, indivName);
+
+        let indivFailed = false;
+        console.log(`  [${CYCLE} 5/6] Individual contributions stage (FIX-181)...`);
+        console.log(`    Downloading ${cclName}...`);
+        try {
+          await downloadFile(cclUrl, cclPath);
+          const sizeMb = (fs.statSync(cclPath).size / 1024 / 1024).toFixed(2);
+          console.log(`    ✓ ${cclName} (${sizeMb} MB)`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`    ✗ ${cclName} unavailable: ${msg} — skipping indiv stage`);
+          indivFailed = true;
+        }
+
+        if (!indivFailed) {
+          console.log(`    Downloading ${indivName} (~2 GB)...`);
+          try {
+            await downloadFile(indivUrl, indivPath);
+            const sizeMb = (fs.statSync(indivPath).size / 1024 / 1024).toFixed(0);
+            console.log(`    ✓ ${indivName} (${sizeMb} MB)`);
+            totalFileMb += parseFloat(sizeMb);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`    ✗ ${indivName} unavailable: ${msg} — skipping indiv stage`);
+            indivFailed = true;
+          }
+        }
+
+        if (!indivFailed) {
+          try {
+            // Parse ccl: build CMTE_ID → CAND_ID lookup, then narrow to committees
+            // owned by candidates in our index.byFecId.
+            const cclExtracted = await extractZip(cclPath, TMP_DIR);
+            const cclTxt       = cclExtracted.find(
+              (f) => path.basename(f).toLowerCase().startsWith("ccl") && f.endsWith(".txt"),
+            );
+            if (!cclTxt) {
+              console.warn(`    ccl .txt not found in ${cclName} — skipping indiv stage`);
+            } else {
+              const cclLookupAll = parseCcl(fs.readFileSync(cclTxt));
+              // Filter to only committees whose CAND_ID is in our candidateSet
+              const cmteToCand = new Map<string, string>();
+              for (const [cmteId, candId] of cclLookupAll.entries()) {
+                if (candidateSet.has(candId)) cmteToCand.set(cmteId, candId);
+              }
+              console.log(`    ccl: ${cclLookupAll.size.toLocaleString()} all committees, ${cmteToCand.size.toLocaleString()} mapped to our candidates`);
+
+              if (cmteToCand.size === 0) {
+                console.warn("    No committees mapped to known candidates — skipping indiv stage");
+              } else {
+                const indivResult = await streamIndiv(indivPath, cmteToCand, candidateSet, TMP_DIR);
+
+                // Build per-cycle donor totals from the aggregations (initial
+                // total_donated_cents for the donor entity row).
+                const cycleDonorTotals = new Map<string, number>();
+                for (const agg of indivResult.aggregations.values()) {
+                  cycleDonorTotals.set(
+                    agg.donorFingerprint,
+                    (cycleDonorTotals.get(agg.donorFingerprint) ?? 0) + agg.totalCents,
+                  );
+                }
+
+                const donorInputs = [];
+                for (const [fp, meta] of indivResult.donorMetas.entries()) {
+                  donorInputs.push({
+                    fingerprint:       fp,
+                    displayName:       meta.displayName,
+                    city:              meta.city,
+                    state:             meta.state,
+                    zip5:              meta.zip5,
+                    employer:          meta.employer,
+                    occupation:        meta.occupation,
+                    totalDonatedCents: cycleDonorTotals.get(fp) ?? 0,
+                  });
+                }
+
+                console.log(`    Upserting ${donorInputs.length.toLocaleString()} individual donor entities...`);
+                const donorResult = await upsertIndividualDonorsBatch(db, donorInputs);
+                indivDonorsUpserted += donorResult.upserted;
+                indivDonorsFailed   += donorResult.failed;
+                console.log(`    Donors — upserted: ${donorResult.upserted}  failed: ${donorResult.failed}`);
+
+                // Build relationship inputs — one per (donor × candidate × cycle)
+                const indivRelInputs: IndividualDonationInput[] = [];
+                for (const agg of indivResult.aggregations.values()) {
+                  const fromEntityId = donorResult.donorIdByFingerprint.get(agg.donorFingerprint);
+                  if (!fromEntityId) continue;
+                  const toOfficialId = index.byFecId.get(agg.candId);
+                  if (!toOfficialId) continue;
+                  indivRelInputs.push({
+                    fromEntityId,
+                    toOfficialId,
+                    cycleYear:        parseInt(CYCLE, 10),
+                    amountCents:      agg.totalCents,
+                    occurredAt:       agg.latestDate ? parseFecDate(agg.latestDate) : null,
+                    donorFingerprint: agg.donorFingerprint,
+                    txCount:          agg.txCount,
+                  });
+                }
+
+                console.log(`    Upserting ${indivRelInputs.length.toLocaleString()} individual donation relationships...`);
+                const indivRelResult = await upsertIndividualDonationsBatch(db, indivRelInputs);
+                indivRelsUpserted += indivRelResult.upserted;
+                indivRelsFailed   += indivRelResult.failed;
+                console.log(`    Donations — upserted: ${indivRelResult.upserted}  failed: ${indivRelResult.failed}`);
+                indivCyclesProcessed++;
+              }
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`    indiv stage failed: ${msg} — continuing without indiv data for cycle ${CYCLE}`);
+            indivCyclesSkipped++;
+          }
+        } else {
+          indivCyclesSkipped++;
+        }
+      }
+
+      // Step 6: cleanup cycle-specific temp files (keeps disk under ~3GB
+      // peak with indiv enabled — pas2 + indiv + cm + weball + ccl per cycle)
+      console.log(`  [${CYCLE} 6/6] Cleaning up cycle ${CYCLE} temp files...`);
       for (const f of fs.readdirSync(TMP_DIR)) {
         try { fs.unlinkSync(path.join(TMP_DIR, f)); } catch { /* ok */ }
       }
@@ -842,8 +948,12 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
     // ── Final cleanup + report ──────────────────────────────────────────────
     deleteTmpDir();
 
-    const totalUpserted = pacEntitiesUpserted + pacRelsUpserted + finalResult.upserted;
-    const totalFailed   = pacEntitiesFailed   + pacRelsFailed   + finalResult.failed;
+    const totalUpserted =
+      pacEntitiesUpserted + pacRelsUpserted + finalResult.upserted +
+      indivDonorsUpserted + indivRelsUpserted;
+    const totalFailed =
+      pacEntitiesFailed + pacRelsFailed + finalResult.failed +
+      indivDonorsFailed + indivRelsFailed;
 
     console.log("\n  ──────────────────────────────────────────────────");
     console.log("  FEC Bulk Pipeline Report (multi-cycle)");
@@ -852,11 +962,18 @@ export async function runFecBulkPipeline(): Promise<PipelineResult> {
     console.log(`  ${"Officials matched by fec_id:".padEnd(38)} ${matchedByFecId}`);
     console.log(`  ${"Officials matched by name:".padEnd(38)} ${matchedByName}`);
     console.log(`  ${"Officials not matched:".padEnd(38)} ${notMatched}`);
-    console.log(`  ${"Per-cycle entity upserts:".padEnd(38)} ${pacEntitiesUpserted}`);
-    console.log(`  ${"Per-cycle entity failures:".padEnd(38)} ${pacEntitiesFailed}`);
-    console.log(`  ${"Cross-cycle final entity upserts:".padEnd(38)} ${finalResult.upserted}`);
-    console.log(`  ${"Relationships upserted:".padEnd(38)} ${pacRelsUpserted}`);
-    console.log(`  ${"Relationships failed:".padEnd(38)} ${pacRelsFailed}`);
+    console.log(`  ${"PAC entity upserts (per-cycle):".padEnd(38)} ${pacEntitiesUpserted}`);
+    console.log(`  ${"PAC entity failures:".padEnd(38)} ${pacEntitiesFailed}`);
+    console.log(`  ${"PAC entity upserts (cross-cycle):".padEnd(38)} ${finalResult.upserted}`);
+    console.log(`  ${"PAC relationships upserted:".padEnd(38)} ${pacRelsUpserted}`);
+    console.log(`  ${"PAC relationships failed:".padEnd(38)} ${pacRelsFailed}`);
+    if (INCLUDE_INDIV) {
+      console.log(`  ${"Indiv cycles processed / skipped:".padEnd(38)} ${indivCyclesProcessed} / ${indivCyclesSkipped}`);
+      console.log(`  ${"Indiv donor entities upserted:".padEnd(38)} ${indivDonorsUpserted}`);
+      console.log(`  ${"Indiv donor entity failures:".padEnd(38)} ${indivDonorsFailed}`);
+      console.log(`  ${"Indiv donation rels upserted:".padEnd(38)} ${indivRelsUpserted}`);
+      console.log(`  ${"Indiv donation rels failed:".padEnd(38)} ${indivRelsFailed}`);
+    }
     console.log(`  ${"Financial data processed:".padEnd(38)} ~${totalFileMb.toFixed(1)} MB`);
 
     // Sanity check — top 10 PAC donors by total contributed (cross-cycle)

@@ -232,3 +232,4 @@
 2026-04-30 | FIX-186 | 4e77b4c0 | local-only | feat(graph): treemap Compare mode — donor-base overlap at a glance
 2026-05-01 | FIX-183 | 845aa31a | local-only | fix(pipelines): add startSync to officials/votes/ai-summaries; standardize writer names on snake_case
 2026-05-01 | FIX-179 | 7b2f6a91 | local-only | feat(graph): surface PAC tag-coverage in treemap-pac metadata + drain queue
+2026-05-01 | FIX-179 | 18841114 | prod-only | chore(scripts): copy local PAC industry tags to prod via fec_committee_id

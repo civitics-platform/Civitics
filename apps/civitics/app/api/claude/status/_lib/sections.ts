@@ -501,7 +501,6 @@ export async function getSelfTests(db: Db) {
     warrenVotesRes,
     anthropicUsageResult,
     cronState,
-    connPipelineRes,
     voteYesTotal,
     drift,
   ] = await Promise.all([
@@ -521,14 +520,6 @@ export async function getSelfTests(db: Db) {
       .from("pipeline_state")
       .select("value")
       .eq("key", "cron_last_run")
-      .maybeSingle(),
-
-    db
-      .from("data_sync_log")
-      .select("status, rows_inserted, completed_at")
-      .eq("pipeline", "connections")
-      .order("completed_at", { ascending: false })
-      .limit(1)
       .maybeSingle(),
 
     db
@@ -552,9 +543,24 @@ export async function getSelfTests(db: Db) {
       ).length;
 
   const cronVal = (cronState.data?.value ?? null) as
-    | { completed_at?: string; started_at?: string }
+    | {
+        completed_at?: string;
+        started_at?: string;
+        results?: {
+          pipelines?: {
+            entity_connections_rebuild?: {
+              status?: string;
+              rows_added?: number;
+              duration_ms?: number;
+              error?: string;
+            };
+          };
+        };
+      }
     | null;
   const cronLastRun = cronVal?.completed_at ?? cronVal?.started_at ?? null;
+  const rebuildResult =
+    cronVal?.results?.pipelines?.entity_connections_rebuild ?? null;
 
   return [
     {
@@ -601,11 +607,15 @@ export async function getSelfTests(db: Db) {
     {
       name: "connections_pipeline_healthy",
       passed:
-        connPipelineRes.data?.status === "complete" &&
+        rebuildResult?.status === "complete" &&
         (voteYesTotal.count ?? 0) > 50000,
-      detail: connPipelineRes.data
-        ? `Status: ${connPipelineRes.data.status}, vote_yes total: ${voteYesTotal.count ?? 0}`
-        : "No connections pipeline run found in data_sync_log",
+      detail: rebuildResult
+        ? `rebuild_entity_connections: ${rebuildResult.status}${
+            rebuildResult.rows_added != null
+              ? ` (${rebuildResult.rows_added} edges)`
+              : ""
+          }, vote_yes total: ${voteYesTotal.count ?? 0}`
+        : "No nightly cron run recorded in pipeline_state.cron_last_run — has nightly_cron run since cutover?",
     },
     {
       name: "derived_edges_match_source",

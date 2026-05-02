@@ -16,6 +16,8 @@ import {
   upgradeServicePlan,
   calculateOverageCost,
   getSourceDisplay,
+  getSupabaseSqlMetrics,
+  getSupabaseManagementMetrics,
   type PlanTier,
   type UsageSource,
 } from "@civitics/db";
@@ -85,6 +87,30 @@ export async function GET() {
     const anthropicSpend = await getMonthlyAnthropicSpend(db);
     if (anthropicSpend !== null) {
       await updateUsage(db, "anthropic", "monthly_spend_usd", anthropicSpend, "api");
+    }
+
+    // Auto-update Supabase live metrics (FIX-190).
+    // SQL helper: db_size_bytes + storage_bytes via the public.get_supabase_self_metrics RPC.
+    // Management helper: api_requests_total + function_invocations + disk_used_bytes via Supabase Management API
+    //   (no-op if SUPABASE_MANAGEMENT_API_KEY isn't set — returns { error } instead of throwing).
+    const [supabaseSql, supabaseMgmt] = await Promise.all([
+      getSupabaseSqlMetrics(db),
+      getSupabaseManagementMetrics(),
+    ]);
+
+    if (!("error" in supabaseSql)) {
+      await Promise.all([
+        updateUsage(db, "supabase", "db_size_bytes", supabaseSql.db_size_bytes, "api"),
+        updateUsage(db, "supabase", "storage_bytes", supabaseSql.storage_bytes, "api"),
+      ]);
+    }
+
+    if (!("error" in supabaseMgmt)) {
+      await Promise.all([
+        updateUsage(db, "supabase", "api_requests_total", supabaseMgmt.api_requests_total, "api"),
+        updateUsage(db, "supabase", "function_invocations", supabaseMgmt.function_invocations, "api"),
+        updateUsage(db, "supabase", "disk_used_bytes", supabaseMgmt.disk_used_bytes, "api"),
+      ]);
     }
 
     // Determine which plans to query for each service

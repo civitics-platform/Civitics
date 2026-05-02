@@ -11,11 +11,25 @@ Import from `@civitics/db` — never import directly from `@supabase/supabase-js
 ```
 Client side:  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY  (sb_publishable_xxx)
 Server side:  SUPABASE_SECRET_KEY                   (sb_secret_xxx)
+Management:   SUPABASE_MANAGEMENT_API_KEY           (sbp_xxx, optional)
 ```
 
 Never use legacy `anon` or `service_role` keys.
 Never use `NEXT_PUBLIC_` prefix on the secret key.
 Supabase project ID: `xsazcoxinpgttgquwvuf`
+
+## Management API
+
+`SUPABASE_MANAGEMENT_API_KEY` is a Personal Access Token created at
+`https://supabase.com/dashboard/account/tokens`. Used by `getSupabaseManagementMetrics()`
+in [supabase-usage.ts](src/supabase-usage.ts) to pull live API request counts,
+function invocations, and disk utilization from `https://api.supabase.com/v1/projects/{ref}/...`
+for the Platform Costs card on the dashboard.
+
+Optional: if unset, the SQL-derived self-metrics (`db_size_bytes`, `storage_bytes`)
+still update on every dashboard load via the public `get_supabase_self_metrics()`
+RPC; only the three Management API rows fall back to whatever is already in
+`platform_usage`.
 
 ---
 

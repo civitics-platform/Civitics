@@ -124,3 +124,16 @@ export type {
   AnthropicBudget,
   AnthropicModelUsage,
 } from "./anthropic-usage";
+
+// Supabase self-metrics (db size, file storage, Management API analytics)
+export {
+  getSupabaseSqlMetrics,
+  getSupabaseManagementMetrics,
+  clearSupabaseManagementCache,
+} from "./supabase-usage";
+export type {
+  SupabaseSqlMetrics,
+  SupabaseSqlMetricsError,
+  SupabaseManagementMetrics,
+  SupabaseManagementMetricsError,
+} from "./supabase-usage";

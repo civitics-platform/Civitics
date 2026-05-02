@@ -23,6 +23,10 @@ export interface PlatformLimit {
   sort_order: number;
   notes: string | null;
   is_active: boolean;
+  // false when the upstream service exposes no public API for this metric
+  // (e.g. Supabase egress as of May 2026). Lets the card distinguish
+  // "manual because the API doesn't exist" from "manual because we forgot".
+  has_public_api: boolean;
 }
 
 export interface PlatformUsage {
@@ -120,6 +124,7 @@ export async function getPlatformUsage(
       usage?.source ?? "manual",
       usage?.verified_at ?? null,
       usage?.stale_after_days ?? null,
+      limit.has_public_api,
     );
 
     return {
@@ -289,13 +294,32 @@ export function calculateOverageCost(
 
 /**
  * Get display info for a usage source — label, color, icon, tooltip.
+ *
+ * `hasPublicApi` defaults to true. Set to false (from platform_limits) when
+ * the upstream service exposes no programmatic way to fetch this metric, so
+ * a `manual` entry isn't a backlog item — it's the only path. In that case
+ * we render a permanent gray "Manual (no API)" badge instead of letting the
+ * row drift into amber-stale every week.
  */
 export function getSourceDisplay(
   source: UsageSource,
   verifiedAt: string | null,
   staleAfterDays: number | null,
+  hasPublicApi: boolean = true,
 ): SourceDisplay {
   const now = new Date();
+
+  if (source === "manual" && !hasPublicApi) {
+    return {
+      label: "Manual (no API)",
+      color: "gray",
+      icon: "✎",
+      tooltip:
+        "This service exposes no public API for this metric. Update from the service dashboard.",
+      isStale: false,
+      needsVerification: false,
+    };
+  }
 
   switch (source) {
     case "api":

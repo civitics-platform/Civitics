@@ -344,7 +344,7 @@ export interface NightlySyncResults {
     agencies_hierarchy?: NightlyPipelineResult;
     elections?: NightlyPipelineResult;
     congress_committees?: NightlyPipelineResult;
-    connections?: NightlyPipelineResult;
+    entity_connections_rebuild?: NightlyPipelineResult;
   };
   ai: {
     tag_rules?: NightlyAiResult;

@@ -235,3 +235,4 @@
 2026-05-01 | FIX-179 | 18841114 | prod-only | chore(scripts): copy local PAC industry tags to prod via fec_committee_id
 2026-05-01 | FIX-187 | 2c7332e1 | local-only | fix(dashboard): point connections_pipeline_healthy at cron_last_run
 2026-05-01 | FIX-187 | edcf196c | local-only | chore(data): delete stale data:connections pipeline (FIX-187 cleanup)
+2026-05-01 | FIX-187 | 86057e61 | local-only | fix(data): rename NightlySyncResults.pipelines.connections type field

@@ -15,6 +15,7 @@ import {
   mapParty,
   CURRENT_CONGRESS,
 } from "./members";
+import { startSync, completeSync, failSync } from "../sync-log";
 
 type OfficialInsert = Database["public"]["Tables"]["officials"]["Insert"];
 
@@ -46,7 +47,9 @@ export async function runOfficialsPipeline(
   const { apiKey, stateIds, senateId, houseId, federalId } = options;
 
   console.log("Starting Congress.gov officials pipeline...");
+  const logId = await startSync("congress_officials");
 
+  try {
   // --- Fetch members from Congress.gov ---
   const members = await fetchAllMembers(apiKey);
   console.log(`Fetched ${members.length} members from Congress.gov`);
@@ -202,7 +205,15 @@ export async function runOfficialsPipeline(
     console.log(`Skipped ${skipped} officials due to errors`);
   }
 
-  return { inserted, updated, skipped };
+    const estimatedMb = +(((inserted + updated) * 350) / 1024 / 1024).toFixed(2);
+    await completeSync(logId, { inserted, updated, failed: skipped, estimatedMb });
+
+    return { inserted, updated, skipped };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await failSync(logId, msg);
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------

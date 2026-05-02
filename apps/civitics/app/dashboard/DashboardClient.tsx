@@ -78,9 +78,6 @@ const PIPELINES: PipelineDef[] = [
   {
     key: "congress",
     display: "Congress.gov",
-    // congress.officials.ts + congress.votes.ts don't call startSync today —
-    // only committees.ts does. Tracked as FIX-183. The DB totals below still
-    // show officials + bills counts which Congress is the source for.
     aliases: ["congress", "congress_committees", "congress_officials", "congress_votes"],
     dbTotals: (db) => [
       { value: db.officials, label: "officials" },
@@ -88,13 +85,11 @@ const PIPELINES: PipelineDef[] = [
     ],
     source: { label: "Congress.gov", href: "https://congress.gov" },
     retryCmd: "pnpm data:officials  /  data:votes  /  data:committees",
-    note:
-      "Officials and Votes pipelines do not call startSync yet (FIX-183); only Committees writes data_sync_log rows.",
   },
   {
     key: "regulations",
     display: "Regulations.gov",
-    aliases: ["regulations", "federal-register"],
+    aliases: ["regulations", "federal_register", "federal-register"],
     dbTotals: (db) => [
       { value: db.proposals_regulations, label: "regulations" },
     ],
@@ -145,13 +140,13 @@ const PIPELINES: PipelineDef[] = [
   {
     key: "opensecrets",
     display: "OpenSecrets",
-    aliases: ["opensecrets-bulk"],
+    aliases: ["opensecrets_bulk", "opensecrets-bulk"],
     retryCmd: "pnpm data:opensecrets-bulk",
   },
   {
     key: "govtrack",
     display: "GovTrack Cosponsors",
-    aliases: ["govtrack-cosponsors"],
+    aliases: ["govtrack_cosponsors", "govtrack-cosponsors"],
     retryCmd: "pnpm data:govtrack-cosponsors",
   },
   {
@@ -163,7 +158,7 @@ const PIPELINES: PipelineDef[] = [
   {
     key: "agencies",
     display: "Agencies (hierarchy)",
-    aliases: ["agencies-hierarchy"],
+    aliases: ["agencies_hierarchy", "agencies-hierarchy"],
     retryCmd: "pnpm data:agencies",
   },
   {
@@ -175,19 +170,15 @@ const PIPELINES: PipelineDef[] = [
   {
     key: "ai_summaries",
     display: "AI Summaries",
-    // No startSync writer exists — tracked as FIX-183. Total still shows.
     aliases: ["ai_summaries", "ai-summaries"],
     dbTotals: (db) => [
       { value: db.ai_summary_cache, label: "summaries cached" },
     ],
     retryCmd: "pnpm data:ai-summaries",
-    note:
-      "ai-summaries pipeline does not call startSync yet (FIX-183); rhythm will stay empty until that lands.",
   },
   {
     key: "tag_ai",
     display: "AI Tagger",
-    // Writer uses hyphen — alias both forms.
     aliases: ["tag_ai", "tag-ai"],
     dbTotals: (db) => [
       { value: db.entity_tags, label: "entity_tags rows (all categories)" },

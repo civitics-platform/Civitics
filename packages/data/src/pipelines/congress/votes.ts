@@ -31,6 +31,7 @@ import {
   type BillProposalArgs,
 } from "./bills";
 import { XMLParser } from "fast-xml-parser";
+import { startSync, completeSync, failSync } from "../sync-log";
 
 // ---------------------------------------------------------------------------
 // Type aliases
@@ -342,11 +343,14 @@ export async function runVotesPipeline(
   const { apiKey, federalId, senateGovBodyId, houseGovBodyId } = options;
 
   console.log("Starting Congress bills + XML member votes pipeline...");
+  const logId = await startSync("congress_votes");
 
   const db = createAdminClient();
 
   let proposalsUpserted = 0;
   let votesInserted = 0;
+
+  try {
 
   // -------------------------------------------------------------------------
   // Step 1: Sync bills from Congress.gov API
@@ -888,7 +892,20 @@ export async function runVotesPipeline(
     `\nVotes pipeline complete: ${proposalsUpserted} proposals upserted, ${votesInserted} votes inserted`
   );
 
-  return { proposalsUpserted, votesInserted };
+    const estimatedMb = +(((proposalsUpserted + votesInserted) * 200) / 1024 / 1024).toFixed(2);
+    await completeSync(logId, {
+      inserted: votesInserted,
+      updated: proposalsUpserted,
+      failed: 0,
+      estimatedMb,
+    });
+
+    return { proposalsUpserted, votesInserted };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await failSync(logId, msg);
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------

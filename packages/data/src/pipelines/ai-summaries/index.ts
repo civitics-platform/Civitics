@@ -30,6 +30,7 @@ import { createAiClient, MODELS } from "@civitics/ai";
 import { costGate } from "@civitics/ai/cost-gate";
 import { sleep } from "../utils";
 import { checkFlag, FLAGS } from "../../feature-flags";
+import { startSync, completeSync, failSync } from "../sync-log";
 import {
   enqueue,
   zeroCounts,
@@ -594,7 +595,9 @@ export async function runAiSummariesPipeline(incremental = false): Promise<void>
   // ─────────────────────────────────────────────────────────────────────────
 
   const ai = createAiClient();
+  const logId = await startSync("ai_summaries");
 
+  try {
   // Fetch entities first (cache filter applied inside each fetch fn)
   const proposals = await fetchOpenProposals(db);
   const officials  = await fetchOfficials(db);
@@ -609,6 +612,7 @@ export async function runAiSummariesPipeline(incremental = false): Promise<void>
     if (proposals.some((p) => p.context_level === "truly_empty")) {
       console.log(`    (${proposals.filter((p) => p.context_level === "truly_empty").length} truly-empty proposals skipped)`);
     }
+    await completeSync(logId, { inserted: 0, updated: 0, failed: 0, estimatedMb: 0 });
     return;
   }
 
@@ -642,7 +646,10 @@ export async function runAiSummariesPipeline(incremental = false): Promise<void>
     },
   });
 
-  if (!gate.approved) return;
+  if (!gate.approved) {
+    await completeSync(logId, { inserted: 0, updated: 0, failed: 0, estimatedMb: 0 });
+    return;
+  }
 
   // Apply entity limit if the gate capped us due to budget
   const proposalLimit = gate.entity_limit
@@ -683,6 +690,19 @@ export async function runAiSummariesPipeline(incremental = false): Promise<void>
     { key: "ai_summaries_last_run", value: { last_run: new Date().toISOString() } },
     { onConflict: "key" }
   );
+
+    const inserted =
+      proposalStats.summarized_full +
+      proposalStats.summarized_title_only +
+      officialStats.summarized;
+    const failed = proposalStats.failed + officialStats.failed;
+    const estimatedMb = +((inserted * 600) / 1024 / 1024).toFixed(2);
+    await completeSync(logId, { inserted, updated: 0, failed, estimatedMb });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await failSync(logId, msg);
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------

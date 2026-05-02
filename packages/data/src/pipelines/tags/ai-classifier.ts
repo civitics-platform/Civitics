@@ -139,7 +139,7 @@ async function classifyPac(
 
 export async function runAiClassifier(): Promise<{ tagged: number; skipped: number }> {
   console.log("\n=== AI industry classifier ===");
-  const logId = await startSync("tag-ai");
+  const logId = await startSync("tag_ai");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = createAdminClient() as any;
 

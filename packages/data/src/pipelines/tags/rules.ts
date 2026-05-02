@@ -829,7 +829,7 @@ async function tagPreVoteConnections(db: any): Promise<number> {
 
 export async function runRuleBasedTagger(): Promise<{ tagsCreated: number }> {
   console.log("\n=== Rule-based tagger ===");
-  const logId = await startSync("tag-rules");
+  const logId = await startSync("tag_rules");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = createAdminClient() as any;
 

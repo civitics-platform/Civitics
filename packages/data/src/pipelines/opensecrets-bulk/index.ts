@@ -22,7 +22,7 @@ import { completeSync, startSync, type PipelineResult } from "../sync-log";
 
 export async function runOpenSecretsBulkPipeline(): Promise<PipelineResult> {
   console.log("\n=== OpenSecrets bulk pipeline (skeleton) ===");
-  const logId = await startSync("opensecrets-bulk");
+  const logId = await startSync("opensecrets_bulk");
   const result: PipelineResult = { inserted: 0, updated: 0, failed: 0, estimatedMb: 0 };
 
   // TODO (Phase 2):

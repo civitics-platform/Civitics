@@ -20,7 +20,7 @@ import { completeSync, startSync, type PipelineResult } from "../sync-log";
 
 export async function runFederalRegisterPipeline(_sinceDate?: string): Promise<PipelineResult> {
   console.log("\n=== Federal Register pipeline (skeleton) ===");
-  const logId = await startSync("federal-register");
+  const logId = await startSync("federal_register");
   const result: PipelineResult = { inserted: 0, updated: 0, failed: 0, estimatedMb: 0 };
 
   // TODO (Phase 2):

@@ -16,7 +16,7 @@ import { completeSync, startSync, type PipelineResult } from "../sync-log";
 
 export async function runGovtrackCosponsorsPipeline(_sinceDate?: string): Promise<PipelineResult> {
   console.log("\n=== GovTrack cosponsors pipeline (skeleton) ===");
-  const logId = await startSync("govtrack-cosponsors");
+  const logId = await startSync("govtrack_cosponsors");
   const result: PipelineResult = { inserted: 0, updated: 0, failed: 0, estimatedMb: 0 };
 
   // TODO (Phase 2):

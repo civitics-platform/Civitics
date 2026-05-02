@@ -587,7 +587,7 @@ export async function runAiTagger(options?: {
   }
   // ─────────────────────────────────────────────────────────────────────────
 
-  const logId = await startSync("tag-ai");
+  const logId = await startSync("tag_ai");
 
   sessionCostCents = 0;
 

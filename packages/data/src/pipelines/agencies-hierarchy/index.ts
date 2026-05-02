@@ -111,7 +111,7 @@ interface AgencyRow {
 
 export async function runAgenciesHierarchyPipeline(): Promise<PipelineResult> {
   console.log("\n=== Agencies hierarchy backfill ===");
-  const logId = await startSync("agencies-hierarchy");
+  const logId = await startSync("agencies_hierarchy");
   const db = createAdminClient();
   const result: PipelineResult = { inserted: 0, updated: 0, failed: 0, estimatedMb: 0 };
 

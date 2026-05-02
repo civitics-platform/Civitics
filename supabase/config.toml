@@ -75,6 +75,10 @@ otp_length = 6
 # Uses inbucket by default — no changes needed for local dev.
 enabled = false
 
+[auth.email.template.magic_link]
+subject = "Your Civitics sign-in code"
+content_path = "./supabase/templates/magic_link.html"
+
 [auth.sms]
 enable_signup = false
 enable_confirmations = false

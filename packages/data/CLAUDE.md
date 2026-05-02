@@ -18,16 +18,16 @@ into Supabase. Runs as Node.js scripts, not as part of the Next.js build.
 
 ## Storage Budget
 
-**Phase 1 target: 270MB total**
+**Storage Budget - stay under ~6GB for now**
 
 | Source | Budget | Strategy |
 |--------|--------|----------|
-| Congress.gov | 80MB | Full resolution — bills + votes + legislators |
-| FEC bulk | uncapped | Candidate totals (weball24.zip) + PAC contributions (pas224.zip, streamed). FEC's $200 itemization threshold is the only filter — no Civitics-imposed cap (FIX-182). |
-| USASpending | 250MB | Full FY bulk archive, all agencies in our DB, all award sizes |
-| Regulations.gov | 40MB | Active proposals only, no archived |
-| CourtListener | 20MB | Metadata only — no opinion text |
-| OpenStates | 20MB | Current legislative term only |
+| Congress.gov | 0.5GB | Full resolution — bills + votes + legislators |
+| FEC bulk | 2GB | Candidate totals (weball24.zip) + PAC contributions (pas224.zip, streamed) + individual contributions (indiv24.zip). FEC's $200 itemization threshold is the only filter — no Civitics-imposed cap (FIX-182). |
+| USASpending | 1GB | Full FY bulk archive, all agencies in our DB, all award sizes |
+| Regulations.gov | 0.5GB | Active proposals only, no archived |
+| CourtListener | 1GB | Metadata only — no opinion text |
+| OpenStates | 1GB | Current legislative term only |
 
 ---
 

@@ -51,7 +51,7 @@ ex:     -initiatives        -officials
 - Tag contract awardees by sector
 - Reorganize/Archive/Verify docs folder
 - Hit list notes, quick comment about workflow Craig>HitList>FIXES>fixes-archive
-
+- co_sponsorship, appointment, oversight — these derive from proposal_cosponsors, career_history, and agencies.governing_body_id respectively. The pipelines haven't seeded those source tables on either side. 
 
 ---
 
@@ -114,6 +114,7 @@ ex:     -initiatives        -officials
 ## GRAPH
 
 - By state group not working
+- toggle button is misaligned
 - Initial Settings clickable in the middle of a 'blank' inital state with a 'make your own graph' tutorial button that walks user through how to add entities and connections and option to hide 
 - The settings still needs some work - Brainstorm session - probably a spec file
         -- auto populate available connections

@@ -118,3 +118,16 @@ export function createAdminClient() {
     auth: { persistSession: false },
   });
 }
+
+// Cross-environment admin client for one-shot scripts that need to talk to
+// local + prod simultaneously (e.g. copy-pac-tags-to-prod). Caller passes the
+// url/key explicitly — no process.env reads. The pipeline guard is skipped
+// because the caller has, by definition, opted into a non-active-env target.
+export function createAdminClientWith(url: string, key: string) {
+  if (!url || !key) {
+    throw new Error("createAdminClientWith requires both url and key");
+  }
+  return createClient<Database>(url, key, {
+    auth: { persistSession: false },
+  });
+}

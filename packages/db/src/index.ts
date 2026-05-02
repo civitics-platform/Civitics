@@ -1,5 +1,5 @@
 // Clients
-export { createServerClient, createBrowserClient, createAdminClient } from "./client";
+export { createServerClient, createBrowserClient, createAdminClient, createAdminClientWith } from "./client";
 export type { CookieStore } from "./client";
 
 // Types

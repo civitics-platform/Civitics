@@ -17,7 +17,7 @@
  *   pnpm tsx src/scripts/copy-pac-tags-to-prod.ts --dry-run
  *   pnpm tsx src/scripts/copy-pac-tags-to-prod.ts
  */
-import { createClient } from "@supabase/supabase-js";
+import { createAdminClientWith } from "@civitics/db";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -54,8 +54,8 @@ const prod = parseEnv(resolve(REPO, ".env.local.prod"));
 
 const DRY_RUN = process.argv.includes("--dry-run");
 
-const local = createClient(dev.NEXT_PUBLIC_SUPABASE_URL,  dev.SUPABASE_SECRET_KEY);
-const prdb  = createClient(prod.NEXT_PUBLIC_SUPABASE_URL, prod.SUPABASE_SECRET_KEY);
+const local = createAdminClientWith(dev.NEXT_PUBLIC_SUPABASE_URL,  dev.SUPABASE_SECRET_KEY);
+const prdb  = createAdminClientWith(prod.NEXT_PUBLIC_SUPABASE_URL, prod.SUPABASE_SECRET_KEY);
 
 console.log(`mode: ${DRY_RUN ? "DRY RUN" : "LIVE"}`);
 console.log(`local: ${dev.NEXT_PUBLIC_SUPABASE_URL}`);

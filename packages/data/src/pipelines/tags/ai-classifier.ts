@@ -15,8 +15,8 @@
  * Dry-run by default: prints estimates, prompts for confirmation.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
 import { createAdminClient } from "@civitics/db";
+import { createAiClient } from "@civitics/ai";
 import { costGate } from "@civitics/ai/cost-gate";
 import { startSync, completeSync, failSync } from "../sync-log";
 
@@ -90,7 +90,7 @@ If unclear, return "other" with confidence 0.3.`;
 // ---------------------------------------------------------------------------
 
 async function classifyPac(
-  client: Anthropic,
+  client: ReturnType<typeof createAiClient>,
   pac: UntaggedPac
 ): Promise<(ClassificationResult & { input_tokens: number; output_tokens: number }) | null> {
   try {
@@ -182,9 +182,7 @@ export async function runAiClassifier(): Promise<{ tagged: number; skipped: numb
     console.log(`\n  Untagged PACs (over $${(MIN_DONATION_CENTS / 100).toLocaleString()}): ${pacs.length}`);
 
     // 2. Wire cost gate — samples 3 real API calls, asks for approval
-    const apiKey = process.env["CIVITICS_ANTHROPIC_API_KEY"];
-    if (!apiKey) throw new Error("CIVITICS_ANTHROPIC_API_KEY not set");
-    const anthropic = new Anthropic({ apiKey });
+    const anthropic = createAiClient();
 
     const samplePac = pacs[0]!;
     const gate = await costGate.gate({

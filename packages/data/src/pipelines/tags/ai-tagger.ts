@@ -18,8 +18,8 @@
  *   pnpm --filter @civitics/data data:tag-ai -- --dry-run   (estimate only)
  */
 
-import Anthropic from "@anthropic-ai/sdk";
 import { createAdminClient } from "@civitics/db";
+import { createAiClient } from "@civitics/ai";
 import { costGate } from "@civitics/ai/cost-gate";
 import { startSync, completeSync, failSync } from "../sync-log";
 import { checkFlag, FLAGS } from "../../feature-flags";
@@ -42,7 +42,7 @@ const DEFAULT_MAX_COST_CENTS = 10;
 const HAIKU_INPUT_COST_PER_M  = 0.25;  // $0.25/M input
 const HAIKU_OUTPUT_COST_PER_M = 1.25;  // $1.25/M output
 
-const anthropic = new Anthropic({ apiKey: process.env["CIVITICS_ANTHROPIC_API_KEY"] });
+const anthropic = createAiClient();
 
 // ---------------------------------------------------------------------------
 // Cost tracking

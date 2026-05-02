@@ -39,8 +39,10 @@ export type SupabaseSqlMetricsError = {
 };
 
 export type SupabaseManagementMetrics = {
-  api_requests_total: number;
-  function_invocations: number;
+  /** Sum of REST + Auth + Realtime + Storage requests over the last 7 days.
+   *  The Management API's analytics endpoint caps at 7day intervals — there's
+   *  no monthly-cycle equivalent. */
+  api_requests_7d: number;
   disk_used_bytes: number;
   fetched_at: string;
 };
@@ -98,14 +100,6 @@ type UsageApiCountsResponse = {
   error?: unknown;
 };
 
-type FunctionsCombinedStatsResponse = {
-  result?: Array<{
-    // Shape is loose in the OpenAPI spec; we look for any "count" / "invocations" key.
-    [k: string]: unknown;
-  }>;
-  error?: unknown;
-};
-
 type DiskUtilResponse = {
   timestamp: string;
   metrics: {
@@ -144,21 +138,6 @@ function sumApiRequests(json: UsageApiCountsResponse): number {
   return total;
 }
 
-function sumFunctionInvocations(json: FunctionsCombinedStatsResponse): number {
-  if (!Array.isArray(json.result)) return 0;
-  // Pick the first numeric field that looks like a count. Spec is loose.
-  let total = 0;
-  for (const row of json.result) {
-    for (const [k, v] of Object.entries(row)) {
-      if (typeof v === "number" && /count|invocation|requests/i.test(k)) {
-        total += v;
-        break;
-      }
-    }
-  }
-  return total;
-}
-
 export async function getSupabaseManagementMetrics(): Promise<
   SupabaseManagementMetrics | SupabaseManagementMetricsError
 > {
@@ -172,26 +151,19 @@ export async function getSupabaseManagementMetrics(): Promise<
   }
 
   try {
-    const [apiCounts, fnStats, disk] = await Promise.all([
+    // 7day is the largest interval the analytics endpoint accepts —
+    // 'monthly' returns 400. function-invocations endpoint requires a per-
+    // function ID and we don't deploy Edge Functions, so it's omitted entirely.
+    const [apiCounts, disk] = await Promise.all([
       mgmtGet<UsageApiCountsResponse>(
-        `/projects/${PROJECT_REF}/analytics/endpoints/usage.api-counts?interval=monthly`,
+        `/projects/${PROJECT_REF}/analytics/endpoints/usage.api-counts?interval=7day`,
         token,
       ),
-      mgmtGet<FunctionsCombinedStatsResponse>(
-        `/projects/${PROJECT_REF}/analytics/endpoints/functions.combined-stats?interval=monthly`,
-        token,
-      ).catch((err) => {
-        // Edge Functions may not be provisioned at all on this project — the
-        // endpoint can 400/404 in that case. Treat as zero invocations rather
-        // than failing the whole call.
-        return { error: String(err) } as FunctionsCombinedStatsResponse;
-      }),
       mgmtGet<DiskUtilResponse>(`/projects/${PROJECT_REF}/config/disk/util`, token),
     ]);
 
     const result: SupabaseManagementMetrics = {
-      api_requests_total: sumApiRequests(apiCounts),
-      function_invocations: sumFunctionInvocations(fnStats),
+      api_requests_7d: sumApiRequests(apiCounts),
       disk_used_bytes: Number(disk.metrics?.fs_used_bytes ?? 0),
       fetched_at: new Date().toISOString(),
     };

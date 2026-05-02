@@ -107,8 +107,7 @@ export async function GET() {
 
     if (!("error" in supabaseMgmt)) {
       await Promise.all([
-        updateUsage(db, "supabase", "api_requests_total", supabaseMgmt.api_requests_total, "api"),
-        updateUsage(db, "supabase", "function_invocations", supabaseMgmt.function_invocations, "api"),
+        updateUsage(db, "supabase", "api_requests_7d", supabaseMgmt.api_requests_7d, "api"),
         updateUsage(db, "supabase", "disk_used_bytes", supabaseMgmt.disk_used_bytes, "api"),
       ]);
     }

@@ -191,14 +191,14 @@ const PIPELINES: PipelineDef[] = [
     retryCmd: "pnpm data:tag-rules",
   },
   {
-    key: "connections",
+    key: "entity_connections_rebuild",
     display: "Connections (derived)",
-    aliases: ["connections"],
+    aliases: ["entity_connections_rebuild"],
     dbTotals: (db) => [
       { value: db.entity_connections, label: "edges" },
     ],
     retryCmd:
-      "psql … -c 'SELECT * FROM rebuild_entity_connections();' (see CLAUDE.md)",
+      "pnpm --filter @civitics/data data:nightly  (runs rebuild_entity_connections())",
   },
 ];
 

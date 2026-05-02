@@ -10,7 +10,7 @@
  */
 
 import { createAdminClient } from "@civitics/db";
-import { getDbSizeMb, getLastSync } from "./sync-log";
+import { getDbSizeMb, getLastSync, startSync, completeSync, failSync } from "./sync-log";
 import { runRegulationsPipeline } from "./regulations";
 import { runFecBulkPipeline } from "./fec-bulk";
 import { runUsaSpendingPipeline } from "./usaspending";
@@ -584,6 +584,7 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
   // PostgREST RPC for local dev where the rebuild completes in <1s.
   {
     const t0 = Date.now();
+    const logId = await startSync("entity_connections_rebuild");
     try {
       const dbUrl = buildDbUrl();
       console.log(`[nightly] rebuild_entity_connections — starting (${dbUrl ? "direct pg" : "PostgREST RPC"})`);
@@ -626,11 +627,13 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         rows_added: total,
         duration_ms: dur,
       };
+      await completeSync(logId, { inserted: total, updated: 0, failed: 0, estimatedMb: 0 });
     } catch (err) {
       const msg = errMsg(err);
       console.error("[nightly] rebuild_entity_connections failed:", msg);
       results.pipelines.entity_connections_rebuild = { status: "failed", error: msg };
       results.errors.push(`Rebuild entity_connections: ${msg}`);
+      await failSync(logId, msg);
     }
   }
 

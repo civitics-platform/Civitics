@@ -237,3 +237,4 @@
 2026-05-01 | FIX-187 | edcf196c | local-only | chore(data): delete stale data:connections pipeline (FIX-187 cleanup)
 2026-05-01 | FIX-187 | 86057e61 | local-only | fix(data): rename NightlySyncResults.pipelines.connections type field
 2026-05-01 | FIX-187 | 2036e38e | local-only | feat(dashboard): give entity_connections_rebuild its own data_sync_log row
+2026-05-01 | FIX-187 | ada190e7 | local-only | fix(types): clear pre-existing TS errors in data + db packages

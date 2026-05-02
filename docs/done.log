@@ -238,3 +238,4 @@
 2026-05-01 | FIX-187 | 86057e61 | local-only | fix(data): rename NightlySyncResults.pipelines.connections type field
 2026-05-01 | FIX-187 | 2036e38e | local-only | feat(dashboard): give entity_connections_rebuild its own data_sync_log row
 2026-05-01 | FIX-187 | ada190e7 | local-only | fix(types): clear pre-existing TS errors in data + db packages
+2026-05-01 | FIX-188 | dbc515e0 | local-only | fix(data): switch tsconfig to bundler resolution for subpath exports

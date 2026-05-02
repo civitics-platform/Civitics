@@ -60,10 +60,9 @@ interface DashboardClientProps {
 // ── Pipeline display name mapping ────────────────────────────────────────────
 
 // One row on the Data Health card. `aliases` holds every writer-side name that
-// should be merged into this row's history — pipeline naming has historically
-// been inconsistent (hyphens vs underscores, sub-pipeline subkeys) so we
-// normalize at the read layer instead of forcing a writer-side rename. The
-// list of writers is the audit ground truth from `grep startSync`.
+// should be merged into this row's history — used when one display row covers
+// multiple sub-pipelines (e.g. Congress = officials + votes + committees).
+// The list of writers is the audit ground truth from `grep startSync`.
 type PipelineDef = {
   key: string; // canonical key (used as React key + display name fallback)
   display: string; // user-facing label
@@ -89,7 +88,7 @@ const PIPELINES: PipelineDef[] = [
   {
     key: "regulations",
     display: "Regulations.gov",
-    aliases: ["regulations", "federal_register", "federal-register"],
+    aliases: ["regulations", "federal_register"],
     dbTotals: (db) => [
       { value: db.proposals_regulations, label: "regulations" },
     ],
@@ -140,13 +139,13 @@ const PIPELINES: PipelineDef[] = [
   {
     key: "opensecrets",
     display: "OpenSecrets",
-    aliases: ["opensecrets_bulk", "opensecrets-bulk"],
+    aliases: ["opensecrets_bulk"],
     retryCmd: "pnpm data:opensecrets-bulk",
   },
   {
     key: "govtrack",
     display: "GovTrack Cosponsors",
-    aliases: ["govtrack_cosponsors", "govtrack-cosponsors"],
+    aliases: ["govtrack_cosponsors"],
     retryCmd: "pnpm data:govtrack-cosponsors",
   },
   {
@@ -158,7 +157,7 @@ const PIPELINES: PipelineDef[] = [
   {
     key: "agencies",
     display: "Agencies (hierarchy)",
-    aliases: ["agencies_hierarchy", "agencies-hierarchy"],
+    aliases: ["agencies_hierarchy"],
     retryCmd: "pnpm data:agencies",
   },
   {
@@ -170,7 +169,7 @@ const PIPELINES: PipelineDef[] = [
   {
     key: "ai_summaries",
     display: "AI Summaries",
-    aliases: ["ai_summaries", "ai-summaries"],
+    aliases: ["ai_summaries"],
     dbTotals: (db) => [
       { value: db.ai_summary_cache, label: "summaries cached" },
     ],
@@ -179,7 +178,7 @@ const PIPELINES: PipelineDef[] = [
   {
     key: "tag_ai",
     display: "AI Tagger",
-    aliases: ["tag_ai", "tag-ai"],
+    aliases: ["tag_ai"],
     dbTotals: (db) => [
       { value: db.entity_tags, label: "entity_tags rows (all categories)" },
     ],
@@ -188,7 +187,7 @@ const PIPELINES: PipelineDef[] = [
   {
     key: "tag_rules",
     display: "Rule Tagger",
-    aliases: ["tag_rules", "tag-rules"],
+    aliases: ["tag_rules"],
     retryCmd: "pnpm data:tag-rules",
   },
   {

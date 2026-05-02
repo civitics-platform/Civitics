@@ -464,7 +464,7 @@ async function extractZipEntryToDisk(
  *
  * Filters applied while streaming:
  *   TRANSACTION_TP in ('24K', '24Z')   — direct contributions only
- *   TRANSACTION_AMT >= 5 000           — skip small contributions
+ *   TRANSACTION_AMT >= 200             — FEC's itemization threshold; rejects malformed/refund rows
  *   CAND_ID in candidateSet            — only our matched officials
  *
  * Returns aggregated totals keyed by "CMTE_ID|CAND_ID".
@@ -514,7 +514,7 @@ async function streamPas224(
     passedCand++;
 
     const amt = parseFloat(amtStr);
-    if (isNaN(amt) || amt < 5000) continue;
+    if (isNaN(amt) || amt < 200) continue;
     passedAmt++;
 
     const key      = `${cmteId}|${candId}`;
@@ -538,7 +538,7 @@ async function streamPas224(
   console.log(`    Lines read: ${linesRead.toLocaleString()}`);
   console.log(`    Passed 24K/24Z filter:    ${passedTxType.toLocaleString()}`);
   console.log(`    Passed candidateSet filter: ${passedCand.toLocaleString()}`);
-  console.log(`    Passed $5k+ filter:        ${passedAmt.toLocaleString()}`);
+  console.log(`    Passed $200+ filter:       ${passedAmt.toLocaleString()}`);
 
   try { fs.unlinkSync(txtPath); } catch { /* best effort */ }
 

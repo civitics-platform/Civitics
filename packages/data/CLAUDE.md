@@ -23,7 +23,7 @@ into Supabase. Runs as Node.js scripts, not as part of the Next.js build.
 | Source | Budget | Strategy |
 |--------|--------|----------|
 | Congress.gov | 80MB | Full resolution — bills + votes + legislators |
-| FEC bulk | 50MB | Candidate totals (weball24.zip) + PAC contributions (pas224.zip, streamed) |
+| FEC bulk | uncapped | Candidate totals (weball24.zip) + PAC contributions (pas224.zip, streamed). FEC's $200 itemization threshold is the only filter — no Civitics-imposed cap (FIX-182). |
 | USASpending | 250MB | Full FY bulk archive, all agencies in our DB, all award sizes |
 | Regulations.gov | 40MB | Active proposals only, no archived |
 | CourtListener | 20MB | Metadata only — no opinion text |
@@ -50,7 +50,7 @@ into Supabase. Runs as Node.js scripts, not as part of the Next.js build.
 
 Step 2b (PAC contributions):
 - Parses cm24 into a committee ID → name/type/connected-org lookup map
-- Streams pas224, filtering to: 24K/24Z transaction types, $5 000+, and known FEC candidate IDs
+- Streams pas224, filtering to: 24K/24Z transaction types, $200+ (FEC itemization threshold), and known FEC candidate IDs
 - Aggregates total contributions per committee × candidate pair
 - Upserts `financial_entities` rows for named PAC donors (keyed on `source_ids->>'fec_committee_id'`)
 - Upserts `financial_relationships` rows per PAC × candidate pair (keyed on `official_id + fec_committee_id + cycle_year`)

@@ -459,7 +459,7 @@ export async function runVotesPipeline(
     url:           string;
     session:       number;
     billKey:       string | null;
-    votedAt:       Date | null;
+    votedAt:       string | null;
     voteQuestion:  string;
     resultStr:     string;
     legisNum:      string;
@@ -656,7 +656,7 @@ export async function runVotesPipeline(
     url:          string;
     session:      number;
     billKey:      string | null;
-    votedAt:      Date | null;
+    votedAt:      string | null;
     voteQuestion: string;
     resultStr:    string;
     memberList:   unknown[];

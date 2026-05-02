@@ -146,7 +146,7 @@ export async function fetchAllMembers(
   while (nextUrl) {
     console.log(`  Fetching page ${pageNum} of members...`);
 
-    const data = await fetchCongressApi<CongressMemberListResponse>(
+    const data: CongressMemberListResponse = await fetchCongressApi<CongressMemberListResponse>(
       nextUrl,
       apiKey
     );

@@ -161,7 +161,7 @@ async function fetchAllPages<T>(
 
   while (page < MAX_PAGES) {
     const url = buildUrl(path, params, pageToken);
-    const res = await fetch(url, { headers, cache: "no-store" });
+    const res = await fetch(url, { headers });
     if (!res.ok) {
       const text = await res.text().catch(() => res.statusText);
       throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);

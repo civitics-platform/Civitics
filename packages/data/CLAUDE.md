@@ -118,17 +118,17 @@ Scripts:
 
 ---
 
-## Entity Connections Pipeline
+## Entity Connections Derivation
 
-After all source pipelines run, the connections pipeline derives `entity_connections` rows from the ingested data:
-- `donation` connections: from financial_relationships
-- `vote_yes` / `vote_no` connections: from votes + proposals
-- `oversight` connections: from agency–proposal relationships
-- `appointment` connections: from career_history
+After all source pipelines run, derived `entity_connections` rows are produced by the SQL function `rebuild_entity_connections()` (defined in `supabase/migrations/20260422000002…`, finalized in `…000005`). It TRUNCATEs and rebuilds:
+- `donation` from `financial_relationships`
+- `vote_yes` / `vote_no` from `votes` + `bill_proposals`
+- `co_sponsorship` from `proposal_cosponsors`
+- `appointment` / `holds_position` from `career_history`
+- `oversight` from `agencies`
+- `contract_award`, `gift_received`, `lobbying` from `financial_relationships`
 
-Script: `pnpm --filter @civitics/data data:connections`
-
-This must run AFTER all source pipelines. The master orchestrator handles ordering.
+The nightly orchestrator (`pnpm --filter @civitics/data data:nightly`) calls it directly via `pg.Client` against the session pooler when `SUPABASE_DB_URL` is set, falling back to PostgREST `admin.rpc()` for local dev. There is no longer a standalone `data:connections` TS pipeline — that path was dead post-cutover and has been removed (FIX-187). Run nightly to refresh derived edges.
 
 ---
 

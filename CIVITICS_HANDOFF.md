@@ -380,13 +380,12 @@ NEXT_PUBLIC_ADMIN_KEY=civitics-admin / ADMIN_SECRET=civitics-admin
 
 ### Pipeline Commands
 ```powershell
-pnpm --filter @civitics/data data:connections        # vote connections
-pnpm --filter @civitics/data data:connections -- --force  # skip recency guard
-pnpm --filter @civitics/data data:pac-classify       # tag PAC sectors
+pnpm --filter @civitics/data data:nightly            # full source + entity_connections rebuild
 ```
 
+Entity connections are derived by the SQL function `rebuild_entity_connections()` invoked from the nightly orchestrator (see `packages/data/CLAUDE.md` § "Entity Connections Derivation"). The standalone TS `data:connections` script and `data:pac-classify` were removed during the post-cutover cleanup (FIX-111, FIX-187).
+
 ### Guardrails
-- Connections pipeline: 4h recency guard
 - AI pipelines: 2h recency guard
 - `generateStaticParams` returns `[]` everywhere
 - No auto-refresh in dashboard

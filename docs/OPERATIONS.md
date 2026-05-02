@@ -303,7 +303,6 @@ Pipelines run as Node.js scripts in `packages/data/`. They are NOT part of the N
 | `data:regulations` | Regulations.gov → proposals | Free |
 | `data:openstates` | OpenStates → state legislators | Free |
 | `data:courtlistener` | CourtListener → judges | Free |
-| `data:connections` | Derive entity_connections from ingested data | Free |
 | `data:tag-rules` | Rule-based entity tagging (urgency, sector, etc.) | Free |
 | `data:ai-summaries` | AI plain-language summaries via Claude Haiku | ~$0.035/run |
 | `data:tag-ai` | AI-based topic/issue classification | ~$0.60/run |
@@ -313,28 +312,28 @@ Pipelines run as Node.js scripts in `packages/data/`. They are NOT part of the N
 
 ```powershell
 # Run a single pipeline
-pnpm --filter @civitics/data data:connections
-
-# Run with force override (skip recency guard)
-pnpm --filter @civitics/data data:connections -- --force
+pnpm --filter @civitics/data data:fec-bulk
 
 # Dry run (estimate cost, no writes)
 pnpm --filter @civitics/data data:ai-summaries -- --dry-run
+
+# Full nightly (orchestrator handles ordering + derives entity_connections)
+pnpm --filter @civitics/data data:nightly
 ```
 
 ### Safe Run Order
 
-Run source pipelines before the connections pipeline:
+Source pipelines run first, then `rebuild_entity_connections()` derives edges. The nightly orchestrator handles this — only re-create the order manually for one-off ad-hoc runs:
 
 ```
-1. data:congress          (heaviest — 227k vote records)
-2. data:fec-bulk          (PAC contributions, ~200MB streamed)
-3. data:usaspending       (spending records)
-4. data:regulations       (proposals + comment periods)
-5. data:connections       (derives entity_connections — must run AFTER sources)
-6. data:tag-rules         (lightweight, no API cost)
-7. data:ai-summaries      (costs money — run after other pipelines complete)
-8. data:tag-ai            (costs money — run last)
+1. data:congress           (heaviest — 227k vote records)
+2. data:fec-bulk           (PAC contributions, ~200MB streamed)
+3. data:usaspending        (spending records)
+4. data:regulations        (proposals + comment periods)
+5. rebuild_entity_connections()  (SQL function — see "Entity Connections Derivation" in packages/data/CLAUDE.md)
+6. data:tag-rules          (lightweight, no API cost)
+7. data:ai-summaries       (costs money — run after other pipelines complete)
+8. data:tag-ai             (costs money — run last)
 ```
 
 ### Recency Guards
@@ -343,7 +342,6 @@ Pipelines check when they last ran and refuse to re-run too soon:
 
 | Pipeline | Minimum gap | Override |
 |----------|------------|---------|
-| `data:connections` | 4 hours | `-- --force` |
 | `data:ai-summaries` | 2 hours | `-- --force` |
 | `data:tag-ai` | 2 hours | `-- --force` |
 

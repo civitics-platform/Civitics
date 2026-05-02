@@ -241,3 +241,4 @@
 2026-05-01 | FIX-188 | dbc515e0 | local-only | fix(data): switch tsconfig to bundler resolution for subpath exports
 2026-05-01 | FIX-189 | b28cde41 | local-only | fix(data): route AI/Supabase imports through workspace wrappers
 2026-05-02 | FIX-190 | fdb0ec65 | local-only | feat(dashboard): wire live Supabase usage into Platform Costs card
+2026-05-02 | FIX-190 | fb6ed7ab | local+prod | fix(dashboard): correct Supabase Management API endpoints (FIX-190 follow-up)

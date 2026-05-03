@@ -115,6 +115,45 @@ const PARTY_STROKE: Record<string, string> = {
   independent: "#7c3aed",
 };
 
+// ── Type-cluster angles ───────────────────────────────────────────────────────
+// Fixed semantic compass: 0 = right, -π/2 = up, π/2 = down (SVG y-down).
+
+const TYPE_CLUSTER_ANGLES: Record<string, number> = {
+  proposal:      (-Math.PI * 3) / 4,   // upper-left  — civic action
+  official:      -Math.PI / 2,          // straight up — authority
+  agency:        -Math.PI / 4,          // upper-right — government
+  organization:  -Math.PI / 4,          // same sector as agency
+  corporation:    0,                    // right       — money
+  financial:      Math.PI / 6,          // lower-right
+  pac:            Math.PI / 3,          // lower-right — dark money
+  individual:   (-Math.PI * 2) / 3,    // lower-left  — citizens
+  group:          Math.PI / 2,          // straight down — aggregates
+};
+
+function forceTypeCluster(
+  nodes: SimNode[],
+  clusterAngle: Map<string, number>,
+  cx: number,
+  cy: number,
+  radius: number,
+  focusedIds: Set<string>,
+  strength: number
+): (alpha: number) => void {
+  return function (alpha: number) {
+    for (const node of nodes) {
+      if (focusedIds.has(node.id)) continue;
+      if (node.type === "user") continue;
+      const clusterKey = node.type === "individual_bracket" ? "individual" : node.type;
+      const angle = clusterAngle.get(clusterKey);
+      if (angle === undefined) continue;
+      const tx = cx + Math.cos(angle) * radius;
+      const ty = cy + Math.sin(angle) * radius;
+      node.vx = (node.vx ?? 0) + (tx - (node.x ?? cx)) * strength * alpha;
+      node.vy = (node.vy ?? 0) + (ty - (node.y ?? cy)) * strength * alpha;
+    }
+  };
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function getBaseRadius(node: GraphNode): number {
@@ -1112,6 +1151,41 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [vizOptions?.layout]);
 
+    // ── Category B — Type-cluster force ──────────────────────────────────────
+    useEffect(() => {
+      const sim = simRef.current;
+      if (!sim || !nodes.length) return;
+      const svgEl = svgRef.current;
+      const width  = svgEl?.clientWidth  ?? 900;
+      const height = svgEl?.clientHeight ?? 600;
+      const cx = width  / 2;
+      const cy = height / 2;
+
+      if (!vizOptions?.typeClusterEnabled) {
+        sim.force("type-cluster", null).alpha(0.3).restart();
+        return;
+      }
+
+      const strength = vizOptions?.typeClusterStrength ?? 0.08;
+      const radius   = Math.min(width, height) * 0.35;
+      const focusedIds = new Set(focusEntities.map(fe => fe.id));
+      const currentNodes = sim.nodes();
+
+      const clusterAngle = new Map<string, number>();
+      const typesPresent = new Set<string>(
+        currentNodes.map(n => n.type === "individual_bracket" ? "individual" : n.type)
+      );
+      for (const [type, angle] of Object.entries(TYPE_CLUSTER_ANGLES)) {
+        if (typesPresent.has(type)) clusterAngle.set(type, angle);
+      }
+
+      sim
+        .force("type-cluster", forceTypeCluster(currentNodes, clusterAngle, cx, cy, radius, focusedIds, strength))
+        .alpha(0.5)
+        .restart();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [vizOptions?.typeClusterEnabled, vizOptions?.typeClusterStrength, focusEntities]);
+
     // ── Category B — Node size encoding ──────────────────────────────────────
     useEffect(() => {
       const nodeGrp = nodeGrpRef.current;
@@ -1132,8 +1206,15 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
           } else if (tagName === "rect") {
             el.attr("x", -r).attr("y", -r * 0.6)
               .attr("width", r * 2).attr("height", r * 1.2);
+          } else if (tagName === "path") {
+            if (d.type === "financial" || d.type === "corporation") {
+              el.attr("d", `M0,${-r} L${r},0 L0,${r} L${-r},0 Z`);
+            } else if (d.type === "pac") {
+              el.attr("d", `M0,${-r} L${r},${r * 0.75} L${-r},${r * 0.75} Z`);
+            } else if (d.type === "individual_bracket") {
+              el.attr("d", `M0,${-r} L${r},0 L0,${r} L${-r},0 Z`);
+            }
           }
-          // diamonds/triangles use complex paths; skip for now (require full redraw)
         });
 
       sim?.force("collide", d3.forceCollide<SimNode>().radius((d) => (d.baseRadius ?? 20) + 10).strength(0.7))

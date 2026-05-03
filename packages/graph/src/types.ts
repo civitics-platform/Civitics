@@ -141,6 +141,8 @@ export interface ForceOptions {
   charge?: number        // many-body strength, default: -300
   linkDistance?: number  // link target distance, default: 150
   gravity?: number       // center force strength, default: 0.1
+  typeClusterEnabled?:  boolean  // angular separation by node type, default: false
+  typeClusterStrength?: number   // 0–0.3, default: 0.08
   // Display — Category A (update SVG styles directly, no restart)
   labels?: 'always' | 'hover' | 'never'
   // Individual donor display — Category C (triggers API re-fetch)

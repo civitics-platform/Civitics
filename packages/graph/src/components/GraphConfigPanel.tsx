@@ -260,6 +260,19 @@ function ForceSettings({ view, hooks, graphMeta }: { view: GraphView; hooks: Use
       <LabeledSlider label="Charge" min={-1000} max={-50} step={50} value={opts?.charge ?? -300} onChange={v => set('charge', v)} />
       <LabeledSlider label="Link dist" min={50} max={500} step={10} value={opts?.linkDistance ?? 150} onChange={v => set('linkDistance', v)} />
       <LabeledSlider label="Gravity" min={0} max={1} step={0.05} value={opts?.gravity ?? 0.1} onChange={v => set('gravity', v)} />
+      <LabeledToggle
+        label="Type clusters"
+        value={opts?.typeClusterEnabled ?? false}
+        onChange={v => set('typeClusterEnabled', v)}
+      />
+      {(opts?.typeClusterEnabled ?? false) && (
+        <LabeledSlider
+          label="Cluster pull"
+          min={0} max={0.3} step={0.01}
+          value={opts?.typeClusterStrength ?? 0.08}
+          onChange={v => set('typeClusterStrength', v)}
+        />
+      )}
       <div className="px-3 pt-2 pb-0.5 text-[9px] font-semibold text-gray-400 uppercase tracking-wide">Individual Donors</div>
       <div className="px-3 pb-1 space-y-1">
         {(['bracket', 'connector', 'employer', 'off'] as IndividualDisplayMode[]).map(mode => (

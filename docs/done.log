@@ -244,3 +244,4 @@
 2026-05-02 | FIX-190 | fb6ed7ab | local+prod | fix(dashboard): correct Supabase Management API endpoints (FIX-190 follow-up)
 2026-05-02 | FIX-182 | bba965ec | local+prod | feat(data): lower FEC pas2 itemization filter from $5k to $200
 2026-05-02 | FIX-181 | 3dd0088a | local-only | feat(data): ingest FEC individual contributions (FIX-181)
+2026-05-02 | FIX-181 | eefc2394 | local+prod | docs(data): record FIX-181 prod verification

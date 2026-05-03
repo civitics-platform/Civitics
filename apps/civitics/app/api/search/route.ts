@@ -314,33 +314,37 @@ export async function GET(req: NextRequest) {
   };
 
   // ── Financial entities search ──────────────────────────────────────────────
+  // Searches PACs / corps / unions / etc. by display_name. Excludes individuals
+  // both because the partial trigram index (FIX-195) doesn't cover them and
+  // because flooding global search with 248 individuals named GOLDMAN is
+  // useless to the user. FIX-194 (c) will add a separate donor-by-name path.
   const searchFinancialEntities = async (): Promise<SearchFinancialEntity[]> => {
     if (typeFilter !== "all" && typeFilter !== "financial") return [];
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data } = await (db as any)
+    const { data } = await db
       .from("financial_entities")
-      .select("id, name, entity_type, total_amount_cents")
-      .ilike("name", `%${q}%`)
-      .order("total_amount_cents", { ascending: false, nullsFirst: false })
+      .select("id, display_name, entity_type, total_donated_cents")
+      .neq("entity_type", "individual")
+      .ilike("display_name", `%${q}%`)
+      .order("total_donated_cents", { ascending: false, nullsFirst: false })
       .limit(limit);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rows = (data ?? []) as any[];
+    const rows = data ?? [];
     const industryByEntityId = await fetchIndustryTagsByEntityId(
       db,
-      rows.map((f) => f.id as string),
+      rows.map((f) => f.id),
     );
 
     return rows.map((f) => {
-      let score = baseRelevance(f.name, q);
-      if (f.total_amount_cents != null && f.total_amount_cents > 100_000_00) score += 5; // > $1M
+      const amountCents = f.total_donated_cents ?? null;
+      let score = baseRelevance(f.display_name, q);
+      if (amountCents != null && amountCents > 100_000_00) score += 5; // > $1M
       return {
         id: f.id,
-        name: f.name,
+        name: f.display_name,
         entity_type: f.entity_type,
         industry: industryByEntityId.get(f.id)?.display_label ?? null,
-        total_amount_cents: f.total_amount_cents ?? null,
+        total_amount_cents: amountCents,
         relevance_score: Math.min(score, 100),
       };
     });

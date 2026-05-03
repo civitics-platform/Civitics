@@ -455,32 +455,33 @@ export default async function SearchPage({
         }).sort((a: SearchAgency, b: SearchAgency) => b.relevance_score - a.relevance_score);
       })(),
 
-      // Financial entities
+      // Financial entities — see api/search/route.ts for the entity_type filter rationale.
       (async (): Promise<SearchFinancialEntity[]> => {
         if (typeFilter !== "all" && typeFilter !== "financial") return [];
-        const { data } = await db2
+        const { data } = await db
           .from("financial_entities")
-          .select("id, name, entity_type, total_amount_cents")
-          .ilike("name", `%${q}%`)
-          .order("total_amount_cents", { ascending: false, nullsFirst: false })
+          .select("id, display_name, entity_type, total_donated_cents")
+          .neq("entity_type", "individual")
+          .ilike("display_name", `%${q}%`)
+          .order("total_donated_cents", { ascending: false, nullsFirst: false })
           .limit(20);
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const rows = (data ?? []) as any[];
+        const rows = data ?? [];
         const industryByEntityId = await fetchIndustryTagsByEntityId(
-          db2,
-          rows.map((f) => f.id as string),
+          db,
+          rows.map((f) => f.id),
         );
 
         return rows.map((f) => {
-          let score = baseRelevance(f.name, q);
-          if (f.total_amount_cents != null && f.total_amount_cents > 100_000_00) score += 5;
+          const amountCents = f.total_donated_cents ?? null;
+          let score = baseRelevance(f.display_name, q);
+          if (amountCents != null && amountCents > 100_000_00) score += 5;
           return {
             id: f.id,
-            name: f.name,
+            name: f.display_name,
             entity_type: f.entity_type,
             industry: industryByEntityId.get(f.id)?.display_label ?? null,
-            total_amount_cents: f.total_amount_cents ?? null,
+            total_amount_cents: amountCents,
             relevance_score: Math.min(score, 100),
           };
         });

@@ -154,6 +154,56 @@ function forceTypeCluster(
   };
 }
 
+// ── Type legend (shown in canvas when type clusters enabled) ──────────────────
+
+const TYPE_LEGEND: Record<string, { label: string; compass: string }> = {
+  official:     { label: 'Officials',     compass: '↑'  },
+  proposal:     { label: 'Proposals',     compass: '↖' },
+  agency:       { label: 'Agencies',      compass: '↗' },
+  organization: { label: 'Organizations', compass: '↗' },
+  financial:    { label: 'Financial',     compass: '→' },
+  corporation:  { label: 'Corporations',  compass: '→' },
+  pac:          { label: 'PACs',          compass: '↘' },
+  individual:   { label: 'Donors',        compass: '↙' },
+  group:        { label: 'Groups',        compass: '↓' },
+};
+
+// ── BFS depth from focus nodes (for hierarchical layout) ─────────────────────
+
+function computeNodeDepths(
+  nodes: SimNode[],
+  links: SimLink[],
+  focusIds: Set<string>
+): Map<string, number> {
+  const depths = new Map<string, number>();
+  const queue: string[] = [];
+
+  for (const id of focusIds) { depths.set(id, 0); queue.push(id); }
+
+  const adj = new Map<string, string[]>();
+  for (const e of links) {
+    const s = (e.source as SimNode).id ?? e.fromId;
+    const t = (e.target as SimNode).id ?? e.toId;
+    (adj.get(s) ?? (adj.set(s, []), adj.get(s)!)).push(t);
+    (adj.get(t) ?? (adj.set(t, []), adj.get(t)!)).push(s);
+  }
+
+  let i = 0;
+  while (i < queue.length) {
+    const id = queue[i++]!;
+    const d  = depths.get(id)!;
+    for (const nb of adj.get(id) ?? []) {
+      if (!depths.has(nb)) { depths.set(nb, d + 1); queue.push(nb); }
+    }
+  }
+
+  // Nodes unreachable from focus get maxDepth + 1
+  const maxD = depths.size ? Math.max(...depths.values()) : 0;
+  for (const n of nodes) { if (!depths.has(n.id)) depths.set(n.id, maxD + 1); }
+
+  return depths;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function getBaseRadius(node: GraphNode): number {
@@ -1145,8 +1195,26 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
             .restart();
           break;
         }
+        case "hierarchical": {
+          const focusIdSet = new Set((focusEntities ?? []).map(fe => fe.id));
+          const linkForce  = sim.force("link") as d3.ForceLink<SimNode, SimLink> | null;
+          const curLinks   = (linkForce?.links() ?? []) as SimLink[];
+          const depths     = computeNodeDepths(sim.nodes(), curLinks, focusIdSet);
+          const maxDepth   = Math.max(1, ...[...depths.values()]);
+
+          sim
+            .force("r", null)
+            .force("x", d3.forceX<SimNode>(width / 2).strength(0.15))
+            .force("y", d3.forceY<SimNode>((d) => {
+              const depth = depths.get(d.id) ?? maxDepth;
+              return height * 0.1 + (height * 0.8) * (depth / maxDepth);
+            }).strength(0.7))
+            .alpha(0.5)
+            .restart();
+          break;
+        }
         default:
-          sim.force("r", null).alpha(0.3).restart();
+          sim.force("r", null).force("x", null).force("y", null).alpha(0.3).restart();
       }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [vizOptions?.layout]);
@@ -1201,18 +1269,19 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
           const r  = getNodeRadius(d, sizeBy);
           d.baseRadius = r;
           const tagName = (this as SVGElement).tagName;
+          const t = el.transition().duration(200);
           if (tagName === "circle") {
-            el.attr("r", r);
+            t.attr("r", r);
           } else if (tagName === "rect") {
-            el.attr("x", -r).attr("y", -r * 0.6)
+            t.attr("x", -r).attr("y", -r * 0.6)
               .attr("width", r * 2).attr("height", r * 1.2);
           } else if (tagName === "path") {
             if (d.type === "financial" || d.type === "corporation") {
-              el.attr("d", `M0,${-r} L${r},0 L0,${r} L${-r},0 Z`);
+              t.attr("d", `M0,${-r} L${r},0 L0,${r} L${-r},0 Z`);
             } else if (d.type === "pac") {
-              el.attr("d", `M0,${-r} L${r},${r * 0.75} L${-r},${r * 0.75} Z`);
+              t.attr("d", `M0,${-r} L${r},${r * 0.75} L${-r},${r * 0.75} Z`);
             } else if (d.type === "individual_bracket") {
-              el.attr("d", `M0,${-r} L${r},0 L0,${r} L${-r},0 Z`);
+              t.attr("d", `M0,${-r} L${r},0 L0,${r} L${-r},0 Z`);
             }
           }
         });
@@ -1222,6 +1291,17 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
         .restart();
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [vizOptions?.nodeSizeEncoding]);
+
+    // ── Category A — Strength filter ─────────────────────────────────────────
+    useEffect(() => {
+      const svgEl = svgRef.current;
+      if (!svgEl) return;
+      const threshold = vizOptions?.strengthFilter ?? 0;
+      d3.select(svgEl)
+        .selectAll<SVGLineElement, SimLink>(".links line")
+        .style("display", (d) => (d.strength ?? 1) >= threshold ? null : "none");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [vizOptions?.strengthFilter]);
 
     // ── NodeActions for popup ─────────────────────────────────────────────────
     const nodeActions: NodeActions = {
@@ -1295,6 +1375,62 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
           actions={nodeActions}
           vizType="force"
         />
+
+        {/* Type-cluster sector legend */}
+        {vizOptions?.typeClusterEnabled && (() => {
+          const seen = new Set<string>();
+          for (const n of nodes) {
+            const k = n.type === "individual_bracket" ? "individual" : n.type;
+            if (k in TYPE_LEGEND) seen.add(k);
+          }
+          const items = [...seen].sort(
+            (a, b) => (TYPE_CLUSTER_ANGLES[a] ?? 0) - (TYPE_CLUSTER_ANGLES[b] ?? 0)
+          );
+          if (!items.length) return null;
+          return (
+            <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg px-2.5 py-2 shadow-sm pointer-events-none">
+              <div className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Type sectors</div>
+              <div className="space-y-0.5">
+                {items.map(k => (
+                  <div key={k} className="flex items-center gap-1.5 text-[10px] text-gray-600">
+                    <span className="w-4 text-center text-gray-400 font-medium">{TYPE_LEGEND[k]!.compass}</span>
+                    <span>{TYPE_LEGEND[k]!.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Donation size scale legend */}
+        {vizOptions?.nodeSizeEncoding === "donation_total" && (() => {
+          const BASE = 16;
+          const entries: { amt: number; label: string }[] = [
+            { amt: 100_000,    label: '$100K' },
+            { amt: 1_000_000,  label: '$1M'   },
+            { amt: 10_000_000, label: '$10M'  },
+          ];
+          const maxR = BASE + Math.sqrt(10_000_000 / 100_000) * 2;
+          return (
+            <div className="absolute bottom-4 right-4 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg px-2.5 py-2 shadow-sm pointer-events-none">
+              <div className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Node size</div>
+              <div className="space-y-1.5">
+                {entries.map(({ amt, label }) => {
+                  const r = BASE + Math.sqrt(amt / 100_000) * 2;
+                  const px = Math.round(r * 1.4);
+                  return (
+                    <div key={amt} className="flex items-center gap-2 text-[10px] text-gray-600">
+                      <div className="flex items-center justify-center" style={{ width: Math.round(maxR * 1.4) + 2 }}>
+                        <div className="rounded-full bg-indigo-50 border border-indigo-300" style={{ width: px, height: px }} />
+                      </div>
+                      <span>{label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
       </div>
     );
   }

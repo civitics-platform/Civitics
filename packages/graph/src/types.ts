@@ -143,6 +143,8 @@ export interface ForceOptions {
   gravity?: number       // center force strength, default: 0.1
   typeClusterEnabled?:  boolean  // angular separation by node type, default: false
   typeClusterStrength?: number   // 0–0.3, default: 0.08
+  // Connections filter — Category A (visual only, no restart)
+  strengthFilter?: number              // min edge strength to display, 0–1, default: 0.0
   // Display — Category A (update SVG styles directly, no restart)
   labels?: 'always' | 'hover' | 'never'
   // Individual donor display — Category C (triggers API re-fetch)

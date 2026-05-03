@@ -273,6 +273,23 @@ function ForceSettings({ view, hooks, graphMeta }: { view: GraphView; hooks: Use
           onChange={v => set('typeClusterStrength', v)}
         />
       )}
+      <div className="px-3 pt-2 pb-0.5 text-[9px] font-semibold text-gray-400 uppercase tracking-wide">Filters</div>
+      <LabeledSlider
+        label="Min strength"
+        min={0} max={0.9} step={0.1}
+        value={opts?.strengthFilter ?? 0}
+        onChange={v => set('strengthFilter', v)}
+      />
+      <div className="px-3 pb-0.5 text-[9px] text-gray-400 italic leading-tight">
+        {(() => {
+          const v = opts?.strengthFilter ?? 0;
+          if (v === 0)       return 'Showing all connections';
+          if (v < 0.3)       return 'Hiding connections under ~$10K';
+          if (v < 0.5)       return 'Showing $10K+ connections';
+          if (v < 0.7)       return 'Showing $100K+ connections';
+          return 'Showing $500K+ connections';
+        })()}
+      </div>
       <div className="px-3 pt-2 pb-0.5 text-[9px] font-semibold text-gray-400 uppercase tracking-wide">Individual Donors</div>
       <div className="px-3 pb-1 space-y-1">
         {(['bracket', 'connector', 'employer', 'off'] as IndividualDisplayMode[]).map(mode => (

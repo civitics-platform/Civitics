@@ -163,5 +163,8 @@ by the FEC bulk pipeline. Each cycle:
 - Upserts donor entities + donation relationships, then deletes the temp files
 - ~500 MB peak heap per cycle; bump `NODE_OPTIONS=--max-old-space-size=4096` if OOM
 
+Pro verified 2026-05-02 (cycles 2024 + 2026): 540,859 distinct individual
+donors, 959,010 indiv donation rows, 0 failures across both cycles.
+
 R2 is configured but unused for FEC files — see FIX-192 for the planned
 mirror cache. Until then, FEC is hit fresh on each run.

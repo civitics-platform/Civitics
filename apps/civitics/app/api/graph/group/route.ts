@@ -93,46 +93,59 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Batch the .in() query — PostgREST URL limits break with hundreds of UUIDs
+    // Parallel-fetch from entity_connections (pre-aggregated, indexed) rather
+    // than financial_relationships (raw source, now bloated by individual donors).
+    // entity_connections has one row per (donor, official) pair with amount_cents
+    // already summed across all FEC cycles and proper (to_type, to_id) indexes.
     const BATCH_SIZE = 100;
-    const allDonationRows: Array<{ from_id: string; amount_cents: number | null }> = [];
-    for (let i = 0; i < memberIds.length; i += BATCH_SIZE) {
-      const batch = memberIds.slice(i, i + BATCH_SIZE);
-      const { data: batchData } = await supabase
-        .from("financial_relationships")
-        .select("from_id, amount_cents")
-        .eq("relationship_type", "donation")
-        .eq("to_type", "official")
-        .in("to_id", batch)
-        .eq("from_type", "financial_entity")
-        .order("amount_cents", { ascending: false })
-        .limit(550);
-      if (batchData) allDonationRows.push(...batchData);
-    }
+    const chunks: string[][] = [];
+    for (let i = 0; i < memberIds.length; i += BATCH_SIZE)
+      chunks.push(memberIds.slice(i, i + BATCH_SIZE));
 
-    // Resolve donor entity names + industry tags. Industry comes from
-    // `entity_tags` (FIX-167): the legacy `financial_entities.industry` column
-    // was dropped because it had been polluted with FEC CONNECTED_ORG_NM.
+    const batchResults = await Promise.all(
+      chunks.map(batch =>
+        supabase
+          .from("entity_connections")
+          .select("from_id, amount_cents")
+          .eq("connection_type", "donation")
+          .eq("to_type", "official")
+          .in("to_id", batch)
+          .eq("from_type", "financial_entity")
+          .order("amount_cents", { ascending: false })
+          .limit(2000)
+      )
+    );
+    const allDonationRows: Array<{ from_id: string; amount_cents: number | null }> =
+      batchResults.flatMap(r => r.data ?? []);
+
+    // Resolve donor entity names, industry tags, and entity_type.
+    // Industry comes from `entity_tags` (FIX-167): the legacy
+    // `financial_entities.industry` column was dropped.
+    // entity_type is needed to filter out individual donors —
+    // group summary shows institutional money (PACs, orgs, corps) only;
+    // individual donor detail lives in the DonorListPanel.
     const donorIds = [...new Set(allDonationRows.map((r) => r.from_id))];
-    const donorInfo = new Map<string, { name: string; sector: string | null }>();
+    const donorInfo = new Map<string, { name: string; sector: string | null; entityType: string }>();
     if (donorIds.length > 0) {
       const [{ data: entities }, industryByEntityId] = await Promise.all([
         supabase
           .from("financial_entities")
-          .select("id, display_name")
+          .select("id, display_name, entity_type")
           .in("id", donorIds),
         fetchIndustryTagsByEntityId(supabase, donorIds),
       ]);
       for (const e of entities ?? []) {
         donorInfo.set(e.id, {
-          name:   e.display_name,
-          sector: industryByEntityId.get(e.id)?.display_label ?? null,
+          name:       e.display_name,
+          sector:     industryByEntityId.get(e.id)?.display_label ?? null,
+          entityType: (e as { id: string; display_name: string; entity_type: string }).entity_type,
         });
       }
     }
 
-    // Aggregate by donor across all group members
+    // Aggregate by donor UUID (not name — distinct donors can share display names).
     const donorMap = new Map<string, {
+      donorId: string;
       donorName: string;
       totalUsd: number;
       memberCount: number;
@@ -142,10 +155,12 @@ export async function GET(req: NextRequest) {
     for (const row of allDonationRows) {
       const info = donorInfo.get(row.from_id);
       if (!info) continue;
+      // Group summary = institutional money only — skip individual donors.
+      if (info.entityType === 'individual') continue;
       // Skip generic "PAC/Committee" aggregate placeholder rows
       if (/PAC\/Committee/i.test(info.name)) continue;
 
-      const key = info.name;
+      const key = row.from_id;  // UUID key — not name
       const usd = (row.amount_cents ?? 0) / 100;
 
       if (donorMap.has(key)) {
@@ -153,7 +168,7 @@ export async function GET(req: NextRequest) {
         existing.totalUsd    += usd;
         existing.memberCount += 1;
       } else {
-        donorMap.set(key, { donorName: key, totalUsd: usd, memberCount: 1, sector: info.sector });
+        donorMap.set(key, { donorId: row.from_id, donorName: info.name, totalUsd: usd, memberCount: 1, sector: info.sector });
       }
     }
 
@@ -175,17 +190,17 @@ export async function GET(req: NextRequest) {
       },
     };
 
-    const connectedNodes: ResponseNode[] = topDonors.map((donor, i) => ({
-      id: `donor-${groupId}-${i}`,
+    const connectedNodes: ResponseNode[] = topDonors.map((donor) => ({
+      id: `donor-${donor.donorId}`,
       name: donor.donorName,
       type: "financial" as NodeType,
       collapsed: false,
       metadata: { sector: donor.sector },
     }));
 
-    const edges: ResponseEdge[] = topDonors.map((donor, i) => ({
-      id: `edge-${groupId}-${i}`,
-      fromId: `donor-${groupId}-${i}`,
+    const edges: ResponseEdge[] = topDonors.map((donor) => ({
+      id: `edge-${groupId}-${donor.donorId}`,
+      fromId: `donor-${donor.donorId}`,
       toId: groupId,
       connectionType: "donation",
       amountUsd: donor.totalUsd,
@@ -249,22 +264,28 @@ export async function GET(req: NextRequest) {
 
     const pacIds = pacEntitiesRows.map((p) => p.id);
 
-    // Step 2: pull their donations to officials.
+    // Step 2: pull their donations to officials via entity_connections
+    // (pre-aggregated, indexed) rather than financial_relationships.
     const pacData: Array<{ to_id: string; amount_cents: number | null }> = [];
     if (pacIds.length > 0) {
       const BATCH = 200;
-      for (let i = 0; i < pacIds.length; i += BATCH) {
-        const batch = pacIds.slice(i, i + BATCH);
-        const { data } = await supabase
-          .from("financial_relationships")
-          .select("to_id, amount_cents")
-          .eq("relationship_type", "donation")
-          .eq("from_type", "financial_entity")
-          .in("from_id", batch)
-          .eq("to_type", "official")
-          .limit(5000);
-        if (data) pacData.push(...data);
-      }
+      const pacChunks: string[][] = [];
+      for (let i = 0; i < pacIds.length; i += BATCH)
+        pacChunks.push(pacIds.slice(i, i + BATCH));
+
+      const pacResults = await Promise.all(
+        pacChunks.map(batch =>
+          supabase
+            .from("entity_connections")
+            .select("to_id, amount_cents")
+            .eq("connection_type", "donation")
+            .eq("from_type", "financial_entity")
+            .in("from_id", batch)
+            .eq("to_type", "official")
+            .limit(5000)
+        )
+      );
+      for (const r of pacResults) if (r.data) pacData.push(...r.data);
     }
 
     const officialMap = new Map<string, {
@@ -413,6 +434,138 @@ export async function GET(req: NextRequest) {
       nodes: [groupNode],
       edges: [],
       meta: { memberCount, tag },
+    });
+  }
+
+  // ── Agency group mode ────────────────────────────────────────────────────────
+  // Show which governing bodies (congressional committees) oversee the agencies
+  // in this group. Oversight edges live in entity_connections where
+  // from_type='governing_body', to_type='agency', connection_type='oversight'.
+
+  if (entityType === "agency") {
+    const { data: agencyData, count: agencyCount } = await withDbTimeout<{
+      data: Array<{ id: string }> | null;
+      count: number | null;
+      error: { message: string } | null;
+    }>(
+      supabase
+        .from("agencies")
+        .select("id", { count: "exact" })
+        .eq("is_active", true)
+        .limit(1000)
+    );
+
+    const agencyIds = (agencyData ?? []).map(a => a.id);
+
+    if (agencyIds.length === 0) {
+      return NextResponse.json({
+        group: { id: groupId, name: groupName, count: 0 },
+        nodes: [],
+        edges: [],
+      });
+    }
+
+    // Fetch oversight edges for all agencies in parallel batches
+    const AG_BATCH = 500;
+    const agChunks: string[][] = [];
+    for (let i = 0; i < agencyIds.length; i += AG_BATCH)
+      agChunks.push(agencyIds.slice(i, i + AG_BATCH));
+
+    const oversightResults = await Promise.all(
+      agChunks.map(batch =>
+        supabase
+          .from("entity_connections")
+          .select("from_id, strength")
+          .eq("connection_type", "oversight")
+          .eq("to_type", "agency")
+          .in("to_id", batch)
+      )
+    );
+    const oversightRows: Array<{ from_id: string; strength: number }> =
+      oversightResults.flatMap(r => r.data ?? []);
+
+    // Aggregate by overseer (governing_body): count agencies each oversees
+    const overseerMap = new Map<string, { agencyCount: number; totalStrength: number }>();
+    for (const row of oversightRows) {
+      const ex = overseerMap.get(row.from_id);
+      if (ex) {
+        ex.agencyCount     += 1;
+        ex.totalStrength   += (row.strength ?? 0.7);
+      } else {
+        overseerMap.set(row.from_id, { agencyCount: 1, totalStrength: (row.strength ?? 0.7) });
+      }
+    }
+
+    const topOverseers = [...overseerMap.entries()]
+      .sort((a, b) => b[1].agencyCount - a[1].agencyCount)
+      .slice(0, limit);
+
+    const overseerIds = topOverseers.map(([id]) => id);
+    type GovBodyRow = { id: string; name: string; metadata: Record<string, unknown> | null };
+    const { data: overseerData } = overseerIds.length > 0
+      ? await supabase
+          .from("governing_bodies")
+          .select("id, name, metadata")
+          .in("id", overseerIds)
+      : { data: [] as GovBodyRow[] };
+
+    const overseerLookup = new Map(
+      (overseerData ?? []).map(g => [g.id, g as GovBodyRow])
+    );
+
+    const agencyGroupNode: ResponseNode = {
+      id: groupId,
+      name: groupName,
+      type: "group" as NodeType,
+      collapsed: false,
+      metadata: {
+        icon: groupIcon,
+        color: groupColor,
+        memberCount: agencyCount ?? 0,
+        isGroup: true,
+        isAgencyGroup: true,
+      },
+    };
+
+    // governing_body maps to 'agency' node type in the V2 type system
+    const overseerNodes: ResponseNode[] = topOverseers.map(([id, stats]) => {
+      const g = overseerLookup.get(id);
+      return {
+        id,
+        name: g?.name ?? "Unknown Committee",
+        type: "agency" as NodeType,
+        collapsed: false,
+        metadata: {
+          chamber: (g?.metadata as Record<string, unknown> | null)?.chamber,
+          agencyCount: stats.agencyCount,
+        },
+      };
+    });
+
+    const overseerEdges: ResponseEdge[] = topOverseers.map(([id, stats]) => ({
+      id: `edge-${groupId}-${id}`,
+      fromId: id,
+      toId: groupId,
+      connectionType: "oversight",
+      strength: Math.min(stats.totalStrength, 1),
+      metadata: { agencyCount: stats.agencyCount },
+    }));
+
+    return NextResponse.json({
+      group: {
+        id: groupId,
+        name: groupName,
+        icon: groupIcon,
+        color: groupColor,
+        count: agencyCount ?? 0,
+        filter: { entity_type: entityType },
+      },
+      nodes: [agencyGroupNode, ...overseerNodes],
+      edges: overseerEdges,
+      meta: {
+        agencyCount:      agencyCount ?? 0,
+        overseersShown:   topOverseers.length,
+      },
     });
   }
 

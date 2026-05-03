@@ -527,9 +527,46 @@ export const HOW_ALIGNED_ARE_MY_REPS: GraphViewPreset = {
   },
 }
 
+// Optimized for groups (Full Senate, Finance PACs, Federal Agencies, etc.).
+// Radial layout puts the group node at center with donors/overseers fanning out.
+// Sizes nodes by donation total so the biggest institutional donors are obvious.
+// $25k floor suppresses small bundlers while keeping mid-size PAC connections.
+export const GROUP_OVERVIEW: GraphViewPreset = {
+  focus: {
+    entities: [],
+    scope: 'federal',
+    depth: 1,
+    includeProcedural: false,
+  },
+  connections: buildConnections(['donation'], {
+    donation: { minAmount: 25_000 },
+  }),
+  style: {
+    vizType: 'force',
+    vizOptions: {
+      force: {
+        layout: 'radial',
+        nodeSizeEncoding: 'donation_total',
+        nodeColorEncoding: 'entity_type',
+        singleColor: '#6366f1',
+        edgeThicknessEncoding: 'amount_proportional',
+        edgeOpacity: 0.75,
+        theme: 'dark',
+      },
+    },
+  },
+  meta: {
+    name: 'Group Overview',
+    isPreset: true,
+    presetId: 'group-overview',
+    isDirty: false,
+  },
+}
+
 // ── Preset Collection ──────────────────────────────────────────────────────────
 
 export const BUILT_IN_PRESETS: GraphViewPreset[] = [
+  GROUP_OVERVIEW,
   FOLLOW_THE_MONEY,
   VOTES_AND_BILLS,
   NOMINATIONS,

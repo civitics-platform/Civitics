@@ -120,7 +120,23 @@ export const BUILT_IN_GROUPS: FocusGroup[] = [
   },
 
   // ── Industry PACs ──────────────
+  //
+  // `industry` filter values must match entity_tags.tag exactly (case-sensitive).
+  // Canonical tags are lowercase/snake_case. Verified against local DB 2026-05-03.
 
+  {
+    id: 'group-pac-lobby',
+    name: 'Lobby & Advocacy PACs',
+    type: 'group',
+    icon: '🗣',
+    color: '#8b5cf6',
+    filter: {
+      entity_type: 'pac',
+      industry: 'lobby',
+    },
+    isPremade: true,
+    description: 'Lobbying firms, advocacy groups, and trade associations',
+  },
   {
     id: 'group-pac-finance',
     name: 'Finance PACs',
@@ -129,36 +145,36 @@ export const BUILT_IN_GROUPS: FocusGroup[] = [
     color: '#f59e0b',
     filter: {
       entity_type: 'pac',
-      industry: 'Finance',
+      industry: 'finance',
     },
     isPremade: true,
     description: 'Banking, investment, and insurance PACs',
   },
   {
     id: 'group-pac-energy',
-    name: 'Energy PACs',
+    name: 'Oil & Gas PACs',
     type: 'group',
     icon: '⚡',
     color: '#f97316',
     filter: {
       entity_type: 'pac',
-      industry: 'Energy',
+      industry: 'oil_gas',
     },
     isPremade: true,
-    description: 'Oil, gas, coal, and utility PACs',
+    description: 'Oil, gas, and energy sector PACs',
   },
   {
     id: 'group-pac-healthcare',
-    name: 'Healthcare PACs',
+    name: 'Pharma PACs',
     type: 'group',
-    icon: '🏥',
+    icon: '💊',
     color: '#10b981',
     filter: {
       entity_type: 'pac',
-      industry: 'Healthcare',
+      industry: 'pharma',
     },
     isPremade: true,
-    description: 'Pharma, hospital, and medical PACs',
+    description: 'Pharmaceutical, biotech, and medical device PACs',
   },
   {
     id: 'group-pac-defense',
@@ -168,7 +184,7 @@ export const BUILT_IN_GROUPS: FocusGroup[] = [
     color: '#64748b',
     filter: {
       entity_type: 'pac',
-      industry: 'Defense',
+      industry: 'defense',
     },
     isPremade: true,
     description: 'Defense contractor and aerospace PACs',
@@ -181,7 +197,7 @@ export const BUILT_IN_GROUPS: FocusGroup[] = [
     color: '#f43f5e',
     filter: {
       entity_type: 'pac',
-      industry: 'Labor',
+      industry: 'labor',
     },
     isPremade: true,
     description: 'Union and worker organization PACs',
@@ -194,7 +210,7 @@ export const BUILT_IN_GROUPS: FocusGroup[] = [
     color: '#06b6d4',
     filter: {
       entity_type: 'pac',
-      industry: 'Tech',
+      industry: 'tech',
     },
     isPremade: true,
     description: 'Technology and telecom PACs',
@@ -207,7 +223,7 @@ export const BUILT_IN_GROUPS: FocusGroup[] = [
     color: '#84cc16',
     filter: {
       entity_type: 'pac',
-      industry: 'Agriculture',
+      industry: 'agriculture',
     },
     isPremade: true,
     description: 'Farm bureau and agricultural PACs',
@@ -220,10 +236,64 @@ export const BUILT_IN_GROUPS: FocusGroup[] = [
     color: '#a78bfa',
     filter: {
       entity_type: 'pac',
-      industry: 'Real Estate',
+      industry: 'real_estate',
     },
     isPremade: true,
     description: 'Realtor and housing PACs',
+  },
+  {
+    id: 'group-pac-retail',
+    name: 'Retail PACs',
+    type: 'group',
+    icon: '🛒',
+    color: '#ec4899',
+    filter: {
+      entity_type: 'pac',
+      industry: 'retail',
+    },
+    isPremade: true,
+    description: 'Retail, consumer goods, and hospitality PACs',
+  },
+  {
+    id: 'group-pac-legal',
+    name: 'Legal PACs',
+    type: 'group',
+    icon: '⚖️',
+    color: '#0891b2',
+    filter: {
+      entity_type: 'pac',
+      industry: 'legal',
+    },
+    isPremade: true,
+    description: 'Law firm and legal industry PACs',
+  },
+  {
+    id: 'group-pac-transportation',
+    name: 'Transportation PACs',
+    type: 'group',
+    icon: '🚛',
+    color: '#d97706',
+    filter: {
+      entity_type: 'pac',
+      industry: 'transportation',
+    },
+    isPremade: true,
+    description: 'Airlines, railroads, trucking, and shipping PACs',
+  },
+
+  // ── Federal Agencies ───────────
+
+  {
+    id: 'group-federal-agencies',
+    name: 'Federal Agencies',
+    type: 'group',
+    icon: '🏛',
+    color: '#64748b',
+    filter: {
+      entity_type: 'agency',
+    },
+    isPremade: true,
+    description: 'All active federal executive and regulatory agencies',
   },
 ]
 
@@ -308,6 +378,7 @@ export const GROUP_TREE: GroupTreeNode[] = [
         icon: '💼',
         defaultExpanded: true,
         children: [
+          { kind: 'group', id: 'group-pac-lobby' },
           { kind: 'group', id: 'group-pac-finance' },
           { kind: 'group', id: 'group-pac-energy' },
           { kind: 'group', id: 'group-pac-healthcare' },
@@ -316,6 +387,26 @@ export const GROUP_TREE: GroupTreeNode[] = [
           { kind: 'group', id: 'group-pac-tech' },
           { kind: 'group', id: 'group-pac-agriculture' },
           { kind: 'group', id: 'group-pac-realestate' },
+          { kind: 'group', id: 'group-pac-retail' },
+          { kind: 'group', id: 'group-pac-legal' },
+          { kind: 'group', id: 'group-pac-transportation' },
+        ],
+      },
+    ],
+  },
+  {
+    kind: 'category',
+    label: 'Government',
+    icon: '🏛',
+    defaultExpanded: false,
+    children: [
+      {
+        kind: 'category',
+        label: 'Federal',
+        icon: '🏛',
+        defaultExpanded: true,
+        children: [
+          { kind: 'group', id: 'group-federal-agencies' },
         ],
       },
     ],

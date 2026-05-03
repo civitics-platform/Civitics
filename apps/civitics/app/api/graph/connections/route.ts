@@ -397,6 +397,7 @@ export async function GET(request: Request) {
               : "id, display_name, entity_type, recipient_count"
             )
             .in("id", financialIds)
+            .limit(50_000)
         : Promise.resolve({ data: [] as { id: string; display_name: string; entity_type: string; recipient_count?: number; metadata?: Record<string, unknown> | null }[] }),
     ]);
 

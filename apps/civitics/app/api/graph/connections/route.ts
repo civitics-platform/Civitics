@@ -523,7 +523,7 @@ export async function GET(request: Request) {
             type: 'individual_bracket',
             name: displayName,
             connectionCount: bucket.donorCount,
-            donationTotal: bucket.totalCents / 100,
+            donationTotal: bucket.totalCents,
             metadata: {
               isEmployerNode: true,
               employer: bucket.employer,
@@ -538,7 +538,7 @@ export async function GET(request: Request) {
             type: 'individual_bracket',
             name: `${tier.shortLabel} Donors`,
             connectionCount: bucket.donorCount,
-            donationTotal: bucket.totalCents / 100,
+            donationTotal: bucket.totalCents,
             metadata: {
               isBracketNode: true,
               tier: tier.id,

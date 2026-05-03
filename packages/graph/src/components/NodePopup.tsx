@@ -149,7 +149,7 @@ export function NodePopup({ node, onClose, actions, vizType }: NodePopupProps) {
     const donorCount   = node.metadata?.donorCount as number | undefined;
     const officialId   = node.metadata?.officialId as string | undefined;
     const employer     = node.metadata?.employer as string | undefined;
-    const totalUsd     = node.donationTotal;
+    const totalUsd     = (node.donationTotal ?? 0) / 100;
 
     return (
       <>

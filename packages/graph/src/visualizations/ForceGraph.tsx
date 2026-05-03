@@ -753,7 +753,7 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
           ? (() => {
               const donorCount = d.metadata?.donorCount as number | undefined;
               const total = d.donationTotal != null
-                ? `$${Math.round(d.donationTotal / 1000)}k`
+                ? `$${Math.round(d.donationTotal / 100_000)}k`
                 : "";
               return donorCount ? `${truncate(d.name, 16)} · ${total}` : truncate(d.name, 22);
             })()

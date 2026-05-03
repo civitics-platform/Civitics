@@ -245,3 +245,5 @@
 2026-05-02 | FIX-182 | bba965ec | local+prod | feat(data): lower FEC pas2 itemization filter from $5k to $200
 2026-05-02 | FIX-181 | 3dd0088a | local-only | feat(data): ingest FEC individual contributions (FIX-181)
 2026-05-02 | FIX-181 | eefc2394 | local+prod | docs(data): record FIX-181 prod verification
+2026-05-02 | FIX-191 | 1f671bc8 | local+prod | feat(db): make financial_entities name-side indexes partial on non-individual
+2026-05-02 | FIX-195 | 1f671bc8 | local+prod | feat(db): make financial_entities name-side indexes partial on non-individual

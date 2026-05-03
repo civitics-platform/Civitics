@@ -373,7 +373,29 @@ export async function GET(request: Request) {
     // ── Batch-fetch names in parallel ──────────────────────────────────────
     // FIX-123: bill_number lives in `bill_details` (one-to-one with proposals)
     // post-cutover, so it's a separate fetch keyed on proposal_id.
-    const [officialsRes, agenciesRes, proposalsRes, billDetailsRes, gbRes, financialRes] = await Promise.all([
+    // Financial entities can number in the thousands (e.g. Sanders ~5k individual donors).
+    // PostgREST sends IN filters as query-string params; at >~500 UUIDs the URL exceeds
+    // nginx's header buffer limit and the query silently returns empty. Chunk to 500.
+    type FinRow = { id: string; display_name: string; entity_type: string; recipient_count?: number; metadata?: Record<string, unknown> | null };
+    const FIN_CHUNK = 500;
+    const financialData: FinRow[] = [];
+    if (financialIds.length > 0) {
+      const finSelect = individualMode === 'employer'
+        ? "id, display_name, entity_type, recipient_count, metadata"
+        : "id, display_name, entity_type, recipient_count";
+      const finChunks: string[][] = [];
+      for (let i = 0; i < financialIds.length; i += FIN_CHUNK) {
+        finChunks.push(financialIds.slice(i, i + FIN_CHUNK));
+      }
+      const finResults = await Promise.all(
+        finChunks.map(ids => withDbTimeout(supabase.from("financial_entities").select(finSelect).in("id", ids)))
+      );
+      for (const r of finResults) {
+        financialData.push(...((r.data ?? []) as unknown as FinRow[]));
+      }
+    }
+
+    const [officialsRes, agenciesRes, proposalsRes, billDetailsRes, gbRes] = await Promise.all([
       officialIds.length
         ? supabase.from("officials").select("id, full_name, party").in("id", officialIds)
         : Promise.resolve({ data: [] as { id: string; full_name: string; party: string | null }[] }),
@@ -389,16 +411,6 @@ export async function GET(request: Request) {
       gbIds.length
         ? supabase.from("governing_bodies").select("id, name").in("id", gbIds)
         : Promise.resolve({ data: [] as { id: string; name: string }[] }),
-      financialIds.length
-        ? supabase
-            .from("financial_entities")
-            .select(individualMode === 'employer'
-              ? "id, display_name, entity_type, recipient_count, metadata"
-              : "id, display_name, entity_type, recipient_count"
-            )
-            .in("id", financialIds)
-            .limit(50_000)
-        : Promise.resolve({ data: [] as { id: string; display_name: string; entity_type: string; recipient_count?: number; metadata?: Record<string, unknown> | null }[] }),
     ]);
 
     const billNumberByProposal = new Map<string, string>();
@@ -424,13 +436,7 @@ export async function GET(request: Request) {
 
     // Track individual-donor extra data for bracket/employer aggregation (FIX-194)
     const individualMeta = new Map<string, { recipientCount: number; employer?: string }>();
-    for (const f of (financialRes.data ?? []) as Array<{
-      id: string;
-      display_name: string;
-      entity_type: string;
-      recipient_count?: number;
-      metadata?: Record<string, unknown> | null;
-    }>) {
+    for (const f of financialData) {
       nameMap.set(f.id, { label: f.display_name, subType: f.entity_type });
       if (f.entity_type === 'individual') {
         const meta = f.metadata as Record<string, string> | null;

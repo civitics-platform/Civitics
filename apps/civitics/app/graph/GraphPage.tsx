@@ -23,8 +23,10 @@ import {
   isFocusEntity,
   isFocusGroup,
   createCustomGroup,
+  BRACKET_TIERS,
+  DonorListPanel,
 } from "@civitics/graph";
-import type { VizType, FocusGroup, GroupFilter, GraphNodeV2 as GraphNode, GraphEdgeV2 as GraphEdge, GraphMeta, UserNodeInfo } from "@civitics/graph";
+import type { VizType, FocusGroup, GroupFilter, GraphNodeV2 as GraphNode, GraphEdgeV2 as GraphEdge, GraphMeta, UserNodeInfo, IndividualDisplayMode } from "@civitics/graph";
 import { SharePanel }      from "./SharePanel";
 import { ScreenshotPanel } from "./ScreenshotPanel";
 import { GhostGraph }      from "./GhostGraph";
@@ -211,8 +213,20 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
   // ── Graph data (nodes + edges for all focused entities) ───────────────────
   const { nodes, allEdges, loadingEntityId, graphMeta } = useGraphData(
     view.focus,
-    view.connections
+    view.connections,
+    view.style.vizOptions?.force
   );
+
+  // ── Donor list panel state (bracket node click-through) ───────────────────
+  const BRACKET_IDS = new Set<string>(BRACKET_TIERS.map(t => t.id));
+
+  interface DonorListState {
+    officialId: string;
+    officialName: string;
+    tierOrEmployer: string;
+    mode: IndividualDisplayMode;
+  }
+  const [donorListState, setDonorListState] = useState<DonorListState | null>(null);
 
   // Merge user node + rep nodes + alignment edges into the display arrays.
   // repNodes not already in `nodes` are added so alignment edges can render.
@@ -392,6 +406,18 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
     graphHooks.removeGroup(groupId);
   }
 
+  function handleOpenDonorList(officialId: string, tierOrEmployer: string) {
+    const cleanId = officialId.startsWith('official:') ? officialId.slice(9) : officialId;
+    const officialNode = displayNodes.find(n => n.id === `official:${cleanId}` || n.id === cleanId);
+    const officialName = officialNode?.name ?? cleanId;
+    const mode: IndividualDisplayMode = BRACKET_IDS.has(tierOrEmployer) ? 'bracket' : 'employer';
+    setDonorListState({ officialId: cleanId, officialName, tierOrEmployer, mode });
+  }
+
+  function handlePinDonor(donorId: string, donorName: string) {
+    graphHooks.addEntity({ id: donorId, name: donorName, type: 'financial' });
+  }
+
   const vizType      = view.style.vizType;
 
   // FIX-184: "Primary" drives single-entity vizes (treemap, sunburst, chord).
@@ -497,6 +523,7 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
                 onViewGroupAsChord={handleViewGroupAsChord}
                 onViewGroupAsSunburst={handleViewGroupAsSunburst}
                 onRemoveGroup={handleRemoveGroup}
+                onOpenDonorList={handleOpenDonorList}
               />
             )}
 
@@ -662,6 +689,18 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
                 onClose={() => setShowScreenshot(false)}
               />
             </div>
+          )}
+
+          {/* Donor list slide-in panel */}
+          {donorListState && (
+            <DonorListPanel
+              officialId={donorListState.officialId}
+              officialName={donorListState.officialName}
+              tierOrEmployer={donorListState.tierOrEmployer}
+              mode={donorListState.mode}
+              onClose={() => setDonorListState(null)}
+              onPinDonor={handlePinDonor}
+            />
           )}
 
         </div>{/* end CANVAS */}

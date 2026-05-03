@@ -38,7 +38,8 @@ export type {
   ConnectionTypeDefinition,
 } from "./types";
 export type { VizApplicability, VizApplicabilityMeta } from "./types";
-export { MAX_FOCUS_ENTITIES, isFocusGroup, isFocusEntity } from "./types";
+export type { IndividualDisplayMode, BracketTier } from "./types";
+export { MAX_FOCUS_ENTITIES, isFocusGroup, isFocusEntity, BRACKET_TIERS } from "./types";
 
 // ── Presets + connections ───────────────────────────────────────────────────
 export { DEFAULT_GRAPH_VIEW, BUILT_IN_PRESETS, applyPreset, markDirty } from "./presets";
@@ -137,6 +138,9 @@ export type { SharedConnectionsBarProps, SharedConnection } from "./components/S
 // ── Components — shared overlays ────────────────────────────────────────────
 export { NodePopup } from "./components/NodePopup";
 export type { NodePopupProps } from "./components/NodePopup";
+
+export { DonorListPanel } from "./components/DonorListPanel";
+export type { DonorListPanelProps } from "./components/DonorListPanel";
 
 export { Tooltip, useTooltip } from "./components/Tooltip";
 export type { TooltipProps, TooltipState } from "./components/Tooltip";

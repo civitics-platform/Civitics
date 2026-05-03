@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import type { GraphView, VizType } from '../types';
+import type { GraphView, VizType, IndividualDisplayMode } from '../types';
 import type { UseGraphViewReturn } from '../hooks/useGraphView';
 import type { GraphMeta } from '../hooks/useGraphData';
 import { VIZ_REGISTRY, getVizApplicability } from '../visualizations/registry';
@@ -260,6 +260,40 @@ function ForceSettings({ view, hooks, graphMeta }: { view: GraphView; hooks: Use
       <LabeledSlider label="Charge" min={-1000} max={-50} step={50} value={opts?.charge ?? -300} onChange={v => set('charge', v)} />
       <LabeledSlider label="Link dist" min={50} max={500} step={10} value={opts?.linkDistance ?? 150} onChange={v => set('linkDistance', v)} />
       <LabeledSlider label="Gravity" min={0} max={1} step={0.05} value={opts?.gravity ?? 0.1} onChange={v => set('gravity', v)} />
+      <div className="px-3 pt-2 pb-0.5 text-[9px] font-semibold text-gray-400 uppercase tracking-wide">Individual Donors</div>
+      <div className="px-3 pb-1 space-y-1">
+        {(['bracket', 'connector', 'employer', 'off'] as IndividualDisplayMode[]).map(mode => (
+          <label key={mode} className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="indivDisplayMode"
+              value={mode}
+              checked={(opts?.individualDisplayMode ?? 'bracket') === mode}
+              onChange={() => set('individualDisplayMode', mode)}
+              className="accent-indigo-500 cursor-pointer"
+            />
+            <span className="text-[10px] text-gray-700">
+              {mode === 'bracket'   && 'Bracket (default)'}
+              {mode === 'connector' && 'Connector (2+ officials)'}
+              {mode === 'employer'  && 'By Employer'}
+              {mode === 'off'       && 'All (raw)'}
+            </span>
+          </label>
+        ))}
+      </div>
+      {(opts?.individualDisplayMode ?? 'bracket') === 'connector' && (
+        <div className="flex items-center gap-2 px-3 py-1">
+          <span className="text-[10px] text-gray-500 w-20 shrink-0">Min officials</span>
+          <input
+            type="number"
+            min={2}
+            max={10}
+            value={opts?.connectorMinRecipients ?? 2}
+            onChange={e => set('connectorMinRecipients', Math.max(2, Math.min(10, parseInt(e.target.value) || 2)))}
+            className="w-14 text-xs text-gray-900 border border-gray-200 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:border-indigo-400"
+          />
+        </div>
+      )}
     </>
   );
 }

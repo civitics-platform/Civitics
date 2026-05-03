@@ -23,6 +23,7 @@ import type {
   NodeActions,
 } from "../types";
 import { CONNECTION_TYPE_REGISTRY } from "../connections";
+import { BRACKET_TIERS } from "../types";
 import { Tooltip, useTooltip } from "../components/Tooltip";
 import { NodePopup } from "../components/NodePopup";
 
@@ -51,6 +52,7 @@ export interface ForceGraphProps {
   onViewGroupAsChord?: (groupId: string) => void;
   onViewGroupAsSunburst?: (groupId: string) => void;
   onRemoveGroup?: (groupId: string) => void;
+  onOpenDonorList?: (officialId: string, tierOrEmployer: string) => void;
 }
 
 // ── D3 simulation types ────────────────────────────────────────────────────────
@@ -80,29 +82,31 @@ type SimLink = {
 // ── Visual constants ──────────────────────────────────────────────────────────
 
 const NODE_FILL: Record<string, string> = {
-  official:     "#f8fafc",
-  agency:       "#f5f3ff",
-  proposal:     "#fffbeb",
-  financial:    "#f0fdf4",
-  organization: "#eff6ff",
-  corporation:  "#f0fdf4",
-  pac:          "#fff7ed",
-  individual:   "#eff6ff",
-  group:        "#1e1b4b",
-  user:         "#f3e8ff",
+  official:           "#f8fafc",
+  agency:             "#f5f3ff",
+  proposal:           "#fffbeb",
+  financial:          "#f0fdf4",
+  organization:       "#eff6ff",
+  corporation:        "#f0fdf4",
+  pac:                "#fff7ed",
+  individual:         "#eff6ff",
+  individual_bracket: "#fffbeb", // tier color applied dynamically
+  group:              "#1e1b4b",
+  user:               "#f3e8ff",
 };
 
 const NODE_STROKE: Record<string, string> = {
-  official:     "#6366f1",
-  agency:       "#7c3aed",
-  proposal:     "#f59e0b",
-  financial:    "#16a34a",
-  organization: "#0891b2",
-  corporation:  "#16a34a",
-  pac:          "#ea580c",
-  individual:   "#3b82f6",
-  group:        "#818cf8",
-  user:         "#8b5cf6",
+  official:           "#6366f1",
+  agency:             "#7c3aed",
+  proposal:           "#f59e0b",
+  financial:          "#16a34a",
+  organization:       "#0891b2",
+  corporation:        "#16a34a",
+  pac:                "#ea580c",
+  individual:         "#3b82f6",
+  individual_bracket: "#d97706", // overridden per-tier at render time
+  group:              "#818cf8",
+  user:               "#8b5cf6",
 };
 
 const PARTY_STROKE: Record<string, string> = {
@@ -119,6 +123,10 @@ function getBaseRadius(node: GraphNode): number {
     organization: 20, corporation: 20, pac: 18, individual: 14,
     group: 30, user: 28,
   };
+  if (node.type === 'individual_bracket') {
+    const donorCount = (node.metadata?.donorCount as number | undefined) ?? 1;
+    return Math.round(14 + Math.log10(Math.max(1, donorCount)) * 6);
+  }
   return BASE[node.type] ?? 20;
 }
 
@@ -226,6 +234,7 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
       onViewGroupAsChord,
       onViewGroupAsSunburst,
       onRemoveGroup,
+      onOpenDonorList,
     },
     forwardedRef
   ) {
@@ -623,6 +632,57 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
             .attr("fill", "#7c2d12")
             .attr("pointer-events", "none")
             .text(truncate(d.name, 8));
+        } else if (d.type === "individual_bracket") {
+          // Stacked diamond cluster — three layered diamonds to signal "many donors"
+          // Tier color drives both fill and stroke.
+          const tierMeta = d.metadata?.tier as string | undefined;
+          const isEmployer = d.metadata?.isEmployerNode as boolean | undefined;
+          const tierDef = BRACKET_TIERS.find(t => t.id === tierMeta);
+          const tierColor = tierDef?.color ?? "#d97706";
+          const tierFill = tierColor + "22"; // ~13% opacity fill
+
+          // Back diamond (offset -3,-3), mid diamond (offset -1.5,-1.5), front diamond
+          const offsets: [number, number][] = [[-3, -3], [-1.5, -1.5], [0, 0]];
+          offsets.forEach(([ox, oy], idx) => {
+            const opacity = 0.4 + idx * 0.3; // 0.4, 0.7, 1.0
+            el.append("path")
+              .attr("class", idx === 2 ? "node-circle" : null)
+              .attr("d", `M${ox},${oy - r} L${ox + r},${oy} L${ox},${oy + r} L${ox - r},${oy} Z`)
+              .attr("fill", idx === 2 ? tierFill : "none")
+              .attr("stroke", tierColor)
+              .attr("stroke-width", idx === 2 ? 2 : 1)
+              .attr("opacity", opacity)
+              .attr("pointer-events", idx === 2 ? null : "none");
+          });
+
+          // Icon inside front diamond
+          el.append("text")
+            .attr("text-anchor", "middle")
+            .attr("dominant-baseline", "central")
+            .attr("font-size", "11px")
+            .attr("pointer-events", "none")
+            .text(isEmployer ? "🏢" : "👤");
+
+          // Donor count badge (top-right of front diamond)
+          const donorCount = (d.metadata?.donorCount as number | undefined) ?? 0;
+          if (donorCount > 0) {
+            el.append("circle")
+              .attr("cx", r * 0.65).attr("cy", -r * 0.65)
+              .attr("r", 9)
+              .attr("fill", tierColor)
+              .attr("stroke", "#111827")
+              .attr("stroke-width", 1)
+              .attr("pointer-events", "none");
+            el.append("text")
+              .attr("x", r * 0.65).attr("y", -r * 0.65)
+              .attr("text-anchor", "middle")
+              .attr("dominant-baseline", "central")
+              .attr("font-size", "7px")
+              .attr("font-weight", "800")
+              .attr("fill", "white")
+              .attr("pointer-events", "none")
+              .text(donorCount > 999 ? "999+" : String(donorCount));
+          }
         } else if (d.type === "user") {
           // YOU node: distinct visual (FIX-120)
           //   - Larger than typical official nodes (baseRadius=28)
@@ -680,13 +740,22 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
         }
 
         // Node label below shape
-        const labelY = d.type === "official" ? r + 16 :
-                       d.type === "pac"       ? r + 14 :
-                       d.type === "individual"? r + 12 : r + 16;
+        const labelY = d.type === "official"          ? r + 16 :
+                       d.type === "pac"               ? r + 14 :
+                       d.type === "individual"        ? r + 12 :
+                       d.type === "individual_bracket"? r + 14 : r + 16;
         const labelText = d.type === "group"
           ? (() => {
               const count = d.metadata?.memberCount as number | undefined;
               return count ? `${d.name} (${count})` : (d.name ?? "");
+            })()
+          : d.type === "individual_bracket"
+          ? (() => {
+              const donorCount = d.metadata?.donorCount as number | undefined;
+              const total = d.donationTotal != null
+                ? `$${Math.round(d.donationTotal / 1000)}k`
+                : "";
+              return donorCount ? `${truncate(d.name, 16)} · ${total}` : truncate(d.name, 22);
             })()
           : truncate(d.name, 22);
         el.append("text")
@@ -901,6 +970,7 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
         nodeGrp.style("display", (n: SimNode) => {
           if (focusIds.has(n.id)) return null;
           if (n.type === "user" || n.type === "group") return null;
+          if (n.type === "individual_bracket") return visibleNodeIds.has(n.id) ? null : "none";
           return visibleNodeIds.has(n.id) ? null : "none";
         });
       }
@@ -1101,6 +1171,7 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
       viewGroupAsChord: onViewGroupAsChord,
       viewGroupAsSunburst: onViewGroupAsSunburst,
       removeGroup: onRemoveGroup,
+      openDonorList: onOpenDonorList,
     };
 
     return (

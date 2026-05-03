@@ -3,7 +3,8 @@ export const revalidate = 60; // Graph connections cached 1 minute at edge
 import { createAdminClient } from "@civitics/db";
 import { supabaseUnavailable, unavailableResponse, withDbTimeout } from "@/lib/supabase-check";
 import type { Database } from "@civitics/db";
-import type { GraphEdgeV2 as GraphEdge, GraphNodeV2 as GraphNode, EdgeType, NodeTypeV2 as NodeType } from "@civitics/graph";
+import type { GraphEdgeV2 as GraphEdge, GraphNodeV2 as GraphNode, EdgeType, NodeTypeV2 as NodeType, IndividualDisplayMode } from "@civitics/graph";
+import { BRACKET_TIERS } from "@civitics/graph";
 
 type ConnectionRow = Database["public"]["Tables"]["entity_connections"]["Row"];
 
@@ -18,6 +19,25 @@ export const dynamic = "force-dynamic";
  * hundreds of officials) from freezing the graph when using Follow the Money + depth 2.
  */
 const MAX_AUTO_EXPAND = 50;
+
+// ── Individual-donor aggregation helpers (FIX-194) ────────────────────────────
+
+/** Normalize FEC employer strings for grouping. "GOLDMAN SACHS & CO" → "GOLDMAN SACHS". */
+const LEGAL_SUFFIX_RE = /\b(incorporated|inc|llc|corp|corporation|l\.l\.c|co|company|the|plc|ltd|limited|lp|l\.p)\b\.?/gi;
+
+function normalizeEmployer(raw: string): string {
+  return raw
+    .toUpperCase()
+    .replace(LEGAL_SUFFIX_RE, '')
+    .replace(/[^\w\s]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+/** Log-scale donation strength identical to the rebuild function's formula. */
+function logScaleDonation(cents: number): number {
+  return Math.min(0.999, Math.max(0.001, Math.log10(Math.max(cents / 100, 1)) / 8));
+}
 
 /** Map DB entity type string → GraphNode type */
 function mapNodeType(dbType: string, subType?: string): NodeType {
@@ -147,6 +167,13 @@ export async function GET(request: Request) {
   // Default: hide procedural votes (cloture, passage motions, etc.).
   // Pass ?include_procedural=true to show all — for researchers/journalists.
   const includeProcedural = searchParams.get("include_procedural") === "true";
+  // Individual donor display mode (FIX-194).
+  // 'bracket'   = aggregate into 4 tier nodes per official (default)
+  // 'connector' = real nodes for donors giving to 2+ officials; rest → brackets
+  // 'employer'  = synthetic employer-group nodes per official
+  // 'off'       = pass all individuals through as real nodes (researcher mode)
+  const individualMode = (searchParams.get("individualMode") ?? "bracket") as IndividualDisplayMode;
+  const connectorMin = Math.max(2, parseInt(searchParams.get("connectorMin") ?? "2", 10));
 
   try {
     const supabase = createAdminClient();
@@ -363,8 +390,14 @@ export async function GET(request: Request) {
         ? supabase.from("governing_bodies").select("id, name").in("id", gbIds)
         : Promise.resolve({ data: [] as { id: string; name: string }[] }),
       financialIds.length
-        ? supabase.from("financial_entities").select("id, display_name, entity_type").in("id", financialIds)
-        : Promise.resolve({ data: [] as { id: string; display_name: string; entity_type: string }[] }),
+        ? supabase
+            .from("financial_entities")
+            .select(individualMode === 'employer'
+              ? "id, display_name, entity_type, recipient_count, metadata"
+              : "id, display_name, entity_type, recipient_count"
+            )
+            .in("id", financialIds)
+        : Promise.resolve({ data: [] as { id: string; display_name: string; entity_type: string; recipient_count?: number; metadata?: Record<string, unknown> | null }[] }),
     ]);
 
     const billNumberByProposal = new Map<string, string>();
@@ -387,11 +420,149 @@ export async function GET(request: Request) {
       });
     }
     for (const g of gbRes.data ?? []) nameMap.set(g.id, { label: g.name });
-    for (const f of financialRes.data ?? []) nameMap.set(f.id, { label: f.display_name, subType: f.entity_type });
+
+    // Track individual-donor extra data for bracket/employer aggregation (FIX-194)
+    const individualMeta = new Map<string, { recipientCount: number; employer?: string }>();
+    for (const f of (financialRes.data ?? []) as Array<{
+      id: string;
+      display_name: string;
+      entity_type: string;
+      recipient_count?: number;
+      metadata?: Record<string, unknown> | null;
+    }>) {
+      nameMap.set(f.id, { label: f.display_name, subType: f.entity_type });
+      if (f.entity_type === 'individual') {
+        const meta = f.metadata as Record<string, string> | null;
+        individualMeta.set(f.id, {
+          recipientCount: f.recipient_count ?? 0,
+          employer: meta?.employer ?? undefined,
+        });
+      }
+    }
+
+    // ── Individual-donor bracket/employer aggregation (FIX-194) ──────────────
+    // Replaces per-individual nodes+edges with synthetic aggregate nodes when
+    // individualMode !== 'off'. Keeps the graph renderable for high-donor officials
+    // (e.g. Sanders ~975 individual donors at depth 1).
+    type BucketKey = string; // "bracket:{officialId}:{tierId}" or "employer:{officialId}:{normalized}"
+    const skipEntityKeys = new Set<string>();
+    const skipConnectionIds = new Set<string>();
+    const bracketNodes: GraphNode[] = [];
+    const bracketEdges: GraphEdge[] = [];
+
+    if (individualMode !== 'off' && individualMeta.size > 0) {
+      const buckets = new Map<BucketKey, {
+        totalCents: number;
+        donorCount: number;
+        officialId: string;
+        tier?: string;
+        employer?: string;
+      }>();
+
+      for (const c of connections) {
+        if (c.connection_type !== 'donation') continue;
+        if (c.from_type !== 'financial_entity') continue;
+        const meta = individualMeta.get(c.from_id);
+        if (!meta) continue; // not an individual donor
+
+        // Connector mode: pass through donors who donated to enough officials
+        if (individualMode === 'connector' && meta.recipientCount >= connectorMin) continue;
+
+        // Mark for exclusion from normal node/edge paths
+        skipEntityKeys.add(`financial_entity:${c.from_id}`);
+        skipConnectionIds.add(c.id);
+
+        const officialId = c.to_id;
+        const amountCents = c.amount_cents ?? 0;
+
+        if (individualMode === 'employer') {
+          const rawEmployer = meta.employer ?? '';
+          const normalized = rawEmployer ? normalizeEmployer(rawEmployer) : '';
+          const employerKey = normalized || 'UNAFFILIATED';
+          const bucketKey: BucketKey = `employer:${officialId}:${employerKey}`;
+          const existing = buckets.get(bucketKey);
+          if (existing) {
+            existing.totalCents += amountCents;
+            existing.donorCount += 1;
+          } else {
+            buckets.set(bucketKey, { totalCents: amountCents, donorCount: 1, officialId, employer: employerKey });
+          }
+        } else {
+          // bracket + connector modes: aggregate non-connector donors into tiers
+          const tier = BRACKET_TIERS.find(t =>
+            amountCents >= t.minCents && (t.maxCents === null || amountCents <= t.maxCents)
+          );
+          if (!tier) continue; // below FEC itemization threshold — skip
+          const bucketKey: BucketKey = `bracket:${officialId}:${tier.id}`;
+          const existing = buckets.get(bucketKey);
+          if (existing) {
+            existing.totalCents += amountCents;
+            existing.donorCount += 1;
+          } else {
+            buckets.set(bucketKey, { totalCents: amountCents, donorCount: 1, officialId, tier: tier.id });
+          }
+        }
+      }
+
+      for (const [bucketKey, bucket] of buckets) {
+        const officialNodeId = `official:${bucket.officialId}`;
+
+        if (individualMode === 'employer') {
+          const displayName = bucket.employer === 'UNAFFILIATED'
+            ? 'Unaffiliated'
+            : bucket.employer!;
+          bracketNodes.push({
+            id: bucketKey,
+            type: 'individual_bracket',
+            name: displayName,
+            connectionCount: bucket.donorCount,
+            donationTotal: bucket.totalCents / 100,
+            metadata: {
+              isEmployerNode: true,
+              employer: bucket.employer,
+              donorCount: bucket.donorCount,
+              officialId: bucket.officialId,
+            },
+          });
+        } else {
+          const tier = BRACKET_TIERS.find(t => t.id === bucket.tier)!;
+          bracketNodes.push({
+            id: bucketKey,
+            type: 'individual_bracket',
+            name: `${tier.shortLabel} Donors`,
+            connectionCount: bucket.donorCount,
+            donationTotal: bucket.totalCents / 100,
+            metadata: {
+              isBracketNode: true,
+              tier: tier.id,
+              donorCount: bucket.donorCount,
+              officialId: bucket.officialId,
+            },
+          });
+        }
+
+        bracketEdges.push({
+          fromId: bucketKey,
+          toId: officialNodeId,
+          connectionType: 'donation',
+          amountUsd: bucket.totalCents / 100,
+          strength: logScaleDonation(bucket.totalCents),
+          metadata: {
+            isBracketEdge: true,
+            tier: bucket.tier,
+            employer: bucket.employer,
+            donorCount: bucket.donorCount,
+          },
+        });
+      }
+    }
 
     // ── Build nodes ────────────────────────────────────────────────────────
     const nodes: GraphNode[] = [];
     for (const [key, { type, id }] of entityMap) {
+      // Individual-donor entities that were aggregated into bracket/employer nodes
+      // are excluded here — they'll appear via bracketNodes instead.
+      if (skipEntityKeys.has(key)) continue;
       const info = nameMap.get(id) ?? { label: `Unknown ${type}` };
       const isCollapsed = collapsedNodes.has(id);
       nodes.push({
@@ -405,12 +576,16 @@ export async function GET(request: Request) {
           : {}),
       });
     }
+    // Append synthetic bracket/employer aggregate nodes
+    nodes.push(...bracketNodes);
 
     const nodeIds = new Set(nodes.map((n) => n.id));
 
     // ── Build edges ────────────────────────────────────────────────────────
     const edges: GraphEdge[] = [];
     for (const c of connections) {
+      // Skip individual-donor donation connections that were aggregated into bracket edges
+      if (skipConnectionIds.has(c.id)) continue;
       const sourceKey = `${c.from_type}:${c.from_id}`;
       const targetKey = `${c.to_type}:${c.to_id}`;
       if (!nodeIds.has(sourceKey) || !nodeIds.has(targetKey)) continue;
@@ -423,6 +598,8 @@ export async function GET(request: Request) {
         strength: Number(c.strength),
       });
     }
+    // Append synthetic bracket/employer aggregate edges (official endpoints guaranteed in nodeIds)
+    edges.push(...bracketEdges);
 
     return Response.json({ nodes, edges, count: totalCount });
   } catch (err) {

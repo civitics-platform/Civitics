@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect, useRef, useMemo } from 'react';
-import type { GraphView } from '../types';
+import type { GraphView, ForceOptions } from '../types';
 import type { FocusEntity, FocusGroup } from '../types';
 import { isFocusEntity, isFocusGroup } from '../types';
 import type { GraphNode, GraphEdge } from '../types';
@@ -30,7 +30,8 @@ export interface GraphMeta {
 
 export function useGraphData(
   focus: GraphView['focus'],
-  connections: GraphView['connections']
+  connections: GraphView['connections'],
+  forceOptions?: Pick<ForceOptions, 'individualDisplayMode' | 'connectorMinRecipients'>
 ) {
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
@@ -43,18 +44,27 @@ export function useGraphData(
   // Track which nodes belong to each group (groupId → Set of connected node IDs)
   const groupNodeIds = useRef(new Map<string, Set<string>>());
 
-  // Track the last includeProcedural value so we can detect changes and force a re-fetch
-  const prevIncludeProceduralRef = useRef(focus.includeProcedural);
+  // Track values that require a full re-fetch when they change
+  const prevIncludeProceduralRef   = useRef(focus.includeProcedural);
+  const prevIndividualModeRef      = useRef(forceOptions?.individualDisplayMode);
+  const prevConnectorMinRef        = useRef(forceOptions?.connectorMinRecipients);
 
-  // When focus.entities or includeProcedural changes: fetch data for new entities,
-  // remove data for removed entities, and re-fetch all when the procedural filter toggles.
+  // When focus.entities or any re-fetch trigger changes: fetch data for new entities,
+  // remove data for removed entities, and re-fetch all when server-side params toggle.
   useEffect(() => {
     const currentIds = new Set(focus.entities.map(e => e.id));
 
-    // If the procedural filter changed, clear all cached fetches so every entity
-    // gets re-fetched with the updated ?include_procedural param.
-    if (prevIncludeProceduralRef.current !== focus.includeProcedural) {
-      prevIncludeProceduralRef.current = focus.includeProcedural;
+    // Re-fetch everything when any server-side filter param changes
+    const shouldRefetchAll =
+      prevIncludeProceduralRef.current !== focus.includeProcedural ||
+      prevIndividualModeRef.current    !== forceOptions?.individualDisplayMode ||
+      prevConnectorMinRef.current      !== forceOptions?.connectorMinRecipients;
+
+    prevIncludeProceduralRef.current = focus.includeProcedural;
+    prevIndividualModeRef.current    = forceOptions?.individualDisplayMode;
+    prevConnectorMinRef.current      = forceOptions?.connectorMinRecipients;
+
+    if (shouldRefetchAll) {
       fetchedIds.current.clear();
       groupNodeIds.current.clear();
       setNodes([]);
@@ -130,7 +140,7 @@ export function useGraphData(
       fetchedIds.current.clear();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focus.entities, focus.includeProcedural]);
+  }, [focus.entities, focus.includeProcedural, forceOptions?.individualDisplayMode, forceOptions?.connectorMinRecipients]);
 
   async function fetchEntities(entities: FocusEntity[]) {
     setLoading(true);
@@ -143,6 +153,12 @@ export function useGraphData(
           viz: 'force',
           include_procedural: String(focus.includeProcedural),
         });
+        if (forceOptions?.individualDisplayMode) {
+          params.set('individualMode', forceOptions.individualDisplayMode);
+        }
+        if (forceOptions?.connectorMinRecipients != null) {
+          params.set('connectorMin', String(forceOptions.connectorMinRecipients));
+        }
 
         const res = await fetch(`/api/graph/connections?` + params);
         const data = await res.json();

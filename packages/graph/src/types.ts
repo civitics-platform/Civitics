@@ -27,6 +27,7 @@ export type NodeType =
   | 'corporation'
   | 'pac'
   | 'individual'
+  | 'individual_bracket'  // synthetic aggregate — not a real entity
   | 'group'
   | 'user'
 
@@ -43,7 +44,12 @@ export interface GraphNode {
   donationTotal?: number
   /** True when this node has 50+ connections and is collapsed (force graph only). */
   collapsed?: boolean
-  /** Extra data from API — group nodes use isGroup, icon, color, memberCount */
+  /**
+   * Extra data from API.
+   * - group nodes:            isGroup, icon, color, memberCount
+   * - individual_bracket:     isBracketNode, tier (BracketTier['id']), donorCount, officialId
+   * - employer bracket:       isEmployerNode, employer (normalized), donorCount, officialId
+   */
   metadata?: Record<string, unknown>
 }
 
@@ -79,6 +85,37 @@ export interface ConnectionTypeDefinition {
   hasAmount: boolean
 }
 
+// ── Individual Donor Display (FIX-194) ────────────────────────────────────────
+
+/**
+ * Controls how individual donors are aggregated in the Force Graph.
+ *
+ * 'bracket'   — collapse all individuals into 4 tier nodes per official (default)
+ * 'connector' — real nodes only for donors who gave to 2+ officials; rest → brackets
+ * 'employer'  — synthetic employer-group nodes per official
+ * 'off'       — pass all individual nodes through unchanged (researcher mode)
+ */
+export type IndividualDisplayMode = 'bracket' | 'connector' | 'employer' | 'off'
+
+export interface BracketTier {
+  id: 'mega' | 'major' | 'mid' | 'small'
+  /** Full label shown in tooltips and panels, e.g. "Mega ($10k+)" */
+  label: string
+  /** Short label shown on node, e.g. "Mega" */
+  shortLabel: string
+  minCents: number
+  maxCents: number | null
+  /** Hex fill color for this tier's node */
+  color: string
+}
+
+export const BRACKET_TIERS: BracketTier[] = [
+  { id: 'mega',  label: 'Mega ($10k+)',        shortLabel: 'Mega',  minCents: 1_000_000, maxCents: null,    color: '#b45309' },
+  { id: 'major', label: 'Major ($2.5k–$10k)',  shortLabel: 'Major', minCents:   250_000, maxCents: 999_999, color: '#d97706' },
+  { id: 'mid',   label: 'Mid ($500–$2.5k)',    shortLabel: 'Mid',   minCents:    50_000, maxCents: 249_999, color: '#f59e0b' },
+  { id: 'small', label: 'Small ($200–$500)',   shortLabel: 'Small', minCents:    20_000, maxCents:  49_999, color: '#fbbf24' },
+]
+
 // ── Viz-Specific Style Options ─────────────────────────────────────────────────
 
 export interface ForceOptions {
@@ -106,6 +143,9 @@ export interface ForceOptions {
   gravity?: number       // center force strength, default: 0.1
   // Display — Category A (update SVG styles directly, no restart)
   labels?: 'always' | 'hover' | 'never'
+  // Individual donor display — Category C (triggers API re-fetch)
+  individualDisplayMode?: IndividualDisplayMode  // default: 'bracket'
+  connectorMinRecipients?: number                // default: 2 (connector mode only)
 }
 
 export interface ChordOptions {
@@ -420,6 +460,10 @@ export interface NodeActions {
   viewGroupAsSunburst?: (groupId: string) => void
   /** Remove the group from focus. Group nodes only. */
   removeGroup?: (groupId: string) => void
+  /** Open the donor list side panel for a bracket node. individual_bracket nodes only. */
+  openDonorList?: (officialId: string, tier: string) => void
+  /** Pin an individual donor as a real graph node (from DonorListPanel). */
+  pinDonor?: (donorId: string, donorName: string) => void
 }
 
 // ── Viz Props ──────────────────────────────────────────────────────────────────

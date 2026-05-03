@@ -23,6 +23,7 @@ export function NodePopup({ node, onClose, actions, vizType }: NodePopupProps) {
   const isGroup    = node.type === 'group';
   const isForce    = vizType === 'force';
   const isOfficial = node.type === 'official';
+  const isBracket  = node.type === 'individual_bracket';
 
   const displayName = node.name ?? 'Unknown';
 
@@ -136,6 +137,85 @@ export function NodePopup({ node, onClose, actions, vizType }: NodePopupProps) {
               <span>×</span>
               <span>Remove group</span>
             </button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (isBracket) {
+    const isEmployer   = node.metadata?.isEmployerNode as boolean | undefined;
+    const tier         = node.metadata?.tier as string | undefined;
+    const donorCount   = node.metadata?.donorCount as number | undefined;
+    const officialId   = node.metadata?.officialId as string | undefined;
+    const employer     = node.metadata?.employer as string | undefined;
+    const totalUsd     = node.donationTotal;
+
+    return (
+      <>
+        <div className="fixed inset-0 z-40" onClick={onClose} />
+        <div
+          className="absolute z-50 bg-white rounded-xl shadow-xl border border-gray-200 w-64 p-4"
+          style={{ top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}
+        >
+          <button
+            onClick={onClose}
+            className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 transition-colors text-base leading-none"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+
+          <div className="flex items-start gap-2 pr-6 mb-3">
+            <div className="w-10 h-10 rounded-full flex items-center justify-center text-xl flex-shrink-0 bg-amber-50 border-2 border-amber-400">
+              {isEmployer ? '🏢' : '👤'}
+            </div>
+            <div>
+              <div className="font-semibold text-gray-900 leading-tight text-sm">
+                {isEmployer ? (employer === 'UNAFFILIATED' ? 'Unaffiliated' : employer) : `${displayName}`}
+              </div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                {isEmployer ? 'Employer group' : 'Individual donors'}
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-gray-100 mb-3" />
+
+          <div className="space-y-1 text-sm text-gray-600 mb-3">
+            {donorCount != null && (
+              <div className="flex justify-between">
+                <span>Donors</span>
+                <span className="font-medium text-gray-900">{donorCount.toLocaleString()}</span>
+              </div>
+            )}
+            {totalUsd != null && totalUsd > 0 && (
+              <div className="flex justify-between">
+                <span>Total</span>
+                <span className="font-medium text-gray-900">${Math.round(totalUsd).toLocaleString()}</span>
+              </div>
+            )}
+            {totalUsd != null && donorCount && donorCount > 0 && (
+              <div className="flex justify-between">
+                <span>Avg per donor</span>
+                <span className="font-medium text-gray-900">${Math.round(totalUsd / donorCount).toLocaleString()}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-1">
+            {officialId && (tier || employer) && (
+              <button
+                onClick={() => {
+                  actions.openDonorList?.(officialId, tier ?? employer ?? '');
+                  onClose();
+                }}
+                className="w-full text-left px-3 py-2 rounded-lg text-sm text-amber-700 hover:bg-amber-50 flex items-center gap-2 transition-colors"
+              >
+                <span>📋</span>
+                <span>View donor list</span>
+              </button>
+            )}
           </div>
         </div>
       </>

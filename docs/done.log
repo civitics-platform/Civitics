@@ -248,3 +248,4 @@
 2026-05-02 | FIX-191 | 1f671bc8 | local+prod | feat(db): make financial_entities name-side indexes partial on non-individual
 2026-05-02 | FIX-195 | 1f671bc8 | local+prod | feat(db): make financial_entities name-side indexes partial on non-individual
 2026-05-02 | FIX-196 | 48221fde | local+prod | fix(search): use real financial_entities column names + skip individuals
+2026-05-02 | FIX-194 | fc9a195b | local+prod | feat(graph): FIX-194 individual donor display strategy (bracket/connector/employer)

@@ -1158,7 +1158,8 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
       }, []),
 
       openProfile: useCallback((nodeId: string) => {
-        window.open(`/officials/${nodeId}`, "_blank");
+        const cleanId = nodeId.replace(/^official:/, '');
+        window.open(`/officials/${cleanId}`, "_blank");
       }, []),
 
       addToComparison: useCallback((_nodeId: string) => {

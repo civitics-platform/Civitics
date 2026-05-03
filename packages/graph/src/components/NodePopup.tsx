@@ -326,7 +326,7 @@ export function NodePopup({ node, onClose, actions, vizType }: NodePopupProps) {
           {/* View proposal */}
           {node.type === 'proposal' && (
             <button
-              onClick={() => window.open(`/proposals/${node.id}`, '_blank')}
+              onClick={() => window.open(`/proposals/${node.id.replace(/^proposal:/, '')}`, '_blank')}
               className="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors"
             >
               <span>↗</span>

@@ -564,6 +564,20 @@ export async function GET(request: Request) {
       }
     }
 
+    // ── Pre-compute per-financial-entity donation totals (cents) ──────────
+    // Used to populate donationTotal on PAC/corporation/individual nodes so
+    // the tooltip can show total donations given to officials in this graph.
+    const financialDonationTotals = new Map<string, number>();
+    for (const c of connections) {
+      if (c.connection_type !== 'donation') continue;
+      if (c.from_type !== 'financial_entity') continue;
+      if (skipConnectionIds.has(c.id)) continue; // aggregated into bracket
+      financialDonationTotals.set(
+        c.from_id,
+        (financialDonationTotals.get(c.from_id) ?? 0) + (c.amount_cents ?? 0),
+      );
+    }
+
     // ── Build nodes ────────────────────────────────────────────────────────
     const nodes: GraphNode[] = [];
     for (const [key, { type, id }] of entityMap) {
@@ -572,12 +586,14 @@ export async function GET(request: Request) {
       if (skipEntityKeys.has(key)) continue;
       const info = nameMap.get(id) ?? { label: `Unknown ${type}` };
       const isCollapsed = collapsedNodes.has(id);
+      const donationTotalCents = type === 'financial_entity' ? financialDonationTotals.get(id) : undefined;
       nodes.push({
         id: key,
         type: mapNodeType(type, info.subType),
         name: info.label,
         party: info.party as GraphNode["party"],
         ...(info.role ? { role: info.role } : {}),
+        ...(donationTotalCents != null ? { donationTotal: donationTotalCents } : {}),
         ...(isCollapsed
           ? { collapsed: true, connectionCount: collapsedNodes.get(id) }
           : {}),

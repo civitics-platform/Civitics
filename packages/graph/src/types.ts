@@ -292,7 +292,7 @@ export interface FocusEntity {
 // ── Group Filter ───────────────────────────────────────────────────────────────
 
 export interface GroupFilter {
-  entity_type: 'official' | 'pac' | 'agency' | 'proposal'
+  entity_type: 'official' | 'pac' | 'agency' | 'proposal' | 'financial' | 'initiative'
   chamber?: 'senate' | 'house'
   party?: string
   state?: string
@@ -301,6 +301,16 @@ export interface GroupFilter {
   tag?: string
   /** governing_bodies UUID (type='committee'). official groups only. (FIX-139) */
   committeeId?: string
+  /** Narrows officials by governing_body type: congress|judiciary|cabinet|state_gov */
+  official_role?: 'congress' | 'judiciary' | 'cabinet' | 'state_gov'
+  /** Narrows financial entities by entity_type enum value */
+  financial_type?: 'individual' | 'pac' | 'super_pac' | 'corporation' | 'union' | 'party_committee'
+  /** Narrows proposals by type enum value */
+  proposal_type?: 'bill' | 'regulation' | 'executive_order' | 'treaty' | 'referendum' | 'ordinance'
+  /** Narrows agencies by agency_type enum value */
+  agency_type?: 'federal' | 'state' | 'local' | 'independent'
+  /** Narrows initiatives by stage enum value */
+  initiative_stage?: 'draft' | 'deliberate' | 'mobilise' | 'resolved'
 }
 
 // ── Focus Group ────────────────────────────────────────────────────────────────

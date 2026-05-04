@@ -2,18 +2,19 @@
  * GET /api/search
  *
  * Params:
- *   q           — text query (optional when explicit filters are present)
- *   type        — all|officials|proposals|agencies|financial
- *   cursor      — opaque pagination cursor (base64 JSON {offset})
- *   limit       — override per-page size (max 50, default PAGE_SIZE)
+ *   q               — text query (optional; omit for browse mode)
+ *   type            — all|officials|proposals|agencies|financial|initiatives
+ *   cursor          — opaque pagination cursor (base64 JSON {offset})
+ *   limit           — override per-page size (max 50, default PAGE_SIZE)
+ *   sort            — relevance|name_asc|name_desc|connections_desc|amount_desc
  *
- * Official filters:    party, state, chamber (senate|house), is_active
+ * Official filters:    party, state, chamber (senate|house), is_active, official_role
  * Proposal filters:    status, proposal_type, date_from, date_to
  * Agency filters:      agency_type
- * Financial filters:   entity_type, industry, min_amount, max_amount (USD)
+ * Financial filters:   entity_type, financial_type, industry, min_amount, max_amount (USD)
+ * Initiative filters:  initiative_stage
  *
- * Returns SearchResults — same shape as before but with has_more, next_cursor,
- * and connection_count on every result item.
+ * Returns SearchResults
  */
 
 export const dynamic = "force-dynamic";
@@ -52,6 +53,7 @@ export type SearchProposal = {
 export type SearchAgency = {
   id: string;
   name: string;
+  slug: string | null;
   acronym: string | null;
   agency_type: string;
   description: string | null;
@@ -69,12 +71,22 @@ export type SearchFinancialEntity = {
   connection_count: number;
 };
 
+export type SearchInitiative = {
+  id: string;
+  title: string;
+  stage: string | null;
+  status: string;
+  relevance_score: number;
+  connection_count: number;
+};
+
 export type SearchResults = {
   query: string;
   officials: SearchOfficial[];
   proposals: SearchProposal[];
   agencies: SearchAgency[];
   financial_entities: SearchFinancialEntity[];
+  initiatives: SearchInitiative[];
   total: number;
   timing_ms: number;
   has_more: boolean;
@@ -156,12 +168,14 @@ export async function GET(req: NextRequest) {
   const offset = cursor ? decodeCursor(cursor) : 0;
   const limitParam = parseInt(sp.get("limit") ?? String(PAGE_SIZE));
   const pageSize = Math.min(isNaN(limitParam) ? PAGE_SIZE : limitParam, 50);
+  const sortParam = sp.get("sort") ?? "relevance";
 
   // Explicit filter params — officials
-  const filterParty    = sp.get("party")     ?? null;
-  const filterState    = sp.get("state")     ?? null;
-  const filterChamber  = sp.get("chamber")   ?? null; // senate|house
-  const filterIsActive = sp.get("is_active") !== "false"; // default: true
+  const filterParty       = sp.get("party")         ?? null;
+  const filterState       = sp.get("state")         ?? null;
+  const filterChamber     = sp.get("chamber")       ?? null;
+  const filterIsActive    = sp.get("is_active")     !== "false";
+  const filterOfficialRole = sp.get("official_role") ?? null; // congress|judiciary|cabinet|state_gov
 
   // Explicit filter params — proposals
   const filterStatus       = sp.get("status")        ?? null;
@@ -173,25 +187,13 @@ export async function GET(req: NextRequest) {
   const filterAgencyType = sp.get("agency_type") ?? null;
 
   // Explicit filter params — financial
-  const filterEntityType     = sp.get("entity_type") ?? null;
-  const filterIndustry       = sp.get("industry")    ?? null;
+  const filterEntityType     = sp.get("entity_type")    ?? sp.get("financial_type") ?? null;
+  const filterIndustry       = sp.get("industry")       ?? null;
   const filterMinAmountCents = sp.get("min_amount")  ? Number(sp.get("min_amount")) * 100 : null;
   const filterMaxAmountCents = sp.get("max_amount")  ? Number(sp.get("max_amount")) * 100 : null;
 
-  const hasExplicitFilters = !!(
-    filterParty || filterState || filterChamber ||
-    filterStatus || filterProposalType || filterDateFrom || filterDateTo ||
-    filterAgencyType ||
-    filterEntityType || filterIndustry || filterMinAmountCents || filterMaxAmountCents
-  );
-
-  // Allow empty query only when explicit filters are present (browse mode)
-  if (q.length < 2 && !hasExplicitFilters) {
-    return NextResponse.json({
-      query: q, officials: [], proposals: [], agencies: [], financial_entities: [],
-      total: 0, timing_ms: Date.now() - t0, has_more: false, next_cursor: null,
-    } satisfies SearchResults);
-  }
+  // Explicit filter params — initiatives
+  const filterInitiativeStage = sp.get("initiative_stage") ?? null;
 
   const db = createAdminClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -208,7 +210,7 @@ export async function GET(req: NextRequest) {
   const isPaginated = typeFilter !== "all";
   const fetchLimit  = isPaginated ? pageSize + 1 : pageSize * 3;
 
-  // Batch connection count helper (single RPC call per search function)
+  // Batch connection count helper
   async function getConnectionCounts(ids: string[]): Promise<Map<string, number>> {
     if (ids.length === 0) return new Map();
     const { data } = await db2.rpc("get_connection_counts", { entity_ids: ids });
@@ -219,6 +221,17 @@ export async function GET(req: NextRequest) {
     return map;
   }
 
+  // Apply sort order to a list of results that all have a name field and connection_count
+  function applySort<T extends { connection_count: number; relevance_score: number }>(
+    rows: T[],
+    getName: (r: T) => string,
+  ): T[] {
+    if (sortParam === "name_asc")         return [...rows].sort((a, b) => getName(a).localeCompare(getName(b)));
+    if (sortParam === "name_desc")        return [...rows].sort((a, b) => getName(b).localeCompare(getName(a)));
+    if (sortParam === "connections_desc") return [...rows].sort((a, b) => b.connection_count - a.connection_count);
+    return rows; // relevance and amount_desc handled elsewhere or are default
+  }
+
   // ── Officials ──────────────────────────────────────────────────────────────
   const searchOfficials = async (): Promise<{ results: SearchOfficial[]; hasMore: boolean }> => {
     if (typeFilter !== "all" && typeFilter !== "officials") return { results: [], hasMore: false };
@@ -227,14 +240,31 @@ export async function GET(req: NextRequest) {
       .from("officials")
       .select("id, full_name, role_title, party, photo_url, is_active, metadata, source_ids");
 
-    // Structural filters
-    if (filterIsActive) qb = qb.eq("is_active", true);
-    if (filterParty) qb = qb.eq("party", filterParty);
-    if (filterState) qb = qb.filter("metadata->>state", "eq", filterState);
+    if (filterIsActive && !filterOfficialRole) qb = qb.eq("is_active", true);
+    if (filterParty)    qb = qb.eq("party", filterParty);
+    if (filterState)    qb = qb.filter("metadata->>state", "eq", filterState);
     if (filterChamber === "senate") qb = qb.eq("role_title", "Senator");
     if (filterChamber === "house")  qb = qb.ilike("role_title", "Representative%");
 
-    // Text search or heuristic filters (only when no explicit override for that dimension)
+    // official_role filter — uses a subquery on governing_bodies
+    if (filterOfficialRole && filterOfficialRole !== "congress") {
+      const gbTypeMap: Record<string, string> = {
+        judiciary: "judicial",
+        cabinet:   "executive",
+        state_gov: "legislature_upper",
+      };
+      const gbType = gbTypeMap[filterOfficialRole];
+      if (gbType) {
+        const { data: gbRows } = await db2
+          .from("governing_bodies")
+          .select("id")
+          .eq("type", gbType);
+        const ids = (gbRows ?? []).map((g: { id: string }) => g.id);
+        if (ids.length === 0) return { results: [], hasMore: false };
+        qb = qb.in("governing_body_id", ids);
+      }
+    }
+
     if (q.length >= 2) {
       if (!filterParty && partyMatch) {
         qb = qb.eq("party", partyMatch);
@@ -247,11 +277,10 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Ordering + pagination
     if (isPaginated) {
       qb = qb.order("full_name", { ascending: true }).range(offset, offset + fetchLimit - 1);
     } else {
-      qb = qb.limit(fetchLimit); // no explicit order — JS ranks below
+      qb = qb.limit(fetchLimit);
     }
 
     const { data } = await qb;
@@ -268,7 +297,6 @@ export async function GET(req: NextRequest) {
     const resultRows = isPaginated ? rows.slice(0, pageSize) : rows;
     const countMap = await getConnectionCounts(resultRows.map((r) => r.id));
 
-    // JS ranking for the "all" tab (first-page quality)
     let ranked = resultRows;
     if (!isPaginated) {
       ranked = rows
@@ -309,7 +337,7 @@ export async function GET(req: NextRequest) {
         connection_count: connCount,
       };
     });
-    return { results, hasMore };
+    return { results: applySort(results, (r) => r.full_name), hasMore };
   };
 
   // ── Proposals ──────────────────────────────────────────────────────────────
@@ -318,20 +346,18 @@ export async function GET(req: NextRequest) {
 
     let qb = db2
       .from("proposals")
-      .select("id, title, status, type, comment_period_end, metadata, summary_plain");
+      .select("id, title, status, type, comment_period_end, metadata, summary_plain")
+      .neq("type", "initiative");
 
-    // Structural filters
-    if (filterStatus) qb = qb.eq("status", filterStatus);
+    if (filterStatus)       qb = qb.eq("status", filterStatus);
     if (filterProposalType) qb = qb.eq("type", filterProposalType);
-    if (filterDateFrom) qb = qb.gte("comment_period_end", filterDateFrom);
-    if (filterDateTo)   qb = qb.lte("comment_period_end", filterDateTo);
+    if (filterDateFrom)     qb = qb.gte("comment_period_end", filterDateFrom);
+    if (filterDateTo)       qb = qb.lte("comment_period_end", filterDateTo);
 
-    // Text search
     if (q.length >= 2) {
       qb = qb.or(`title.ilike.%${q}%,summary_plain.ilike.%${q}%`);
     }
 
-    // Order + pagination
     if (isPaginated) {
       qb = qb.order("comment_period_end", { ascending: false, nullsFirst: false })
              .range(offset, offset + fetchLimit - 1);
@@ -371,7 +397,7 @@ export async function GET(req: NextRequest) {
         connection_count: countMap.get(p.id) ?? 0,
       };
     });
-    return { results, hasMore };
+    return { results: applySort(results, (r) => r.title), hasMore };
   };
 
   // ── Agencies ───────────────────────────────────────────────────────────────
@@ -380,7 +406,7 @@ export async function GET(req: NextRequest) {
 
     let qb = db2
       .from("agencies")
-      .select("id, name, acronym, agency_type, description")
+      .select("id, name, slug, acronym, agency_type, description")
       .eq("is_active", true);
 
     if (filterAgencyType) qb = qb.eq("agency_type", filterAgencyType);
@@ -410,13 +436,13 @@ export async function GET(req: NextRequest) {
       if (score === 0) score = DESC_SCORE;
       if (exactAcronym) score += 20;
       return {
-        id: a.id, name: a.name, acronym: a.acronym ?? null,
+        id: a.id, name: a.name, slug: a.slug ?? null, acronym: a.acronym ?? null,
         agency_type: a.agency_type, description: a.description ?? null,
         relevance_score: Math.min(score, 100),
         connection_count: countMap.get(a.id) ?? 0,
       };
     }).sort((a: SearchAgency, b: SearchAgency) => b.relevance_score - a.relevance_score);
-    return { results, hasMore };
+    return { results: applySort(results, (r) => r.name), hasMore };
   };
 
   // ── Financial entities ─────────────────────────────────────────────────────
@@ -425,14 +451,19 @@ export async function GET(req: NextRequest) {
 
     let qb = db
       .from("financial_entities")
-      .select("id, display_name, entity_type, total_donated_cents")
-      .neq("entity_type", "individual");
+      .select("id, display_name, entity_type, total_donated_cents");
 
-    if (filterEntityType) qb = qb.eq("entity_type", filterEntityType);
+    // financial_type / entity_type filter (when set, allow individuals too)
+    if (filterEntityType) {
+      qb = qb.eq("entity_type", filterEntityType);
+    } else {
+      // browse mode: exclude individual donors from "all" / default financial view
+      qb = qb.neq("entity_type", "individual");
+    }
+
     if (filterMinAmountCents) qb = qb.gte("total_donated_cents", filterMinAmountCents);
     if (filterMaxAmountCents) qb = qb.lte("total_donated_cents", filterMaxAmountCents);
 
-    // Industry filter: look up entity_ids from entity_tags, then filter
     if (filterIndustry) {
       const { data: tagRows } = await db2
         .from("entity_tags")
@@ -449,7 +480,9 @@ export async function GET(req: NextRequest) {
       qb = qb.ilike("display_name", `%${q}%`);
     }
 
-    qb = qb.order("total_donated_cents", { ascending: false, nullsFirst: false });
+    if (sortParam === "amount_desc" || (!q && !filterIndustry)) {
+      qb = qb.order("total_donated_cents", { ascending: false, nullsFirst: false });
+    }
 
     if (isPaginated) {
       qb = qb.range(offset, offset + fetchLimit - 1);
@@ -480,7 +513,58 @@ export async function GET(req: NextRequest) {
         connection_count: countMap.get(f.id) ?? 0,
       };
     });
-    return { results, hasMore };
+    return { results: applySort(results, (r) => r.name), hasMore };
+  };
+
+  // ── Initiatives ────────────────────────────────────────────────────────────
+  const searchInitiatives = async (): Promise<{ results: SearchInitiative[]; hasMore: boolean }> => {
+    if (typeFilter !== "all" && typeFilter !== "initiatives") return { results: [], hasMore: false };
+
+    let qb = db2
+      .from("proposals")
+      .select("id, title, status, initiative_details!inner(stage)")
+      .eq("type", "initiative");
+
+    if (filterInitiativeStage) {
+      qb = qb.eq("initiative_details.stage", filterInitiativeStage);
+    } else if (typeFilter === "initiatives") {
+      // Default: active stages only
+      qb = qb.in("initiative_details.stage", ["deliberate", "mobilise", "draft"]);
+    }
+
+    if (filterStatus) qb = qb.eq("status", filterStatus);
+
+    if (q.length >= 2) {
+      qb = qb.ilike("title", `%${q}%`);
+    }
+
+    if (isPaginated) {
+      qb = qb.order("title", { ascending: true }).range(offset, offset + fetchLimit - 1);
+    } else {
+      qb = qb.limit(pageSize);
+    }
+
+    const { data } = await qb;
+    const rows = data ?? [];
+    if (rows.length === 0) return { results: [], hasMore: false };
+
+    const hasMore = isPaginated && rows.length > pageSize;
+    const resultRows = isPaginated ? rows.slice(0, pageSize) : rows;
+    const countMap = await getConnectionCounts(resultRows.map((r: { id: string }) => r.id));
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const results = resultRows.map((r: any) => {
+      const stage = r.initiative_details?.[0]?.stage ?? r.initiative_details?.stage ?? null;
+      let score = q.length >= 2 ? baseRelevance(r.title, q) : 50;
+      if (score === 0) score = DESC_SCORE;
+      if (stage === "mobilise") score += 10;
+      return {
+        id: r.id, title: r.title, stage, status: r.status,
+        relevance_score: Math.min(score, 100),
+        connection_count: countMap.get(r.id) ?? 0,
+      };
+    });
+    return { results: applySort(results, (r) => r.title), hasMore };
   };
 
   // ── Run in parallel ────────────────────────────────────────────────────────
@@ -489,19 +573,21 @@ export async function GET(req: NextRequest) {
     { results: proposals,          hasMore: proposalsMore },
     { results: agencies,           hasMore: agenciesMore },
     { results: financial_entities, hasMore: financialMore },
+    { results: initiatives,        hasMore: initiativesMore },
   ] = await Promise.all([
     searchOfficials(),
     searchProposals(),
     searchAgencies(),
     searchFinancialEntities(),
+    searchInitiatives(),
   ]);
 
-  const has_more = officialsMore || proposalsMore || agenciesMore || financialMore;
+  const has_more = officialsMore || proposalsMore || agenciesMore || financialMore || initiativesMore;
   const next_cursor = has_more && isPaginated ? encodeCursor(offset + pageSize) : null;
-  const total = officials.length + proposals.length + agencies.length + financial_entities.length;
+  const total = officials.length + proposals.length + agencies.length + financial_entities.length + initiatives.length;
 
   return NextResponse.json({
-    query: q, officials, proposals, agencies, financial_entities,
+    query: q, officials, proposals, agencies, financial_entities, initiatives,
     total, timing_ms: Date.now() - t0, has_more, next_cursor,
   } satisfies SearchResults);
 }

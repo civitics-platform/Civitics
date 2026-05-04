@@ -12,6 +12,7 @@ import { SearchResultCard, resultId, resultEntityId, resultEntityType } from "./
 import type { AnySearchResult } from "./SearchResultCard";
 import { SearchFiltersPanel } from "./SearchFiltersPanel";
 import type { SearchFilters } from "./SearchFiltersPanel";
+import { SearchFilterBar } from "./SearchFilterBar";
 import { SearchDetailPanel } from "./SearchDetailPanel";
 import { SearchActionBar } from "./SearchActionBar";
 
@@ -34,47 +35,68 @@ export interface AdvancedSearchPageProps {
 // ---------------------------------------------------------------------------
 
 const TYPE_TABS = [
-  { key: "all",       label: "All" },
-  { key: "officials", label: "Officials" },
-  { key: "proposals", label: "Proposals" },
-  { key: "agencies",  label: "Agencies" },
-  { key: "financial", label: "Donors & PACs" },
+  { key: "all",         label: "All" },
+  { key: "officials",   label: "Officials" },
+  { key: "proposals",   label: "Legislation" },
+  { key: "agencies",    label: "Agencies" },
+  { key: "financial",   label: "Money" },
+  { key: "initiatives", label: "Initiatives" },
 ] as const;
 
 function filtersToParams(q: string, filters: SearchFilters): URLSearchParams {
   const p = new URLSearchParams();
-  if (q)                       p.set("q",             q);
+  if (q)                          p.set("q",              q);
   if (filters.type && filters.type !== "all") p.set("type", filters.type);
-  if (filters.party)           p.set("party",         filters.party);
-  if (filters.state)           p.set("state",         filters.state);
-  if (filters.chamber)         p.set("chamber",       filters.chamber);
-  if (filters.status)          p.set("status",        filters.status);
-  if (filters.proposal_type)   p.set("proposal_type", filters.proposal_type);
-  if (filters.date_from)       p.set("date_from",     filters.date_from);
-  if (filters.date_to)         p.set("date_to",       filters.date_to);
-  if (filters.agency_type)     p.set("agency_type",   filters.agency_type);
-  if (filters.entity_type)     p.set("entity_type",   filters.entity_type);
-  if (filters.industry)        p.set("industry",      filters.industry);
-  if (filters.min_amount)      p.set("min_amount",    filters.min_amount);
-  if (filters.max_amount)      p.set("max_amount",    filters.max_amount);
+  if (filters.party)              p.set("party",          filters.party);
+  if (filters.state)              p.set("state",          filters.state);
+  if (filters.chamber)            p.set("chamber",        filters.chamber);
+  if (filters.status)             p.set("status",         filters.status);
+  if (filters.proposal_type)      p.set("proposal_type",  filters.proposal_type);
+  if (filters.date_from)          p.set("date_from",      filters.date_from);
+  if (filters.date_to)            p.set("date_to",        filters.date_to);
+  if (filters.agency_type)        p.set("agency_type",    filters.agency_type);
+  if (filters.entity_type)        p.set("entity_type",    filters.entity_type);
+  if (filters.industry)           p.set("industry",       filters.industry);
+  if (filters.min_amount)         p.set("min_amount",     filters.min_amount);
+  if (filters.max_amount)         p.set("max_amount",     filters.max_amount);
+  if (filters.official_role)      p.set("official_role",  filters.official_role);
+  if (filters.financial_type)     p.set("financial_type", filters.financial_type);
+  if (filters.initiative_stage)   p.set("initiative_stage", filters.initiative_stage);
   return p;
 }
 
 function flattenResults(pages: SearchResults[]): AnySearchResult[] {
   const out: AnySearchResult[] = [];
   for (const page of pages) {
-    for (const o of page.officials)         out.push({ kind: "official",  data: o });
-    for (const p of page.proposals)         out.push({ kind: "proposal",  data: p });
-    for (const a of page.agencies)          out.push({ kind: "agency",    data: a });
-    for (const f of page.financial_entities) out.push({ kind: "financial", data: f });
+    for (const o of page.officials)          out.push({ kind: "official",   data: o });
+    for (const p of page.proposals)          out.push({ kind: "proposal",   data: p });
+    for (const a of page.agencies)           out.push({ kind: "agency",     data: a });
+    for (const f of page.financial_entities) out.push({ kind: "financial",  data: f });
+    for (const i of (page.initiatives ?? [])) out.push({ kind: "initiative", data: i });
   }
   return out;
 }
 
-/** For the "all" type, interleave by relevance_score. For single type, keep order. */
-function sortResults(results: AnySearchResult[], type: string): AnySearchResult[] {
-  if (type !== "all") return results;
-  return [...results].sort((a, b) => b.data.relevance_score - a.data.relevance_score);
+function getName(r: AnySearchResult): string {
+  if (r.kind === "official")   return r.data.full_name;
+  if (r.kind === "proposal")   return r.data.title;
+  if (r.kind === "agency")     return r.data.name;
+  if (r.kind === "financial")  return r.data.name;
+  if (r.kind === "initiative") return (r.data as { title: string }).title;
+  return "";
+}
+
+function sortResults(results: AnySearchResult[], type: string, sort: string): AnySearchResult[] {
+  const base = type !== "all" ? results : [...results].sort((a, b) => b.data.relevance_score - a.data.relevance_score);
+  if (sort === "name_asc")         return [...base].sort((a, b) => getName(a).localeCompare(getName(b)));
+  if (sort === "name_desc")        return [...base].sort((a, b) => getName(b).localeCompare(getName(a)));
+  if (sort === "connections_desc") return [...base].sort((a, b) => b.data.connection_count - a.data.connection_count);
+  if (sort === "amount_desc")      return [...base].sort((a, b) => {
+    const aAmt = "total_amount_cents" in a.data ? (a.data.total_amount_cents ?? 0) : 0;
+    const bAmt = "total_amount_cents" in b.data ? (b.data.total_amount_cents ?? 0) : 0;
+    return bAmt - aAmt;
+  });
+  return base; // relevance (default)
 }
 
 // ---------------------------------------------------------------------------
@@ -92,20 +114,24 @@ export function AdvancedSearchPage({
   const [query, setQuery] = useState(initialParams?.q ?? "");
   const [debouncedQuery, setDebouncedQuery] = useState(initialParams?.q ?? "");
   const [filters, setFilters] = useState<SearchFilters>({
-    type: initialParams?.type ?? "all",
-    party:         initialParams?.party,
-    state:         initialParams?.state,
-    chamber:       initialParams?.chamber,
-    status:        initialParams?.status,
-    proposal_type: initialParams?.proposal_type,
-    date_from:     initialParams?.date_from,
-    date_to:       initialParams?.date_to,
-    agency_type:   initialParams?.agency_type,
-    entity_type:   initialParams?.entity_type,
-    industry:      initialParams?.industry,
-    min_amount:    initialParams?.min_amount,
-    max_amount:    initialParams?.max_amount,
+    type:            initialParams?.type           ?? "all",
+    party:           initialParams?.party,
+    state:           initialParams?.state,
+    chamber:         initialParams?.chamber,
+    status:          initialParams?.status,
+    proposal_type:   initialParams?.proposal_type,
+    date_from:       initialParams?.date_from,
+    date_to:         initialParams?.date_to,
+    agency_type:     initialParams?.agency_type,
+    entity_type:     initialParams?.entity_type,
+    industry:        initialParams?.industry,
+    min_amount:      initialParams?.min_amount,
+    max_amount:      initialParams?.max_amount,
+    official_role:   initialParams?.official_role,
+    financial_type:  initialParams?.financial_type,
+    initiative_stage: initialParams?.initiative_stage,
   });
+  const [sort, setSort] = useState(initialParams?.sort ?? "relevance");
 
   const [pages, setPages] = useState<SearchResults[]>(initialData ? [initialData] : []);
   const [cursor, setCursor] = useState<string | null>(initialData?.next_cursor ?? null);
@@ -113,9 +139,9 @@ export function AdvancedSearchPage({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [detailResult, setDetailResult] = useState<AnySearchResult | null>(null);
 
-  const sentinelRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fetchingRef = useRef(false);
+  const sentinelRef    = useRef<HTMLDivElement>(null);
+  const debounceRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchingRef    = useRef(false);
 
   // ── Debounce text query ────────────────────────────────────────────────────
   useEffect(() => {
@@ -159,9 +185,9 @@ export function AdvancedSearchPage({
     setCursor(null);
     fetchPage(debouncedQuery, filters, null, false);
 
-    // Sync URL (page mode only)
     if (mode === "page") {
       const params = filtersToParams(debouncedQuery, filters);
+      if (sort !== "relevance") params.set("sort", sort);
       const url = `/search${params.toString() ? `?${params.toString()}` : ""}`;
       window.history.pushState(null, "", url);
     }
@@ -193,7 +219,7 @@ export function AdvancedSearchPage({
     });
   }
 
-  const allResults = sortResults(flattenResults(pages), filters.type);
+  const allResults = sortResults(flattenResults(pages), filters.type, sort);
   const selectedResults = allResults.filter((r) => selectedIds.has(resultId(r)));
   const total = pages[0]?.total ?? 0;
 
@@ -202,7 +228,7 @@ export function AdvancedSearchPage({
     if (mode === "sidebar" && onAddEntity) {
       onAddEntity({
         id:   resultEntityId(result),
-        name: result.data.id, // name resolved by graph from DB
+        name: result.data.id,
         type: resultEntityType(result) as FocusEntity["type"],
       });
       return;
@@ -217,6 +243,15 @@ export function AdvancedSearchPage({
   // ── Filter change helper ───────────────────────────────────────────────────
   function applyFilters(partial: Partial<SearchFilters>) {
     setFilters((prev) => ({ ...prev, ...partial }));
+  }
+
+  // ── Graph action from top header ──────────────────────────────────────────
+  function handleAddToGraph() {
+    if (selectedResults.length === 0) return;
+    const toAdd = selectedResults.slice(0, 5);
+    const ids   = toAdd.map((r) => r.data.id).join(",");
+    const types = toAdd.map((r) => r.kind).join(",");
+    window.location.href = `/graph?addEntityIds=${encodeURIComponent(ids)}&addEntityTypes=${encodeURIComponent(types)}`;
   }
 
   // ---------------------------------------------------------------------------
@@ -266,11 +301,13 @@ export function AdvancedSearchPage({
         <div className="flex gap-0.5 overflow-x-auto scrollbar-hide">
           {TYPE_TABS.map((tab) => {
             const active = filters.type === tab.key;
-            const count = tab.key === "all" ? total
+            const count =
+              tab.key === "all"         ? total
               : tab.key === "officials" ? (pages[0]?.officials.length ?? 0)
               : tab.key === "proposals" ? (pages[0]?.proposals.length ?? 0)
               : tab.key === "agencies"  ? (pages[0]?.agencies.length ?? 0)
-              : (pages[0]?.financial_entities.length ?? 0);
+              : tab.key === "financial" ? (pages[0]?.financial_entities.length ?? 0)
+              : ((pages[0]?.initiatives ?? []).length);
             return (
               <button
                 key={tab.key}
@@ -293,28 +330,77 @@ export function AdvancedSearchPage({
         </div>
       </div>
 
+      {/* ── Filter bar (under tabs, above content) ── */}
+      {isPage && (
+        <SearchFilterBar
+          filters={filters}
+          onFiltersChange={applyFilters}
+          sort={sort}
+          onSortChange={setSort}
+        />
+      )}
+
       {/* ── Three-panel body ── */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
-        {/* LEFT — taxonomy + filter pills (page mode only) */}
+        {/* LEFT — taxonomy browser (page mode only) */}
         {isPage && (
           <div className="w-[260px] shrink-0 overflow-hidden">
             <SearchFiltersPanel filters={filters} onFiltersChange={applyFilters} />
           </div>
         )}
 
-        {/* MIDDLE — infinite scroll results */}
+        {/* MIDDLE — results */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2 pb-20">
 
-            {/* Summary line */}
-            {pages.length > 0 && (
-              <p className="text-xs text-gray-500 mb-3">
-                {total > 0
-                  ? <><span className="font-semibold text-gray-700">{allResults.length}</span> of <span className="font-semibold text-gray-700">{total}</span> results{debouncedQuery ? ` for "${debouncedQuery}"` : ""}</>
-                  : debouncedQuery ? `No results for "${debouncedQuery}"` : "No results for these filters"}
-              </p>
+          {/* Pinned results header */}
+          <div className="shrink-0 border-b border-gray-200 bg-white px-4 py-2 flex items-center gap-3">
+            {/* Add to Graph button */}
+            <div className="relative">
+              <button
+                onClick={handleAddToGraph}
+                disabled={selectedResults.length === 0}
+                className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors
+                  ${selectedResults.length > 0
+                    ? "border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                    : "border-gray-200 bg-white text-gray-400 cursor-not-allowed"}`}
+              >
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                </svg>
+                Add to graph
+                {selectedResults.length > 0 && (
+                  <span className="ml-0.5 rounded-full bg-indigo-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                    {selectedResults.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Result count */}
+            <span className="text-xs text-gray-500">
+              {loading && pages.length === 0
+                ? "Loading…"
+                : total > 0
+                  ? <><span className="font-semibold text-gray-700">{allResults.length}</span> of <span className="font-semibold text-gray-700">{total.toLocaleString()}</span> results{debouncedQuery ? ` for "${debouncedQuery}"` : ""}</>
+                  : pages.length > 0
+                    ? "No results"
+                    : ""}
+            </span>
+
+            {/* Clear selection */}
+            {selectedResults.length > 0 && (
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="ml-auto text-xs text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                Clear selection
+              </button>
             )}
+          </div>
+
+          {/* Infinite scroll area */}
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 pb-20">
 
             {/* Results */}
             {allResults.map((result) => (
@@ -326,6 +412,7 @@ export function AdvancedSearchPage({
                 onClickDetail={setDetailResult}
                 showCheckbox={isPage}
                 badge={filters.type === "all"}
+                isInGraph={activeEntityIds.includes(resultEntityId(result))}
               />
             ))}
 
@@ -333,14 +420,12 @@ export function AdvancedSearchPage({
             {!loading && pages.length > 0 && allResults.length === 0 && (
               <div className="py-16 text-center">
                 <p className="text-sm text-gray-400">
-                  {debouncedQuery.length < 2 && Object.values(filters).every((v) => !v || v === "all")
-                    ? "Enter a search term or select a category to explore"
-                    : "No results match these filters"}
+                  No results match these filters
                 </p>
               </div>
             )}
 
-            {/* Loading skeleton */}
+            {/* Loading skeleton (initial load) */}
             {loading && pages.length === 0 && (
               <div className="space-y-2">
                 {[...Array(6)].map((_, i) => (
@@ -360,7 +445,7 @@ export function AdvancedSearchPage({
             )}
           </div>
 
-          {/* Multi-select action bar */}
+          {/* Multi-select action bar (bundle-as-group dialog) */}
           {isPage && (
             <SearchActionBar
               selected={selectedResults}

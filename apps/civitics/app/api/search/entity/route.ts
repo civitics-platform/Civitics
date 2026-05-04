@@ -119,7 +119,7 @@ export async function GET(req: NextRequest) {
     if (type === "agency") {
       const { data } = await db2
         .from("agencies")
-        .select("id, name, acronym, agency_type, description, website_url")
+        .select("id, name, acronym, agency_type, description, website_url, slug")
         .eq("id", id)
         .single();
       if (!data) return NextResponse.json(null, { status: 404 });
@@ -132,7 +132,7 @@ export async function GET(req: NextRequest) {
         subtitle: data.acronym ? `${data.acronym} · ${data.agency_type.replace(/_/g, " ")}` : data.agency_type.replace(/_/g, " "),
         description: data.description ?? null,
         connection_count,
-        profile_url: `/agencies/${id}`,
+        profile_url: data.slug ? `/agencies/${data.slug}` : `/agencies/${id}`,
         meta: { Type: data.agency_type.replace(/_/g, " ") },
       };
       return NextResponse.json(detail);

@@ -5,6 +5,7 @@ import type {
   SearchProposal,
   SearchAgency,
   SearchFinancialEntity,
+  SearchInitiative,
 } from "../../api/search/route";
 
 // ---------------------------------------------------------------------------
@@ -41,6 +42,13 @@ const STATUS_COLOR: Record<string, string> = {
   failed:        "bg-red-100 text-red-800",
 };
 
+const STAGE_COLOR: Record<string, string> = {
+  draft:      "bg-gray-100 text-gray-600",
+  deliberate: "bg-blue-100 text-blue-700",
+  mobilise:   "bg-emerald-100 text-emerald-700",
+  resolved:   "bg-gray-100 text-gray-500",
+};
+
 function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
 }
@@ -66,10 +74,11 @@ function ConnectionBadge({ count }: { count: number }) {
 // ---------------------------------------------------------------------------
 
 export type AnySearchResult =
-  | { kind: "official";  data: SearchOfficial }
-  | { kind: "proposal";  data: SearchProposal }
-  | { kind: "agency";    data: SearchAgency }
-  | { kind: "financial"; data: SearchFinancialEntity };
+  | { kind: "official";   data: SearchOfficial }
+  | { kind: "proposal";   data: SearchProposal }
+  | { kind: "agency";     data: SearchAgency }
+  | { kind: "financial";  data: SearchFinancialEntity }
+  | { kind: "initiative"; data: SearchInitiative };
 
 export function resultId(r: AnySearchResult): string {
   return `${r.kind}:${r.data.id}`;
@@ -95,6 +104,8 @@ interface SearchResultCardProps {
   showCheckbox: boolean;
   /** "badge" shows a type label — used in the "All" tab */
   badge?: boolean;
+  /** True when this entity is already loaded in the connection graph */
+  isInGraph?: boolean;
 }
 
 export function SearchResultCard({
@@ -104,11 +115,11 @@ export function SearchResultCard({
   onClickDetail,
   showCheckbox,
   badge,
+  isInGraph = false,
 }: SearchResultCardProps) {
   const key = resultId(result);
 
   function handleCardClick(e: React.MouseEvent) {
-    // Don't open detail if user clicked the checkbox
     const target = e.target as HTMLElement;
     if (target.closest("[data-checkbox]")) return;
     onClickDetail(result);
@@ -119,12 +130,10 @@ export function SearchResultCard({
     onToggleSelect(key);
   }
 
-  const selected = isSelected;
-
   return (
     <div
       className={`relative flex items-stretch rounded-lg border bg-white transition-all cursor-pointer
-        ${selected
+        ${isSelected
           ? "border-indigo-400 shadow-sm ring-1 ring-indigo-300"
           : "border-gray-200 hover:border-indigo-300 hover:shadow-sm"}`}
       onClick={handleCardClick}
@@ -138,7 +147,7 @@ export function SearchResultCard({
         >
           <input
             type="checkbox"
-            checked={selected}
+            checked={isSelected}
             onChange={handleCheckboxChange}
             className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
             aria-label="Select this item"
@@ -148,18 +157,11 @@ export function SearchResultCard({
 
       {/* Card content */}
       <div className="flex-1 min-w-0 px-4 py-3">
-        {result.kind === "official" && (
-          <OfficialCardContent o={result.data} badge={badge} />
-        )}
-        {result.kind === "proposal" && (
-          <ProposalCardContent p={result.data} badge={badge} />
-        )}
-        {result.kind === "agency" && (
-          <AgencyCardContent a={result.data} badge={badge} />
-        )}
-        {result.kind === "financial" && (
-          <FinancialCardContent f={result.data} badge={badge} />
-        )}
+        {result.kind === "official"   && <OfficialCardContent   o={result.data} badge={badge} isInGraph={isInGraph} />}
+        {result.kind === "proposal"   && <ProposalCardContent   p={result.data} badge={badge} />}
+        {result.kind === "agency"     && <AgencyCardContent     a={result.data} badge={badge} isInGraph={isInGraph} />}
+        {result.kind === "financial"  && <FinancialCardContent  f={result.data} badge={badge} isInGraph={isInGraph} />}
+        {result.kind === "initiative" && <InitiativeCardContent i={result.data} badge={badge} />}
       </div>
     </div>
   );
@@ -169,7 +171,15 @@ export function SearchResultCard({
 // Card content variants
 // ---------------------------------------------------------------------------
 
-function OfficialCardContent({ o, badge }: { o: SearchOfficial; badge?: boolean }) {
+function InGraphBadge() {
+  return (
+    <span className="shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-500">
+      ⊙ in graph
+    </span>
+  );
+}
+
+function OfficialCardContent({ o, badge, isInGraph }: { o: SearchOfficial; badge?: boolean; isInGraph?: boolean }) {
   const partyBadge = PARTY_BADGE[o.party ?? ""] ?? "bg-gray-100 text-gray-700";
   return (
     <div className="flex items-center gap-3">
@@ -187,6 +197,7 @@ function OfficialCardContent({ o, badge }: { o: SearchOfficial; badge?: boolean 
         </p>
       </div>
       <div className="flex items-center gap-2 shrink-0">
+        {isInGraph && <InGraphBadge />}
         <ConnectionBadge count={o.connection_count} />
         <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${partyBadge}`}>
           {o.party?.[0]?.toUpperCase() ?? "?"}
@@ -228,7 +239,7 @@ function ProposalCardContent({ p, badge }: { p: SearchProposal; badge?: boolean 
   );
 }
 
-function AgencyCardContent({ a, badge }: { a: SearchAgency; badge?: boolean }) {
+function AgencyCardContent({ a, badge, isInGraph }: { a: SearchAgency; badge?: boolean; isInGraph?: boolean }) {
   return (
     <div className="flex items-center gap-3">
       {badge && <TypeBadge label="Agency" color="gray" />}
@@ -240,6 +251,7 @@ function AgencyCardContent({ a, badge }: { a: SearchAgency; badge?: boolean }) {
         {a.acronym && <p className="text-xs text-gray-400">{a.acronym}</p>}
       </div>
       <div className="flex items-center gap-2 shrink-0">
+        {isInGraph && <InGraphBadge />}
         <ConnectionBadge count={a.connection_count} />
         <span className="rounded bg-gray-100 px-2 py-0.5 text-[11px] text-gray-500 capitalize">
           {a.agency_type.replace(/_/g, " ")}
@@ -249,7 +261,7 @@ function AgencyCardContent({ a, badge }: { a: SearchAgency; badge?: boolean }) {
   );
 }
 
-function FinancialCardContent({ f, badge }: { f: SearchFinancialEntity; badge?: boolean }) {
+function FinancialCardContent({ f, badge, isInGraph }: { f: SearchFinancialEntity; badge?: boolean; isInGraph?: boolean }) {
   return (
     <div className="flex items-center gap-3">
       {badge && <TypeBadge label="Donor" color="green" />}
@@ -267,6 +279,7 @@ function FinancialCardContent({ f, badge }: { f: SearchFinancialEntity; badge?: 
         </p>
       </div>
       <div className="flex items-center gap-2 shrink-0">
+        {isInGraph && <InGraphBadge />}
         <ConnectionBadge count={f.connection_count} />
         {f.total_amount_cents != null && (
           <span className="rounded bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">
@@ -274,6 +287,27 @@ function FinancialCardContent({ f, badge }: { f: SearchFinancialEntity; badge?: 
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+function InitiativeCardContent({ i, badge }: { i: SearchInitiative; badge?: boolean }) {
+  const stageColor = STAGE_COLOR[i.stage ?? ""] ?? "bg-gray-100 text-gray-600";
+  const stageLabel = i.stage ? (i.stage.charAt(0).toUpperCase() + i.stage.slice(1)) : "Draft";
+  return (
+    <div>
+      <div className="flex items-center gap-2 flex-wrap">
+        {badge && <TypeBadge label="Initiative" color="green" />}
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${stageColor}`}>
+          {stageLabel}
+        </span>
+        <div className="ml-auto shrink-0">
+          <ConnectionBadge count={i.connection_count} />
+        </div>
+      </div>
+      <p className="mt-1.5 text-sm font-semibold text-gray-900 line-clamp-2 leading-snug">
+        {i.title}
+      </p>
     </div>
   );
 }

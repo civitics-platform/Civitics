@@ -295,6 +295,198 @@ export const BUILT_IN_GROUPS: FocusGroup[] = [
     isPremade: true,
     description: 'All active federal executive and regulatory agencies',
   },
+
+  // ── Independent Agencies ───────
+
+  {
+    id: 'group-independent-agencies',
+    name: 'Independent Agencies',
+    type: 'group',
+    icon: '🏢',
+    color: '#78716c',
+    filter: {
+      entity_type: 'agency',
+      agency_type: 'independent',
+    },
+    isPremade: true,
+    description: 'Independent regulatory commissions and agencies',
+  },
+
+  // ── Judiciary / Cabinet ────────
+
+  {
+    id: 'group-judiciary',
+    name: 'Federal Judiciary',
+    type: 'group',
+    icon: '⚖️',
+    color: '#475569',
+    filter: {
+      entity_type: 'official',
+      official_role: 'judiciary',
+    },
+    isPremade: true,
+    description: 'Federal judges and justices',
+  },
+
+  {
+    id: 'group-cabinet',
+    name: 'Cabinet & Executive',
+    type: 'group',
+    icon: '🪪',
+    color: '#6366f1',
+    filter: {
+      entity_type: 'official',
+      official_role: 'cabinet',
+    },
+    isPremade: true,
+    description: 'Cabinet secretaries and senior executive appointees',
+  },
+
+  // ── Financial entity types ─────
+
+  {
+    id: 'group-super-pacs',
+    name: 'Super PACs',
+    type: 'group',
+    icon: '💲',
+    color: '#dc2626',
+    filter: {
+      entity_type: 'financial',
+      financial_type: 'super_pac',
+    },
+    isPremade: true,
+    description: 'Super PACs — independent expenditure-only committees',
+  },
+
+  {
+    id: 'group-party-committees',
+    name: 'Party Committees',
+    type: 'group',
+    icon: '🎪',
+    color: '#7c3aed',
+    filter: {
+      entity_type: 'financial',
+      financial_type: 'party_committee',
+    },
+    isPremade: true,
+    description: 'DCCC, NRCC, DSCC, NRSC and state party committees',
+  },
+
+  {
+    id: 'group-corporations',
+    name: 'Corporations',
+    type: 'group',
+    icon: '🏭',
+    color: '#0891b2',
+    filter: {
+      entity_type: 'financial',
+      financial_type: 'corporation',
+    },
+    isPremade: true,
+    description: 'Corporations with direct campaign contributions',
+  },
+
+  {
+    id: 'group-unions',
+    name: 'Unions & Labor',
+    type: 'group',
+    icon: '👷',
+    color: '#f43f5e',
+    filter: {
+      entity_type: 'financial',
+      financial_type: 'union',
+    },
+    isPremade: true,
+    description: 'Labor unions and worker organizations',
+  },
+
+  {
+    id: 'group-individual-donors',
+    name: 'Individual Donors',
+    type: 'group',
+    icon: '👤',
+    color: '#059669',
+    filter: {
+      entity_type: 'financial',
+      financial_type: 'individual',
+    },
+    isPremade: true,
+    description: 'Individual campaign donors',
+  },
+
+  // ── Proposal types ─────────────
+
+  {
+    id: 'group-proposals-bills',
+    name: 'Bills',
+    type: 'group',
+    icon: '📋',
+    color: '#7c3aed',
+    filter: {
+      entity_type: 'proposal',
+      proposal_type: 'bill',
+    },
+    isPremade: true,
+    description: 'Legislation introduced in Congress',
+  },
+
+  {
+    id: 'group-proposals-open-comment',
+    name: 'Open for Comment',
+    type: 'group',
+    icon: '⚡',
+    color: '#059669',
+    filter: {
+      entity_type: 'proposal',
+      tag: 'open_comment',
+    },
+    isPremade: true,
+    description: 'Regulations currently accepting public comment',
+  },
+
+  {
+    id: 'group-proposals-regulations',
+    name: 'Regulations',
+    type: 'group',
+    icon: '📜',
+    color: '#d97706',
+    filter: {
+      entity_type: 'proposal',
+      proposal_type: 'regulation',
+    },
+    isPremade: true,
+    description: 'Federal regulations and rulemaking',
+  },
+
+  // ── Initiatives ────────────────
+
+  {
+    id: 'group-initiatives-active',
+    name: 'Active Initiatives',
+    type: 'group',
+    icon: '🌱',
+    color: '#16a34a',
+    filter: {
+      entity_type: 'initiative',
+      initiative_stage: 'mobilise',
+    },
+    isPremade: true,
+    description: 'Civic initiatives in deliberation or mobilisation phase',
+  },
+
+  {
+    id: 'group-initiatives-resolved',
+    name: 'Resolved Initiatives',
+    type: 'group',
+    icon: '✅',
+    color: '#64748b',
+    filter: {
+      entity_type: 'initiative',
+      initiative_stage: 'resolved',
+    },
+    isPremade: true,
+    description: 'Civic initiatives that have reached resolution',
+  },
 ]
 
 // ── Browse hierarchy (FIX-135) ─────────────────────────────────────────────────
@@ -334,35 +526,50 @@ export const GROUP_TREE: GroupTreeNode[] = [
     children: [
       {
         kind: 'category',
-        label: 'Federal',
-        icon: '🏛',
+        label: 'Officials',
+        icon: '👤',
         defaultExpanded: true,
         children: [
-          { kind: 'home-location' },
-          { kind: 'group', id: 'group-full-senate' },
-          { kind: 'group', id: 'group-senate-dems' },
-          { kind: 'group', id: 'group-senate-reps' },
-          { kind: 'group', id: 'group-full-house' },
-          { kind: 'group', id: 'group-house-dems' },
-          { kind: 'group', id: 'group-house-reps' },
-          // group-federal-judges removed from tree (FIX-176): backing data
-          // doesn't exist yet — federal judges aren't in `officials`. Re-add
-          // once a proper role filter and judge data source are wired.
+          {
+            kind: 'category',
+            label: 'Federal',
+            icon: '🏛',
+            defaultExpanded: true,
+            children: [
+              {
+                kind: 'category',
+                label: 'Congress',
+                icon: '🗳',
+                defaultExpanded: false,
+                children: [
+                  { kind: 'home-location' },
+                  { kind: 'group', id: 'group-full-senate' },
+                  { kind: 'group', id: 'group-senate-dems' },
+                  { kind: 'group', id: 'group-senate-reps' },
+                  { kind: 'group', id: 'group-full-house' },
+                  { kind: 'group', id: 'group-house-dems' },
+                  { kind: 'group', id: 'group-house-reps' },
+                ],
+              },
+              { kind: 'group', id: 'group-judiciary' },
+              { kind: 'group', id: 'group-cabinet' },
+            ],
+          },
+          {
+            kind: 'category',
+            label: 'By state',
+            icon: '🗺',
+            defaultExpanded: false,
+            children: [{ kind: 'state-list' }],
+          },
+          {
+            kind: 'category',
+            label: 'By committee',
+            icon: '🪪',
+            defaultExpanded: false,
+            children: [{ kind: 'committee-list' }],
+          },
         ],
-      },
-      {
-        kind: 'category',
-        label: 'Officials by state',
-        icon: '🗺',
-        defaultExpanded: false,
-        children: [{ kind: 'state-list' }],
-      },
-      {
-        kind: 'category',
-        label: 'By committee',
-        icon: '🪪',
-        defaultExpanded: false,
-        children: [{ kind: 'committee-list' }],
       },
     ],
   },
@@ -376,7 +583,7 @@ export const GROUP_TREE: GroupTreeNode[] = [
         kind: 'category',
         label: 'PACs by industry',
         icon: '💼',
-        defaultExpanded: true,
+        defaultExpanded: false,
         children: [
           { kind: 'group', id: 'group-pac-lobby' },
           { kind: 'group', id: 'group-pac-finance' },
@@ -392,6 +599,11 @@ export const GROUP_TREE: GroupTreeNode[] = [
           { kind: 'group', id: 'group-pac-transportation' },
         ],
       },
+      { kind: 'group', id: 'group-super-pacs' },
+      { kind: 'group', id: 'group-party-committees' },
+      { kind: 'group', id: 'group-corporations' },
+      { kind: 'group', id: 'group-unions' },
+      { kind: 'group', id: 'group-individual-donors' },
     ],
   },
   {
@@ -402,11 +614,12 @@ export const GROUP_TREE: GroupTreeNode[] = [
     children: [
       {
         kind: 'category',
-        label: 'Federal',
-        icon: '🏛',
+        label: 'Agencies',
+        icon: '🏢',
         defaultExpanded: true,
         children: [
           { kind: 'group', id: 'group-federal-agencies' },
+          { kind: 'group', id: 'group-independent-agencies' },
         ],
       },
     ],
@@ -419,11 +632,32 @@ export const GROUP_TREE: GroupTreeNode[] = [
     children: [
       {
         kind: 'category',
+        label: 'Proposals',
+        icon: '📋',
+        defaultExpanded: true,
+        children: [
+          { kind: 'group', id: 'group-proposals-open-comment' },
+          { kind: 'group', id: 'group-proposals-bills' },
+          { kind: 'group', id: 'group-proposals-regulations' },
+        ],
+      },
+      {
+        kind: 'category',
         label: 'By topic tag',
         icon: '🏷',
         defaultExpanded: false,
         children: [{ kind: 'topic-tag-list' }],
       },
+    ],
+  },
+  {
+    kind: 'category',
+    label: 'Initiatives',
+    icon: '🌱',
+    defaultExpanded: false,
+    children: [
+      { kind: 'group', id: 'group-initiatives-active' },
+      { kind: 'group', id: 'group-initiatives-resolved' },
     ],
   },
   {

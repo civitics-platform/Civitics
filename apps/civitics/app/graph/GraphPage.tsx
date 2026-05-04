@@ -85,6 +85,44 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialCode]);
 
+  // ── Entity handoff from /search (multi-select "Add individually") ──────────
+  // /search navigates to /graph?addEntityIds=uuid1,uuid2&addEntityTypes=official,agency
+  // Decode once on mount, add each entity, strip the params.
+  const entityHandoffRef = useRef(false);
+  useEffect(() => {
+    if (entityHandoffRef.current) return;
+    if (initialCode) return;
+    if (typeof window === "undefined") return;
+
+    const params = new URL(window.location.href).searchParams;
+    const rawIds   = params.get("addEntityIds");
+    const rawTypes = params.get("addEntityTypes");
+    if (!rawIds || !rawTypes) return;
+
+    entityHandoffRef.current = true;
+
+    const ids   = rawIds.split(",").map((s) => s.trim()).filter(Boolean);
+    const types = rawTypes.split(",").map((s) => s.trim()).filter(Boolean);
+    const validTypes = new Set(["official", "agency", "proposal", "financial"]);
+    const MAX = 5;
+
+    ids.slice(0, MAX).forEach((id, i) => {
+      const type = types[i] ?? "official";
+      if (!validTypes.has(type)) return;
+      graphHooks.addEntity({
+        id,
+        name: id, // graph will resolve the real name on data fetch
+        type: type as "official" | "agency" | "proposal" | "financial",
+      });
+    });
+
+    const cleaned = new URL(window.location.href);
+    cleaned.searchParams.delete("addEntityIds");
+    cleaned.searchParams.delete("addEntityTypes");
+    window.history.replaceState({}, "", cleaned.toString());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialCode]);
+
   // ── Viz handoff from /agencies (FIX-144) ─────────────────────────────────
   // The /agencies HierarchyEmbed links to /graph?viz=hierarchy. Read once on
   // mount, set the viz type, and strip the param so a refresh doesn't re-apply

@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import dynamicImport from "next/dynamic";
 import { createServerClient } from "@civitics/db";
 import type { MultiPolygon, Polygon } from "geojson";
+import { DeferredDistrictMap } from "../components/DeferredDistrictMap";
 
 export const dynamic = "force-dynamic";
 
@@ -13,11 +13,6 @@ const PARTY_BADGE: Record<string, string> = {
   republican:  "bg-red-100 text-red-800",
   independent: "bg-purple-100 text-purple-800",
 };
-
-const SingleDistrictMap = dynamicImport(
-  () => import("../components/SingleDistrictMap").then((m) => m.SingleDistrictMap),
-  { ssr: false, loading: () => <div className="h-[400px] bg-gray-50 rounded-lg" /> },
-);
 
 interface DistrictRow {
   id:         string;
@@ -136,7 +131,7 @@ export default async function DistrictPage({ params }: { params: Promise<{ id: s
       </header>
 
       <section className="mb-8">
-        <SingleDistrictMap geometry={geometry} />
+        <DeferredDistrictMap geometry={geometry} />
       </section>
 
       <section>

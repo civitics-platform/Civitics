@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { AuthHashHandler } from "./components/AuthHashHandler";
@@ -6,6 +7,20 @@ import { Footer } from "./components/Footer";
 import { NavBar } from "./components/NavBar";
 import { WebVitalsReporter } from "./components/WebVitalsReporter";
 import "./globals.css";
+
+// Self-hosted, preloaded fonts. `display: swap` shows fallback text immediately
+// (preventing FOIT) and swaps to Inter/JetBrains once they're ready.
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-inter",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-mono",
+});
 
 export const metadata: Metadata = {
   title: {
@@ -27,8 +42,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${inter.variable} ${jetbrainsMono.variable}`}
+    >
+      <body className="font-sans">
         <NavBar />
         {children}
         <Footer />

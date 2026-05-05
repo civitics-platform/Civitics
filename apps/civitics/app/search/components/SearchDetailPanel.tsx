@@ -118,7 +118,7 @@ function DetailContent({
           <div className="flex-shrink-0 h-12 w-12 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center text-sm font-semibold text-gray-600">
             {detail.photo_url
               // eslint-disable-next-line @next/next/no-img-element
-              ? <img src={detail.photo_url} alt={detail.name} className="h-12 w-12 object-cover" />
+              ? <img src={detail.photo_url} alt={detail.name} width={48} height={48} loading="lazy" decoding="async" className="h-12 w-12 object-cover" />
               : initials(detail.name)}
           </div>
           <div className="min-w-0 flex-1">

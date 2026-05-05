@@ -3,10 +3,8 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --font-inter: "Inter", system-ui, sans-serif;
-    --font-mono: "JetBrains Mono", "Fira Code", monospace;
-  }
+  /* --font-inter and --font-mono are set on <html> by next/font in
+     app/layout.tsx — don't redeclare them here. */
 
   html {
     @apply antialiased;

@@ -187,7 +187,7 @@ function OfficialCardContent({ o, badge, isInGraph }: { o: SearchOfficial; badge
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-600 overflow-hidden">
         {o.photo_url
           // eslint-disable-next-line @next/next/no-img-element
-          ? <img src={o.photo_url} alt={o.full_name} className="h-9 w-9 rounded-full object-cover" />
+          ? <img src={o.photo_url} alt={o.full_name} width={36} height={36} loading="lazy" decoding="async" className="h-9 w-9 rounded-full object-cover" />
           : initials(o.full_name)}
       </div>
       <div className="min-w-0 flex-1">

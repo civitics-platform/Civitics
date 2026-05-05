@@ -258,3 +258,4 @@
 2026-05-04 | FIX-201 | 715cf581 | local+prod | perf(cdn): switch to Vercel-CDN-Cache-Control to bypass framework no-store
 2026-05-04 | FIX-202 | 502ac07e | local-only | perf(districts): defer mapbox-gl off the prefetch graph (546 kB -> 97 kB First Load JS)
 2026-05-04 | FIX-203 | 6f1da816 | local-only | perf(isr): drop cookies() on public pages, switch to createPublicClient + revalidate=300
+2026-05-04 | FIX-204 | 35920bc7 | local-only | perf(dashboard): SSR prefetch the status payload — kill the "Loading…" LCP

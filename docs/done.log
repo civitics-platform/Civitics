@@ -249,3 +249,9 @@
 2026-05-02 | FIX-195 | 1f671bc8 | local+prod | feat(db): make financial_entities name-side indexes partial on non-individual
 2026-05-02 | FIX-196 | 48221fde | local+prod | fix(search): use real financial_entities column names + skip individuals
 2026-05-02 | FIX-194 | fc9a195b | local+prod | feat(graph): FIX-194 individual donor display strategy (bracket/connector/employer)
+2026-05-03 | FIX-194 | 627d86fd | local-only | fix(graph): align bracket node donationTotal to cents convention
+2026-05-03 | FIX-194 | d571e02c | local-only | fix(graph): chunk financialIds IN query to avoid PostgREST URL length limit
+2026-05-04 | FIX-197 | 451460fe | local+prod | perf(caching): selective CDN cache, React.cache() dedup, anonymous middleware bypass
+2026-05-04 | FIX-198 | 576a8de6 | local+prod | perf(loading): add skeleton fallbacks to dashboard, graph, profile, detail pages
+2026-05-04 | FIX-199 | 813b251f | local+prod | perf(bundle): next/font, lazy avatars, font-var consolidation, drop dead tailwind glob
+2026-05-04 | FIX-200 | 8525e53e | local+prod | perf(data): proposal_popularity_24h matview, replace JS aggregation

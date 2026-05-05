@@ -1,16 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import dynamic from "next/dynamic";
 import {
-  ForceGraph,
-  TreemapGraph,
-  ChordGraph,
-  SunburstGraph,
-  SpendingGraph,
-  HierarchyGraph,
-  MatrixGraph,
-  AlignmentGraph,
-  SankeyGraph,
   SharedConnectionsBar,
   AiNarrative,
   EmbedModal,
@@ -31,6 +23,22 @@ import { SharePanel }      from "./SharePanel";
 import { ScreenshotPanel } from "./ScreenshotPanel";
 import { GhostGraph }      from "./GhostGraph";
 import { EmptyStatePresets } from "./EmptyStatePresets";
+
+// FIX-205 — defer the 9 viz components off the initial /graph chunk. Each
+// import() goes through next/dynamic with ssr:false, so the D3 + Sankey
+// payload (~180 KB) is loaded only when a viz is actually rendered, not on
+// every navigation. Conditional rendering downstream ensures only the
+// active viz is mounted; switching tabs incurs a small load on first visit
+// to a new viz, but the chunk is cached so subsequent switches are instant.
+const ForceGraph     = dynamic(() => import("@civitics/graph").then((m) => ({ default: m.ForceGraph })),     { ssr: false });
+const TreemapGraph   = dynamic(() => import("@civitics/graph").then((m) => ({ default: m.TreemapGraph })),   { ssr: false });
+const ChordGraph     = dynamic(() => import("@civitics/graph").then((m) => ({ default: m.ChordGraph })),     { ssr: false });
+const SunburstGraph  = dynamic(() => import("@civitics/graph").then((m) => ({ default: m.SunburstGraph })),  { ssr: false });
+const SpendingGraph  = dynamic(() => import("@civitics/graph").then((m) => ({ default: m.SpendingGraph })),  { ssr: false });
+const HierarchyGraph = dynamic(() => import("@civitics/graph").then((m) => ({ default: m.HierarchyGraph })), { ssr: false });
+const MatrixGraph    = dynamic(() => import("@civitics/graph").then((m) => ({ default: m.MatrixGraph })),    { ssr: false });
+const AlignmentGraph = dynamic(() => import("@civitics/graph").then((m) => ({ default: m.AlignmentGraph })), { ssr: false });
+const SankeyGraph    = dynamic(() => import("@civitics/graph").then((m) => ({ default: m.SankeyGraph })),    { ssr: false });
 
 // ── GraphPage ──────────────────────────────────────────────────────────────────
 
@@ -521,184 +529,172 @@ export function GraphPage({ initialCode, aiEnabled = true }: GraphPageProps = {}
         {/* CANVAS */}
         <div className="flex-1 overflow-hidden relative">
 
-          {/* Force graph */}
-          <div
-            className="absolute inset-0 transition-opacity duration-300"
-            style={{ opacity: vizType === "force" ? 1 : 0, pointerEvents: vizType === "force" ? "auto" : "none" }}
-          >
-            {displayNodes.length === 0 ? (
-              <div className="relative w-full h-full">
-                <GhostGraph className="w-full h-full absolute inset-0 opacity-30" />
-                <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
-                  <div className="max-w-md w-full mx-4 px-8 py-8 rounded-2xl bg-gray-950/80 backdrop-blur-sm border border-gray-800">
-                    <div className="text-center">
-                      <div className="w-10 h-10 mx-auto mb-4 rounded-full border border-gray-700 flex items-center justify-center">
-                        <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        </svg>
+          {/* Active viz only — see FIX-205 import block at the top for why.
+              The previous "all 9 mounted with opacity:0" pattern kept the D3
+              chunk in initial First Load JS for /graph; conditional render
+              + next/dynamic moves it to an async chunk that loads on first
+              viz mount. Trade-off: we lose the cross-viz fade transition. */}
+
+          {vizType === "force" && (
+            <div className="absolute inset-0">
+              {displayNodes.length === 0 ? (
+                <div className="relative w-full h-full">
+                  <GhostGraph className="w-full h-full absolute inset-0 opacity-30" />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
+                    <div className="max-w-md w-full mx-4 px-8 py-8 rounded-2xl bg-gray-950/80 backdrop-blur-sm border border-gray-800">
+                      <div className="text-center">
+                        <div className="w-10 h-10 mx-auto mb-4 rounded-full border border-gray-700 flex items-center justify-center">
+                          <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                          </svg>
+                        </div>
+                        <p className="text-gray-300 text-sm font-medium">Search to start exploring</p>
+                        <p className="text-gray-500 text-xs mt-2 leading-relaxed">
+                          Use the left panel to add officials, agencies, or proposals to the graph.
+                        </p>
                       </div>
-                      <p className="text-gray-300 text-sm font-medium">Search to start exploring</p>
-                      <p className="text-gray-500 text-xs mt-2 leading-relaxed">
-                        Use the left panel to add officials, agencies, or proposals to the graph.
-                      </p>
+                      {/* FIX-131: one-click preset cards for newcomers. */}
+                      <EmptyStatePresets hooks={graphHooks} />
                     </div>
-                    {/* FIX-131: one-click preset cards for newcomers. */}
-                    <EmptyStatePresets hooks={graphHooks} />
                   </div>
                 </div>
-              </div>
-            ) : (
-              <ForceGraph
-                nodes={displayNodes}
-                edges={displayEdges}
-                loadingEntityId={loadingEntityId}
-                focusEntities={view.focus.entities.filter(isFocusEntity)}
-                connections={view.connections}
-                vizOptions={view.style.vizOptions?.force}
-                highlightedNodeId={highlightedSharedId}
-                className="w-full h-full"
-                onViewGroupAsTreemap={handleViewGroupAsTreemap}
-                onViewGroupAsChord={handleViewGroupAsChord}
-                onViewGroupAsSunburst={handleViewGroupAsSunburst}
-                onRemoveGroup={handleRemoveGroup}
-                onOpenDonorList={handleOpenDonorList}
-              />
-            )}
-
-            {/* FIX-149: shared-connections pill bar */}
-            {vizType === "force" && view.focus.entities.filter(isFocusEntity).length >= 2 && (
-              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 max-w-[90%]">
-                <SharedConnectionsBar
-                  focusItems={view.focus.entities}
+              ) : (
+                <ForceGraph
                   nodes={displayNodes}
                   edges={displayEdges}
+                  loadingEntityId={loadingEntityId}
+                  focusEntities={view.focus.entities.filter(isFocusEntity)}
+                  connections={view.connections}
+                  vizOptions={view.style.vizOptions?.force}
                   highlightedNodeId={highlightedSharedId}
-                  onHighlight={setHighlightedSharedId}
+                  className="w-full h-full"
+                  onViewGroupAsTreemap={handleViewGroupAsTreemap}
+                  onViewGroupAsChord={handleViewGroupAsChord}
+                  onViewGroupAsSunburst={handleViewGroupAsSunburst}
+                  onRemoveGroup={handleRemoveGroup}
+                  onOpenDonorList={handleOpenDonorList}
                 />
-              </div>
-            )}
-          </div>
+              )}
 
-          {/* Treemap */}
-          <div
-            className="absolute inset-0 transition-opacity duration-300"
-            style={{ opacity: vizType === "treemap" ? 1 : 0, pointerEvents: vizType === "treemap" ? "auto" : "none" }}
-          >
-            <TreemapGraph
-              className="w-full h-full"
-              svgRef={treemapSvgRef}
-              vizOptions={view.style.vizOptions.treemap}
-              primaryEntityId={primaryEntity?.id ?? null}
-              primaryEntityName={primaryEntity?.name ?? null}
-              primaryGroup={primaryGroup}
-              secondaryGroup={
-                // FIX-185 — Cohort × Filter. If a non-primary PAC industry
-                // group is also focused alongside an officials cohort, treat
-                // it as a donor-side filter ("Senate Democrats sized by
-                // donations from Finance PACs only").
-                focusGroups.find(g =>
-                  g.id !== primaryGroup?.id &&
-                  g.filter.entity_type === 'pac' &&
-                  !!g.filter.industry,
-                ) ?? null
-              }
-              focusEntities={focusEntityList}
-            />
-          </div>
+              {/* FIX-149: shared-connections pill bar */}
+              {view.focus.entities.filter(isFocusEntity).length >= 2 && (
+                <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 max-w-[90%]">
+                  <SharedConnectionsBar
+                    focusItems={view.focus.entities}
+                    nodes={displayNodes}
+                    edges={displayEdges}
+                    highlightedNodeId={highlightedSharedId}
+                    onHighlight={setHighlightedSharedId}
+                  />
+                </div>
+              )}
+            </div>
+          )}
 
-          {/* Chord */}
-          <div
-            className="absolute inset-0 transition-opacity duration-300"
-            style={{ opacity: vizType === "chord" ? 1 : 0, pointerEvents: vizType === "chord" ? "auto" : "none" }}
-          >
-            <ChordGraph
-              className="w-full h-full"
-              svgRef={chordSvgRef}
-              vizOptions={view.style.vizOptions.chord}
-              primaryEntityId={primaryEntity?.id ?? null}
-              primaryGroup={primaryGroup}
-              secondaryGroup={focusGroups[1] ?? null}
-            />
-          </div>
+          {vizType === "treemap" && (
+            <div className="absolute inset-0">
+              <TreemapGraph
+                className="w-full h-full"
+                svgRef={treemapSvgRef}
+                vizOptions={view.style.vizOptions.treemap}
+                primaryEntityId={primaryEntity?.id ?? null}
+                primaryEntityName={primaryEntity?.name ?? null}
+                primaryGroup={primaryGroup}
+                secondaryGroup={
+                  // FIX-185 — Cohort × Filter. If a non-primary PAC industry
+                  // group is also focused alongside an officials cohort, treat
+                  // it as a donor-side filter ("Senate Democrats sized by
+                  // donations from Finance PACs only").
+                  focusGroups.find(g =>
+                    g.id !== primaryGroup?.id &&
+                    g.filter.entity_type === 'pac' &&
+                    !!g.filter.industry,
+                  ) ?? null
+                }
+                focusEntities={focusEntityList}
+              />
+            </div>
+          )}
 
-          {/* Sunburst */}
-          <div
-            className="absolute inset-0 transition-opacity duration-300"
-            style={{ opacity: vizType === "sunburst" ? 1 : 0, pointerEvents: vizType === "sunburst" ? "auto" : "none" }}
-          >
-            <SunburstGraph
-              className="w-full h-full"
-              svgRef={sunburstSvgRef}
-              entityId={sunburstEntityId ?? undefined}
-              entityLabel={sunburstEntityId ? primaryEntity?.name : undefined}
-              vizOptions={view.style.vizOptions.sunburst}
-              primaryGroup={primaryGroup}
-            />
-          </div>
+          {vizType === "chord" && (
+            <div className="absolute inset-0">
+              <ChordGraph
+                className="w-full h-full"
+                svgRef={chordSvgRef}
+                vizOptions={view.style.vizOptions.chord}
+                primaryEntityId={primaryEntity?.id ?? null}
+                primaryGroup={primaryGroup}
+                secondaryGroup={focusGroups[1] ?? null}
+              />
+            </div>
+          )}
 
-          {/* Spending */}
-          <div
-            className="absolute inset-0 transition-opacity duration-300"
-            style={{ opacity: vizType === "spending" ? 1 : 0, pointerEvents: vizType === "spending" ? "auto" : "none" }}
-          >
-            <SpendingGraph
-              className="w-full h-full"
-              vizOptions={view.style.vizOptions.spending}
-            />
-          </div>
+          {vizType === "sunburst" && (
+            <div className="absolute inset-0">
+              <SunburstGraph
+                className="w-full h-full"
+                svgRef={sunburstSvgRef}
+                entityId={sunburstEntityId ?? undefined}
+                entityLabel={sunburstEntityId ? primaryEntity?.name : undefined}
+                vizOptions={view.style.vizOptions.sunburst}
+                primaryGroup={primaryGroup}
+              />
+            </div>
+          )}
 
-          {/* Hierarchy */}
-          <div
-            className="absolute inset-0 transition-opacity duration-300"
-            style={{ opacity: vizType === "hierarchy" ? 1 : 0, pointerEvents: vizType === "hierarchy" ? "auto" : "none" }}
-          >
-            <HierarchyGraph
-              className="w-full h-full"
-              svgRef={hierarchySvgRef}
-              vizOptions={view.style.vizOptions.hierarchy}
-              rootEntityId={primaryEntity?.type === "agency" ? primaryEntity.id : null}
-            />
-          </div>
+          {vizType === "spending" && (
+            <div className="absolute inset-0">
+              <SpendingGraph
+                className="w-full h-full"
+                vizOptions={view.style.vizOptions.spending}
+              />
+            </div>
+          )}
 
-          {/* Matrix */}
-          <div
-            className="absolute inset-0 transition-opacity duration-300"
-            style={{ opacity: vizType === "matrix" ? 1 : 0, pointerEvents: vizType === "matrix" ? "auto" : "none" }}
-          >
-            <MatrixGraph
-              className="w-full h-full"
-              svgRef={matrixSvgRef}
-              vizOptions={view.style.vizOptions.matrix}
-              officialIds={matrixOfficialIds}
-            />
-          </div>
+          {vizType === "hierarchy" && (
+            <div className="absolute inset-0">
+              <HierarchyGraph
+                className="w-full h-full"
+                svgRef={hierarchySvgRef}
+                vizOptions={view.style.vizOptions.hierarchy}
+                rootEntityId={primaryEntity?.type === "agency" ? primaryEntity.id : null}
+              />
+            </div>
+          )}
 
-          {/* Alignment */}
-          <div
-            className="absolute inset-0 transition-opacity duration-300"
-            style={{ opacity: vizType === "alignment" ? 1 : 0, pointerEvents: vizType === "alignment" ? "auto" : "none" }}
-          >
-            <AlignmentGraph
-              className="w-full h-full"
-              svgRef={alignmentSvgRef}
-              vizOptions={view.style.vizOptions.alignment}
-              userNode={userNodeVisible ? userNode : null}
-              repNodes={repNodes}
-              alignmentEdges={alignmentEdges}
-            />
-          </div>
+          {vizType === "matrix" && (
+            <div className="absolute inset-0">
+              <MatrixGraph
+                className="w-full h-full"
+                svgRef={matrixSvgRef}
+                vizOptions={view.style.vizOptions.matrix}
+                officialIds={matrixOfficialIds}
+              />
+            </div>
+          )}
 
-          {/* Sankey */}
-          <div
-            className="absolute inset-0 transition-opacity duration-300"
-            style={{ opacity: vizType === "sankey" ? 1 : 0, pointerEvents: vizType === "sankey" ? "auto" : "none" }}
-          >
-            <SankeyGraph
-              className="w-full h-full"
-              svgRef={sankeySvgRef}
-              vizOptions={view.style.vizOptions.sankey}
-            />
-          </div>
+          {vizType === "alignment" && (
+            <div className="absolute inset-0">
+              <AlignmentGraph
+                className="w-full h-full"
+                svgRef={alignmentSvgRef}
+                vizOptions={view.style.vizOptions.alignment}
+                userNode={userNodeVisible ? userNode : null}
+                repNodes={repNodes}
+                alignmentEdges={alignmentEdges}
+              />
+            </div>
+          )}
+
+          {vizType === "sankey" && (
+            <div className="absolute inset-0">
+              <SankeyGraph
+                className="w-full h-full"
+                svgRef={sankeySvgRef}
+                vizOptions={view.style.vizOptions.sankey}
+              />
+            </div>
+          )}
 
           {/* Floating share / screenshot panels */}
           {showShare && (

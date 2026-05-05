@@ -2,7 +2,13 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import nextDynamic from "next/dynamic";
 import { createPublicClient, fetchIndustryTagsByEntityId } from "@civitics/db";
-import { OfficialGraph } from "../components/OfficialGraph";
+// FIX-205: defer the D3 graph chunk off the initial /officials/[id] bundle.
+// Most visitors land on the profile and never expand the graph; even when
+// they do, the chunk loads on demand.
+const OfficialGraph = nextDynamic(
+  () => import("../components/OfficialGraph").then((m) => ({ default: m.OfficialGraph })),
+  { ssr: false, loading: () => <div className="h-[400px] bg-gray-50 rounded-lg" /> }
+);
 import { AiProfileSection } from "../components/AiProfileSection";
 import { ProfileTabs } from "../components/ProfileTabs";
 import { ShareButton } from "../components/ShareButton";

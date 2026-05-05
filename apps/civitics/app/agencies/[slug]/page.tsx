@@ -1,11 +1,19 @@
 import { notFound } from "next/navigation";
 import { cookies } from "next/headers";
+import nextDynamic from "next/dynamic";
 import { createServerClient, createAdminClient } from "@civitics/db";
 import { createClient } from "@supabase/supabase-js";
-import { AgencyGraph } from "./components/AgencyGraph";
 import { AgencyHierarchyTree } from "./components/AgencyHierarchyTree";
 import { PageViewTracker } from "../../components/PageViewTracker";
 import { FollowButton } from "../../components/FollowButton";
+
+// FIX-205: defer the D3 graph chunk off the initial /agencies/[slug] bundle.
+// The graph isn't always the first thing visitors look at — and even when
+// it is, the chunk loads on demand without blocking the surrounding page.
+const AgencyGraph = nextDynamic(
+  () => import("./components/AgencyGraph").then((m) => ({ default: m.AgencyGraph })),
+  { ssr: false, loading: () => <div className="h-[400px] bg-gray-50 rounded-lg" /> }
+);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

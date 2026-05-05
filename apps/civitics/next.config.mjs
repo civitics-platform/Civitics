@@ -86,64 +86,77 @@ const nextConfig = {
     ];
   },
   async headers() {
-    // Security headers everything inherits.
+    // Why CDN-Cache-Control + Vercel-CDN-Cache-Control instead of plain
+    // Cache-Control:
+    //
+    // For dynamic routes (anything force-dynamic, anything that calls
+    // cookies()/headers()), Next.js sets Cache-Control: private, no-cache,
+    // no-store on the response itself, and that header *overrides* whatever
+    // we put in the next.config.mjs headers() rule. Result: the Vercel edge
+    // never caches the page, every visitor pays the full SSR cost.
+    //
+    // CDN-Cache-Control and Vercel-CDN-Cache-Control are NOT subject to that
+    // override. They tell the edge "cache this" while leaving the framework's
+    // browser-side Cache-Control alone. The browser still revalidates on
+    // reload (correct for civic data), but the edge serves cached responses
+    // to everyone else for the s-maxage window. This was the mechanism FIX-8
+    // used in reverse to *bust* the dashboard cache.
+    //
+    // We set both so it works on Vercel today and any future generic CDN
+    // (Cloudflare, Fastly) we might layer in.
     const securityHeaders = [
       { key: "X-Frame-Options", value: "DENY" },
       { key: "X-Content-Type-Options", value: "nosniff" },
       { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
     ];
+    const cdnNoStore = [
+      { key: "CDN-Cache-Control", value: "no-store" },
+      { key: "Vercel-CDN-Cache-Control", value: "no-store" },
+    ];
+    const cdnHot = (sMaxAge, swr) => [
+      { key: "CDN-Cache-Control", value: `public, s-maxage=${sMaxAge}, stale-while-revalidate=${swr}` },
+      { key: "Vercel-CDN-Cache-Control", value: `public, s-maxage=${sMaxAge}, stale-while-revalidate=${swr}` },
+    ];
     return [
       {
-        // Static assets — content-hashed, immutable.
+        // Static assets — content-hashed, immutable. Cache-Control here is
+        // what the browser respects, which is exactly what we want.
         source: "/_next/static/(.*)",
         headers: [
           { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
         ],
       },
       {
-        // Auth + admin + mutating routes — never cache. Auth callbacks set
-        // session cookies; admin endpoints expose privileged reads.
+        // Auth + admin + mutating routes — never cache anywhere. Auth
+        // callbacks set session cookies; admin endpoints expose privileged
+        // reads.
         source: "/api/auth/:path*",
-        headers: [{ key: "Cache-Control", value: "no-store" }, ...securityHeaders],
+        headers: [...cdnNoStore, ...securityHeaders],
       },
       {
         source: "/api/admin/:path*",
-        headers: [{ key: "Cache-Control", value: "no-store" }, ...securityHeaders],
+        headers: [...cdnNoStore, ...securityHeaders],
       },
       {
         source: "/auth/:path*",
-        headers: [{ key: "Cache-Control", value: "no-store" }, ...securityHeaders],
+        headers: [...cdnNoStore, ...securityHeaders],
       },
       {
         source: "/profile/:path*",
-        headers: [{ key: "Cache-Control", value: "no-store" }, ...securityHeaders],
+        headers: [...cdnNoStore, ...securityHeaders],
       },
       {
-        // Dashboard is admin/transparency-tool; content is stable. Hold on
-        // the edge for 30 minutes, serve stale up to an hour. Replaces the
-        // FIX-8 cache-busting headers — which were a workaround for the now
-        // resolved cache-key collision, not a real freshness requirement.
+        // Dashboard is an admin/transparency tool; content is stable.
+        // Hold on the edge for 30 min, serve stale up to an hour.
         source: "/dashboard",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "public, s-maxage=1800, stale-while-revalidate=3600",
-          },
-          ...securityHeaders,
-        ],
+        headers: [...cdnHot(1800, 3600), ...securityHeaders],
       },
       {
-        // Read-heavy public pages — let Vercel's edge cache hold the response
-        // for a few minutes and serve stale while revalidating in the
-        // background. Civic data changes slowly; SWR keeps freshness OK.
+        // Read-heavy public pages — Vercel edge holds the response for 5 min
+        // and serves stale while revalidating for another 10. Civic data
+        // changes slowly; SWR keeps freshness acceptable.
         source: "/((?!_next/static|api/auth|api/admin|auth|profile|dashboard).*)",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "public, s-maxage=300, stale-while-revalidate=600",
-          },
-          ...securityHeaders,
-        ],
+        headers: [...cdnHot(300, 600), ...securityHeaders],
       },
     ];
   },

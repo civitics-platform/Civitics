@@ -563,7 +563,12 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
     }
   }
 
-  // 3b. Refresh comment aggregations (FIX-029 — trending tab)
+  // 3b. Refresh derived MVs that back the proposals list page.
+  //  - proposal_trending_24h (FIX-029): comment-activity scoring for the
+  //    Trending tab.
+  //  - proposal_popularity_24h (FIX-200): page-view counts for the
+  //    Most-Viewed tab. Replaces a hot-path JS aggregation that scanned
+  //    page_views on every page load.
   try {
     const { createAdminClient } = await import("@civitics/db");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -573,6 +578,16 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
     const msg = errMsg(err);
     console.error("[nightly] refresh_proposal_trending failed:", msg);
     results.errors.push(`Trending refresh: ${msg}`);
+  }
+  try {
+    const { createAdminClient } = await import("@civitics/db");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const admin = createAdminClient() as any;
+    await admin.rpc("refresh_proposal_popularity");
+  } catch (err) {
+    const msg = errMsg(err);
+    console.error("[nightly] refresh_proposal_popularity failed:", msg);
+    results.errors.push(`Popularity refresh: ${msg}`);
   }
 
   // 3c. Rebuild entity_connections via SQL derivation (FIX-100)

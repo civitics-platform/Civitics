@@ -125,23 +125,19 @@ export default async function ProposalsPage({
     .order("introduced_at", { ascending: false, nullsFirst: false })
     .limit(6);
 
+  // FIX-200: replaced the per-request page_views scan + JS aggregation with
+  // the proposal_popularity_24h materialized view. Refreshed nightly via
+  // refresh_proposal_popularity().
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sbAny2 = supabase as any;
   const topViewedIdsRes = await sbAny2
-    .from("page_views")
-    .select("entity_id")
-    .eq("entity_type", "proposal")
-    .limit(200);
-
-  const viewCounts: Record<string, number> = {};
-  for (const row of topViewedIdsRes.data ?? []) {
-    const id = row.entity_id as string;
-    viewCounts[id] = (viewCounts[id] ?? 0) + 1;
-  }
-  const topProposalIds = Object.entries(viewCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 6)
-    .map(([id]) => id);
+    .from("proposal_popularity_24h")
+    .select("proposal_id")
+    .order("view_count", { ascending: false })
+    .limit(6);
+  const topProposalIds: string[] = (topViewedIdsRes.data ?? []).map(
+    (r: { proposal_id: string }) => r.proposal_id
+  );
 
   const mostViewedQuery =
     topProposalIds.length > 0
@@ -351,10 +347,12 @@ export default async function ProposalsPage({
 
   const openFeatured  = rawOpenFeatured.map(enrich);
   const featuredBills = rawBills.map(enrich);
+  // Preserve the score-based ordering returned by the views by reindexing lookup.
+  // Most-viewed comes from proposal_popularity_24h (already ordered DESC).
+  const popularityOrder = new Map<string, number>(topProposalIds.map((id: string, i: number) => [id, i]));
   const featuredMostViewed = rawMostViewed
     .map(enrich)
-    .sort((a, b) => (viewCounts[b.id] ?? 0) - (viewCounts[a.id] ?? 0));
-  // Preserve the score-based ordering returned by the views by reindexing lookup
+    .sort((a, b) => (popularityOrder.get(a.id) ?? 999) - (popularityOrder.get(b.id) ?? 999));
   const trendingOrder = new Map<string, number>(trendingIds.map((id: string, i: number) => [id, i]));
   const commentedOrder = new Map<string, number>(mostCommentedIds.map((id: string, i: number) => [id, i]));
   const featuredTrending = rawTrending

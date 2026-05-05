@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import nextDynamic from "next/dynamic";
-import { createServerClient, createAdminClient, fetchIndustryTagsByEntityId } from "@civitics/db";
+import { createPublicClient, fetchIndustryTagsByEntityId } from "@civitics/db";
 import { OfficialGraph } from "../components/OfficialGraph";
 import { AiProfileSection } from "../components/AiProfileSection";
 import { ProfileTabs } from "../components/ProfileTabs";
@@ -22,7 +21,13 @@ const CivicBadge = nextDynamic(
   { ssr: false }
 );
 
-export const dynamic = "force-dynamic";
+// Public official detail; no auth dependency. RLS allows anon SELECT on
+// officials, votes, financial_relationships, ai_summary_cache, career_history,
+// promises, civic_initiative_responses, financial_entities, jurisdictions,
+// governing_bodies, entity_tags. Switching off createAdminClient also
+// removes the build-time secret-key constraint, so the page can use real
+// ISR (5-min revalidation) instead of force-dynamic + CDN cache.
+export const revalidate = 300;
 
 export async function generateStaticParams() {
   return [];
@@ -242,8 +247,7 @@ export default async function OfficialProfilePage({
 }: {
   params: { id: string };
 }) {
-  const cookieStore = await cookies();
-  const supabase = createServerClient(cookieStore);
+  const supabase = createPublicClient();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;

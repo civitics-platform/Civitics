@@ -1,7 +1,10 @@
-export const dynamic = "force-dynamic";
+// Public read-only page; no auth dependency. ISR-eligible: Next.js will
+// render per-searchParams-combination on demand and serve the cached result
+// for the next 5 min. Combined with FIX-201's CDN cache, repeat visitors
+// hit the edge in ~30ms instead of paying the full SSR cost each time.
+export const revalidate = 300;
 
-import { cookies } from "next/headers";
-import { createServerClient } from "@civitics/db";
+import { createPublicClient } from "@civitics/db";
 import { ProposalCard, type ProposalCardData } from "./components/ProposalCard";
 import { FeaturedSection } from "./components/FeaturedSection";
 import { AGENCY_FULL_NAMES } from "./components/agencyNames";
@@ -94,8 +97,7 @@ export default async function ProposalsPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const cookieStore = await cookies();
-  const supabase = createServerClient(cookieStore);
+  const supabase = createPublicClient();
 
   const statusFilter = searchParams.status ?? "all";
   const typeFilter   = searchParams.type   ?? "";

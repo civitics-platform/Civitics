@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { cookies } from "next/headers";
-import { createServerClient } from "@civitics/db";
+import { createPublicClient } from "@civitics/db";
 import { CommentPeriodBadge } from "../components/CommentPeriodBadge";
 import { CommentDraftSection } from "../components/CommentDraftSection";
 import { AGENCY_FULL_NAMES } from "../components/agencyNames";
@@ -13,7 +12,12 @@ import { RelatedInitiatives, type InitiativeLink } from "../components/RelatedIn
 import { ProposalShareButton } from "../components/ProposalShareButton";
 import { getCachedProposal } from "../_lib/get-proposal";
 
-export const dynamic = "force-dynamic";
+// Public proposal detail; no auth dependency, RLS allows anon SELECT on
+// proposals + votes + ai_summary_cache + civic_initiative_proposal_links.
+// True ISR — built on first request, cached for 5 min, then revalidated in
+// the background. Faster than the SSR-with-CDN-cache hit because the page
+// is served from the function output cache (or static disk).
+export const revalidate = 300;
 
 export async function generateStaticParams() {
   return [];
@@ -141,8 +145,7 @@ export default async function ProposalDetailPage({
 }: {
   params: { id: string };
 }) {
-  const cookieStore = await cookies();
-  const supabase = createServerClient(cookieStore);
+  const supabase = createPublicClient();
 
   // Cached fetch — generateMetadata already ran this for the same id; React.cache
   // returns the same row without a second Supabase round-trip.

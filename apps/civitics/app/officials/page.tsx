@@ -1,7 +1,9 @@
-export const dynamic = "force-dynamic";
+// Public read-only page; no auth dependency. ISR-eligible: searchParams
+// only contain the optional `selected` id, so most visitors hit the same
+// cached render. 5-min window matches the rest of the public surface.
+export const revalidate = 300;
 
-import { cookies } from "next/headers";
-import { createServerClient } from "@civitics/db";
+import { createPublicClient } from "@civitics/db";
 import { OfficialsList } from "./components/OfficialsList";
 import { PageViewTracker } from "../components/PageViewTracker";
 import { PageHeader } from "@civitics/ui";
@@ -32,8 +34,7 @@ export default async function OfficialsPage({
 }: {
   searchParams: { selected?: string };
 }) {
-  const cookieStore = await cookies();
-  const supabase = createServerClient(cookieStore);
+  const supabase = createPublicClient();
 
   const { data, error } = await supabase
     .from("officials")

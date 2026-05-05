@@ -1,13 +1,16 @@
 import { cache } from "react";
-import { createAdminClient } from "@civitics/db";
+import { createPublicClient } from "@civitics/db";
 
 // React.cache() dedupes within a single request. generateMetadata() and the
 // page component both fetch the official row; without this wrapper, that's
 // two identical Supabase round-trips per page render. Keep the column list
 // the union of what either caller needs so the cache hit is always a hit.
 //
-// Uses createAdminClient (no cookies dep) so the function is safe to call
-// from generateMetadata, which doesn't have a request scope.
+// Uses createPublicClient (publishable key, RLS-respecting anon role) instead
+// of createAdminClient. The data is already public-readable per RLS, and
+// createAdminClient would force the page off real ISR — its secret key
+// isn't available at build time, so any page calling it must be
+// force-dynamic. The whole point of FIX-203 is to let these pages cache.
 
 export type CachedOfficial = {
   id: string;
@@ -33,7 +36,7 @@ export type CachedOfficial = {
 
 export const getCachedOfficial = cache(
   async (id: string): Promise<CachedOfficial | null> => {
-    const supabase = createAdminClient();
+    const supabase = createPublicClient();
     const { data } = await supabase
       .from("officials")
       .select(

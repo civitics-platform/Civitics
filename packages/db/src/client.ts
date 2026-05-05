@@ -69,6 +69,34 @@ export function createServerClient(cookieStore: CookieStore) {
 }
 
 // ---------------------------------------------------------------------------
+// Public client — server-side, no cookies, RLS-respecting (anon role).
+// Use for Server Components that only read public civic data and don't need
+// the user's session. Calling cookies() in a Server Component opts that
+// page out of static rendering / ISR; createPublicClient avoids that, so
+// the page can use `export const revalidate = N` and be served from disk
+// (true static generation) or the Vercel CDN cache (cf. FIX-201).
+//
+// Auth-aware reads (anything that depends on auth.uid()) still need
+// createServerClient(cookies()) — civic_comments, follows, user_positions,
+// profile pages, etc. Use createPublicClient only on routes that are
+// genuinely public.
+// ---------------------------------------------------------------------------
+export function createPublicClient() {
+  const url = process.env["NEXT_PUBLIC_SUPABASE_URL"];
+  const key = process.env["NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"];
+
+  if (!url || !key) {
+    throw new Error(
+      "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
+    );
+  }
+
+  return createClient<Database>(url, key, {
+    auth: { persistSession: false },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Admin client — server only, bypasses RLS
 // Uses the secret key (replaces legacy service_role key).
 // Never import this in client components or expose it to the browser.

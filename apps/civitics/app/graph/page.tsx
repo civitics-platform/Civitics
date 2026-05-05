@@ -1,7 +1,10 @@
 import { GraphPage } from "./GraphPage";
 import { PageViewTracker } from "../components/PageViewTracker";
 
-export const dynamic = "force-dynamic";
+// No SSR data-fetching; the graph payload is fetched client-side from the
+// /api/graph/* routes which have their own cache rules. Letting Next.js
+// statically render the shell drops TTFB to a CDN hit.
+export const dynamic = "force-static";
 
 export const metadata = {
   title: "Connection Graph",

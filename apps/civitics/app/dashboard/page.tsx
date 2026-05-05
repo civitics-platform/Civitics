@@ -1,5 +1,9 @@
+// Dashboard uses createAdminClient() which needs the secret key — secret key
+// is unavailable at Vercel build time, so the page must be force-dynamic to
+// avoid build-time evaluation. CDN caching is done via the Cache-Control
+// rule for /dashboard in next.config.mjs (30 min s-maxage + SWR), which gives
+// us most of the ISR benefit without depending on build-time data fetching.
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
 import { createAdminClient } from "@civitics/db";
 import { PageHeader, TabBar } from "@civitics/ui";

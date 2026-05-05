@@ -190,9 +190,20 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(callbackUrl);
   }
 
-  let response = NextResponse.next({
+  const response = NextResponse.next({
     request: { headers: request.headers },
   });
+
+  // Skip the Supabase Auth round-trip for anonymous visitors. No routes are
+  // auth-protected today (all civic content is public), so refreshing a
+  // non-existent session adds 50–150ms to every TTFB for nothing. When auth
+  // gates are added, switch this to also check for a protected-route match.
+  const hasSupabaseSession = request.cookies
+    .getAll()
+    .some((c) => c.name.startsWith("sb-"));
+  if (!hasSupabaseSession) {
+    return response;
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -211,8 +222,6 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // Silently refresh the session token — no routes are auth-protected yet.
-  // All civic content is public. Auth is for engagement features only.
   await supabase.auth.getUser();
 
   return response;

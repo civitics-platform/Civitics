@@ -11,6 +11,7 @@ import { CivicComments } from "./components/CivicComments";
 import { PositionWidget } from "./components/PositionWidget";
 import { RelatedInitiatives, type InitiativeLink } from "../components/RelatedInitiatives";
 import { ProposalShareButton } from "../components/ProposalShareButton";
+import { getCachedProposal } from "../_lib/get-proposal";
 
 export const dynamic = "force-dynamic";
 
@@ -18,18 +19,10 @@ export async function generateStaticParams() {
   return [];
 }
 
-// QWEN-ADDED: SEO/OG metadata for proposal detail pages
 export async function generateMetadata(
   { params }: { params: { id: string } }
 ): Promise<Metadata> {
-  const cookieStore = await cookies();
-  const supabase = createServerClient(cookieStore);
-  const { data } = await supabase
-    .from("proposals")
-    .select("title, type, status, summary_plain")
-    .eq("id", params.id)
-    .single();
-
+  const data = await getCachedProposal(params.id);
   if (!data) return { title: "Proposal | Civitics" };
 
   const description = data.summary_plain
@@ -151,16 +144,13 @@ export default async function ProposalDetailPage({
   const cookieStore = await cookies();
   const supabase = createServerClient(cookieStore);
 
-  // Main proposal — regulations_gov_id, congress_gov_url, comment_period_end
-  // moved into metadata JSONB post-promotion. Flatten back into the legacy shape
-  // this page expects.
-  const { data: proposalRow, error } = await supabase
-    .from("proposals")
-    .select("id,title,type,status,summary_plain,introduced_at,metadata")
-    .eq("id", params.id)
-    .single();
+  // Cached fetch — generateMetadata already ran this for the same id; React.cache
+  // returns the same row without a second Supabase round-trip.
+  // regulations_gov_id, congress_gov_url, comment_period_end moved into
+  // metadata JSONB post-promotion. Flatten back into the legacy shape below.
+  const proposalRow = await getCachedProposal(params.id);
 
-  if (error || !proposalRow) notFound();
+  if (!proposalRow) notFound();
 
   const rawMeta = (proposalRow.metadata as Record<string, string> | null) ?? {};
   const p: Proposal = {

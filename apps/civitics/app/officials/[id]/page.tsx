@@ -15,6 +15,7 @@ import { ResponsivenessCard } from "../components/ResponsivenessCard";
 import { gradeFromRate } from "../../api/officials/[id]/responsiveness/_lib";
 import { PageViewTracker } from "../../components/PageViewTracker";
 import { FollowButton } from "../../components/FollowButton";
+import { getCachedOfficial } from "../_lib/get-official";
 
 const CivicBadge = nextDynamic(
   () => import("@civitics/graph").then((m) => ({ default: m.CivicBadge })),
@@ -27,17 +28,10 @@ export async function generateStaticParams() {
   return [];
 }
 
-// QWEN-ADDED: SEO/OG metadata for official detail pages
 export async function generateMetadata(
   { params }: { params: { id: string } }
 ): Promise<Metadata> {
-  const supabase = createAdminClient();
-  const { data } = await supabase
-    .from("officials")
-    .select("full_name, role_title, party, photo_url, district_name")
-    .eq("id", params.id)
-    .single();
-
+  const data = await getCachedOfficial(params.id);
   if (!data) return { title: "Official | Civitics" };
 
   const description = [
@@ -254,16 +248,12 @@ export default async function OfficialProfilePage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  // Fetch official + joins in parallel with votes, donor count, donor amounts, AI summary, career history, promises
-  const [officialRes, voteCountRes, votesRes, donorCountRes, donorAmtRawRes, aiSummaryRes, allVotesRes, careerHistoryRes, promisesRes, responsivenessRes] =
+  // Fetch official + joins in parallel with votes, donor count, donor amounts, AI summary, career history, promises.
+  // Official itself comes from the React.cache()-wrapped fetcher so generateMetadata
+  // and this page share a single Supabase round-trip.
+  const [officialData, voteCountRes, votesRes, donorCountRes, donorAmtRawRes, aiSummaryRes, allVotesRes, careerHistoryRes, promisesRes, responsivenessRes] =
     await Promise.all([
-      supabase
-        .from("officials")
-        .select(
-          "id, full_name, first_name, last_name, role_title, party, photo_url, email, website_url, phone, district_name, term_start, term_end, is_active, jurisdiction_id, jurisdictions!jurisdiction_id(name), governing_bodies!governing_body_id(short_name)"
-        )
-        .eq("id", params.id)
-        .single(),
+      getCachedOfficial(params.id),
       supabase
         .from("votes")
         .select("id", { count: "exact", head: true })
@@ -360,12 +350,12 @@ export default async function OfficialProfilePage({
     }),
   };
 
-  if (officialRes.error || !officialRes.data) {
+  if (!officialData) {
     notFound();
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const o = officialRes.data as any;
+  const o = officialData as any;
   const official = {
     id: o.id as string,
     full_name: o.full_name as string,

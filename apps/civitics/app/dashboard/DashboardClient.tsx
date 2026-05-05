@@ -28,6 +28,7 @@ import {
   type ActivitySectionData,
   type OfficialsBreakdown,
   type DatabaseStats,
+  type StatusData,
 } from "./useDashboardData";
 import dynamic from "next/dynamic";
 
@@ -55,6 +56,7 @@ type ActivityRow = { path: string; views: number };
 interface DashboardClientProps {
   openProposals: OpenProposal[];
   tab: "transparency" | "operations";
+  initialStatus: StatusData | null;
 }
 
 // ── Pipeline display name mapping ────────────────────────────────────────────
@@ -1241,8 +1243,9 @@ function SelfTestsSection({
 export function DashboardClient({
   openProposals,
   tab,
+  initialStatus,
 }: DashboardClientProps) {
-  const { data, error, refresh } = useDashboardData();
+  const { data, error, refresh } = useDashboardData(initialStatus);
   const [_secondsAgo] = useState(0);
   const [mounted, setMounted] = useState(false);
   const [refreshing, setRefreshing] = useState(false);

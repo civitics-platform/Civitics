@@ -12,6 +12,20 @@ import { SitemapSection } from "./SitemapSection";
 import { BrowsingFlowsSection, type PathTransition, type EntryPage } from "./BrowsingFlowsSection";
 import { ModerationSection } from "./ModerationSection";
 import { PageViewTracker } from "../components/PageViewTracker";
+import {
+  type Db,
+  section,
+  getVersion,
+  getDatabase,
+  getPipelines,
+  getAiCosts,
+  getActivity,
+  getOfficialsBreakdown,
+  getQuality,
+  getSelfTests,
+  getChord,
+} from "../api/claude/status/_lib/sections";
+import type { StatusData } from "./useDashboardData";
 
 export const metadata = { title: "Platform Transparency | Civitics" };
 
@@ -47,6 +61,81 @@ async function getOpenProposals(): Promise<OpenProposal[]> {
     }));
   } catch {
     return [];
+  }
+}
+
+// Pre-fetch the same status payload that useDashboardData would otherwise
+// pull client-side via /api/claude/status/{core,quality}. Running these on
+// the server, in parallel with the existing dashboard queries, replaces the
+// client-side fetch waterfall — DashboardClient receives real numbers as
+// props on first paint instead of rendering "Loading…" text and then
+// hydrating into a fetch chain.
+//
+// The platform/usage and platform/anthropic endpoints are NOT prefetched
+// here: anthropic hits an external Admin API on every miss (slow + flaky),
+// and usage is non-critical for LCP. The hook still pulls them client-side.
+async function getInitialStatus(): Promise<StatusData | null> {
+  try {
+    const db = createAdminClient() as Db;
+    const now = new Date();
+    const monthStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      1
+    ).toISOString();
+    const yesterday = new Date(
+      now.getTime() - 24 * 60 * 60 * 1000
+    ).toISOString();
+
+    const t0 = Date.now();
+    const [
+      version,
+      database,
+      pipelines,
+      aiCosts,
+      activity,
+      officialsBreakdown,
+      quality,
+      selfTests,
+      chord,
+    ] = await Promise.all([
+      section(() => getVersion(db)),
+      section(() => getDatabase(db, yesterday)),
+      section(() => getPipelines(db)),
+      section(() => getAiCosts(db, monthStart)),
+      section(() => getActivity(db, yesterday)),
+      section(() => getOfficialsBreakdown(db)),
+      section(() => getQuality(db)),
+      section(() => getSelfTests(db)),
+      section(() => getChord(db)),
+    ]);
+
+    return {
+      meta: {
+        query_time_ms: Date.now() - t0,
+        timestamp: now.toISOString(),
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      version: version as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      database: database as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      pipelines: pipelines as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ai_costs: aiCosts as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      quality: quality as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      self_tests: selfTests as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      activity: activity as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      officials_breakdown: officialsBreakdown as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      chord: chord as any,
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -95,9 +184,10 @@ export default async function DashboardPage({
   const tab = searchParams?.tab === "operations" ? "operations" : "transparency";
   const isOps = tab === "operations";
 
-  const [openProposals, browsingFlows] = await Promise.all([
+  const [openProposals, browsingFlows, initialStatus] = await Promise.all([
     getOpenProposals(),
     isOps ? getBrowsingFlows() : Promise.resolve({ transitions: [] as PathTransition[], entryPages: [] as EntryPage[] }),
+    getInitialStatus(),
   ]);
 
   return (
@@ -118,7 +208,11 @@ export default async function DashboardPage({
             <TabBar tabs={DASHBOARD_TABS} activeTab={tab} />
           </div>
 
-          <DashboardClient openProposals={openProposals} tab={tab} />
+          <DashboardClient
+            openProposals={openProposals}
+            tab={tab}
+            initialStatus={initialStatus}
+          />
 
           {/* Transparency-only: Sitemap */}
           {!isOps && (

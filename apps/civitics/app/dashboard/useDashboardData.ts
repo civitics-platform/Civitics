@@ -187,9 +187,21 @@ export type DashboardData = {
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
-export function useDashboardData() {
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
+export function useDashboardData(initialStatus?: StatusData | null) {
+  // Seed state from server-prefetched status (FIX-204). Without this the
+  // dashboard renders "Loading…" until the first fetch chain resolves; with
+  // it, the user sees real database / AI / pipeline numbers on first paint.
+  // The hook still polls in the background to keep things fresh.
+  const initialData: DashboardData | null = initialStatus
+    ? {
+        status: initialStatus,
+        chordFlows: extractChordFlows(initialStatus),
+        platformUsage: null,
+        anthropicDetail: null,
+      }
+    : null;
+  const [data, setData] = useState<DashboardData | null>(initialData);
+  const [loading, setLoading] = useState(!initialStatus);
   const [error, setError] = useState<string | null>(null);
   const [anthropicCacheAge, setAnthropicCacheAge] = useState<number | null>(null);
 
@@ -308,4 +320,14 @@ export function useDashboardData() {
 
 export function isPartial(v: unknown): v is PartialError {
   return typeof v === "object" && v !== null && "partial" in v;
+}
+
+// Mirror of the chord-flow extraction the in-hook fetch path does, lifted out
+// so the SSR seed (FIX-204) and the client refresh produce identical shapes.
+function extractChordFlows(status: StatusData): ChordFlow[] {
+  const chord =
+    status.chord && typeof status.chord === "object" && !("partial" in status.chord)
+      ? (status.chord as ChordSectionData)
+      : null;
+  return chord?.top_flows ?? [];
 }

@@ -261,3 +261,4 @@
 2026-05-04 | FIX-204 | 35920bc7 | local-only | perf(dashboard): SSR prefetch the status payload — kill the "Loading…" LCP
 2026-05-04 | FIX-205 | d30c9653 | local-only | perf(graph): dynamic-import each viz, render only the active one
 2026-05-05 | FIX-089 | 4dc7aca8 | local-only | feat(dashboard): reduce stat cards 6→4, add StatsRow primitive
+2026-05-05 | FIX-206 | 852b3223 | local+prod | fix(dashboard): unblock Votes/Open Proposals — count modes + metadata column

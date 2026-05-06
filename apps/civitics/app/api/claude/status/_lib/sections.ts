@@ -64,6 +64,17 @@ export async function getVersion(db: Db) {
 }
 
 // ── 2. Row counts ────────────────────────────────────────────────────────────
+//
+// Mode rationale (FIX-206): unfiltered count(*) on proposals / votes /
+// financial_relationships saturates the PostgREST request budget on Vercel
+// when fired alongside 9 other parallel queries — locally the same queries
+// return in <1 s, on prod they returned 0 with a swallowed error. Switching
+// big-table unfiltered counts to "estimated" reads pg_class.reltuples (no
+// scan, sub-200 ms) and gives accurate-enough numbers for hero stats.
+//   • estimated  → unfiltered counts on tables ≥100 k rows
+//   • planned    → filtered counts that timeout (proposals_bills)
+//   • exact      → filtered counts cheap enough not to time out
+//                  (proposals_regulations, page_views_24h)
 export async function getDatabase(db: Db, yesterday: string) {
   const [
     officials,
@@ -78,28 +89,44 @@ export async function getDatabase(db: Db, yesterday: string) {
     cache,
     views,
   ] = await Promise.all([
-    db.from("officials").select("*", { count: "exact", head: true }),
-    db.from("proposals").select("*", { count: "exact", head: true }),
+    db.from("officials").select("*", { count: "estimated", head: true }),
+    db.from("proposals").select("*", { count: "estimated", head: true }),
     db
       .from("proposals")
-      .select("*", { count: "exact", head: true })
+      .select("*", { count: "planned", head: true })
       .in("type", ["bill", "resolution", "amendment"]),
     db
       .from("proposals")
       .select("*", { count: "exact", head: true })
       .eq("type", "regulation"),
-    db.from("votes").select("*", { count: "exact", head: true }),
-    db.from("entity_connections").select("*", { count: "exact", head: true }),
-    db.from("financial_relationships").select("*", { count: "exact", head: true }),
-    db.from("financial_entities").select("*", { count: "exact", head: true }),
-    db.from("entity_tags").select("*", { count: "exact", head: true }),
-    db.from("ai_summary_cache").select("*", { count: "exact", head: true }),
+    db.from("votes").select("*", { count: "estimated", head: true }),
+    db.from("entity_connections").select("*", { count: "estimated", head: true }),
+    db.from("financial_relationships").select("*", { count: "estimated", head: true }),
+    db.from("financial_entities").select("*", { count: "estimated", head: true }),
+    db.from("entity_tags").select("*", { count: "estimated", head: true }),
+    db.from("ai_summary_cache").select("*", { count: "estimated", head: true }),
     db
       .from("page_views")
       .select("*", { count: "exact", head: true })
       .gt("viewed_at", yesterday)
       .eq("is_bot", false),
   ]);
+
+  // Surface partial state if any count failed (don't silently show 0).
+  const errored = [
+    officials.error && "officials",
+    proposals.error && "proposals",
+    proposalsBills.error && "proposals_bills",
+    proposalsRegs.error && "proposals_regulations",
+    votes.error && "votes",
+    connections.error && "entity_connections",
+    finRel.error && "financial_relationships",
+    finEnt.error && "financial_entities",
+    tags.error && "entity_tags",
+    cache.error && "ai_summary_cache",
+    views.error && "page_views_24h",
+  ].filter(Boolean) as string[];
+
   return {
     officials: officials.count ?? 0,
     proposals: proposals.count ?? 0,
@@ -112,6 +139,10 @@ export async function getDatabase(db: Db, yesterday: string) {
     entity_tags: tags.count ?? 0,
     ai_summary_cache: cache.count ?? 0,
     page_views_24h: views.count ?? 0,
+    ...(errored.length > 0 && {
+      error: `count failed for: ${errored.join(", ")}`,
+      partial: true,
+    }),
   };
 }
 

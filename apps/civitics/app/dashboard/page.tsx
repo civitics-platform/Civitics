@@ -38,6 +38,10 @@ type OpenProposal = {
   comment_period_end: string;
 };
 
+// `comment_period_end` lives in `metadata`, NOT as a top-level column on
+// `proposals` (verified against a live `open_comment` row, FIX-206).
+// PostgREST: `metadata->>comment_period_end` for filter / order, and
+// `metadata->comment_period_end` to read it back through .select().
 async function getOpenProposals(): Promise<OpenProposal[]> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -46,18 +50,18 @@ async function getOpenProposals(): Promise<OpenProposal[]> {
     const in30 = new Date(Date.now() + 30 * 86_400_000).toISOString();
     const { data } = await db
       .from("proposals")
-      .select("id,title,metadata,comment_period_end")
+      .select("id,title,metadata")
       .eq("status", "open_comment")
-      .gt("comment_period_end", now)
-      .lt("comment_period_end", in30)
-      .order("comment_period_end", { ascending: true })
+      .gt("metadata->>comment_period_end", now)
+      .lt("metadata->>comment_period_end", in30)
+      .order("metadata->>comment_period_end", { ascending: true })
       .limit(3);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (data ?? []).map((p: any) => ({
       id: p.id as string,
       title: p.title as string,
       agency: (p.metadata?.agency_id as string | undefined) ?? "Federal Agency",
-      comment_period_end: p.comment_period_end as string,
+      comment_period_end: (p.metadata?.comment_period_end as string) ?? "",
     }));
   } catch {
     return [];
@@ -66,9 +70,6 @@ async function getOpenProposals(): Promise<OpenProposal[]> {
 
 // Total count of regulations currently in their comment-period window.
 // Separate from getOpenProposals above (which limits to 3 for display).
-// Filtered counts on `proposals` work on prod even when the unfiltered
-// count(*) times out — same pattern as proposals_regulations in
-// getDatabase().
 async function getOpenProposalCount(): Promise<number> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -76,9 +77,9 @@ async function getOpenProposalCount(): Promise<number> {
     const now = new Date().toISOString();
     const { count } = await db
       .from("proposals")
-      .select("*", { count: "exact", head: true })
+      .select("*", { count: "planned", head: true })
       .eq("status", "open_comment")
-      .gt("comment_period_end", now);
+      .gt("metadata->>comment_period_end", now);
     return count ?? 0;
   } catch {
     return 0;

@@ -163,6 +163,22 @@ function decodeCursor(cursor: string): number {
 }
 
 // ---------------------------------------------------------------------------
+// Migration guard — cached for the lifetime of this function instance.
+// When the spending columns don't exist yet (pre-migration), the financial
+// entity select falls back to total_donated_cents only.
+// ---------------------------------------------------------------------------
+
+let _spendingColsAvailable: boolean | null = null;
+
+async function checkSpendingCols(db: ReturnType<typeof createAdminClient>): Promise<boolean> {
+  if (_spendingColsAvailable !== null) return _spendingColsAvailable;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (db as any).from("financial_entities").select("total_contract_cents").limit(1);
+  _spendingColsAvailable = !error;
+  return _spendingColsAvailable;
+}
+
+// ---------------------------------------------------------------------------
 // Route Handler
 // ---------------------------------------------------------------------------
 
@@ -433,9 +449,14 @@ export async function GET(req: NextRequest) {
     if (typeFilter !== "all" && typeFilter !== "financial") return { results: [], hasMore: false, total_count: 0 };
     if (typeFilter === "all" && anyTypeFilter && !hasFinancialFilters) return { results: [], hasMore: false, total_count: 0 };
 
+    const spendingCols = await checkSpendingCols(db);
+    const selectCols = spendingCols
+      ? "id, display_name, entity_type, total_donated_cents, total_contract_cents, total_grant_cents"
+      : "id, display_name, entity_type, total_donated_cents";
+
     let qb = db2
       .from("financial_entities")
-      .select("id, display_name, entity_type, total_donated_cents, total_contract_cents, total_grant_cents", { count: "exact" });
+      .select(selectCols, { count: "exact" });
 
     // financial_type / entity_type filter (when set, allow individuals too)
     if (filterEntityType) {
@@ -480,10 +501,11 @@ export async function GET(req: NextRequest) {
       getConnectionCounts(resultRows.map((f: { id: string }) => f.id)),
     ]);
 
-    const results = resultRows.map((f: { id: string; display_name: string; entity_type: string; total_donated_cents: number | null; total_contract_cents: number | null; total_grant_cents: number | null }) => {
-      const contractCents = f.total_contract_cents ?? 0;
-      const grantCents    = f.total_grant_cents    ?? 0;
-      const donationCents = f.total_donated_cents  ?? 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const results = resultRows.map((f: any) => {
+      const contractCents = (f.total_contract_cents as number | null | undefined) ?? 0;
+      const grantCents    = (f.total_grant_cents    as number | null | undefined) ?? 0;
+      const donationCents = (f.total_donated_cents  as number | null) ?? 0;
       const spendingCents = contractCents + grantCents;
 
       // Corps/orgs: show federal spending if present; PACs/individuals: show donations.

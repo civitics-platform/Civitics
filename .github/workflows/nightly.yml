@@ -26,6 +26,7 @@ jobs:
       OPENSTATES_API_KEY:       ${{ secrets.OPENSTATES_API_KEY }}
       COURTLISTENER_API_KEY:    ${{ secrets.COURTLISTENER_API_KEY }}
       REGULATIONS_API_KEY:      ${{ secrets.REGULATIONS_API_KEY }}
+      CIVITICS_ANTHROPIC_API_KEY: ${{ secrets.CIVITICS_ANTHROPIC_API_KEY }}
       AUTONOMOUS:               "true"
       CIVITICS_ENRICHMENT_MODE: queue
 

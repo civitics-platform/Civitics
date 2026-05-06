@@ -56,6 +56,7 @@ type ActivityRow = { path: string; views: number };
 
 interface DashboardClientProps {
   openProposals: OpenProposal[];
+  openProposalCount: number;
   tab: "transparency" | "operations";
   initialStatus: StatusData | null;
 }
@@ -1212,6 +1213,7 @@ function SelfTestsSection({
 
 export function DashboardClient({
   openProposals,
+  openProposalCount,
   tab,
   initialStatus,
 }: DashboardClientProps) {
@@ -1311,7 +1313,7 @@ export function DashboardClient({
         <StatsSection
           database={data?.status.database ?? { error: "Loading", partial: true }}
           officialsBreakdown={officialsBreakdown}
-          openProposalCount={openProposals.length}
+          openProposalCount={openProposalCount}
           chordTotalFlowUsd={chordTotalFlowUsd}
         />
 

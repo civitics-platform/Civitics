@@ -64,6 +64,27 @@ async function getOpenProposals(): Promise<OpenProposal[]> {
   }
 }
 
+// Total count of regulations currently in their comment-period window.
+// Separate from getOpenProposals above (which limits to 3 for display).
+// Filtered counts on `proposals` work on prod even when the unfiltered
+// count(*) times out — same pattern as proposals_regulations in
+// getDatabase().
+async function getOpenProposalCount(): Promise<number> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = createAdminClient() as any;
+    const now = new Date().toISOString();
+    const { count } = await db
+      .from("proposals")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "open_comment")
+      .gt("comment_period_end", now);
+    return count ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
 // Pre-fetch the same status payload that useDashboardData would otherwise
 // pull client-side via /api/claude/status/{core,quality}. Running these on
 // the server, in parallel with the existing dashboard queries, replaces the
@@ -184,8 +205,9 @@ export default async function DashboardPage({
   const tab = searchParams?.tab === "operations" ? "operations" : "transparency";
   const isOps = tab === "operations";
 
-  const [openProposals, browsingFlows, initialStatus] = await Promise.all([
+  const [openProposals, openProposalCount, browsingFlows, initialStatus] = await Promise.all([
     getOpenProposals(),
+    getOpenProposalCount(),
     isOps ? getBrowsingFlows() : Promise.resolve({ transitions: [] as PathTransition[], entryPages: [] as EntryPage[] }),
     getInitialStatus(),
   ]);
@@ -210,6 +232,7 @@ export default async function DashboardPage({
 
           <DashboardClient
             openProposals={openProposals}
+            openProposalCount={openProposalCount}
             tab={tab}
             initialStatus={initialStatus}
           />

@@ -687,6 +687,22 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
     results.errors.push(`AI summaries: ${msg}`);
   }
 
+  // 7. Refresh chord_industry_flows MV (FIX-207). Runs last so industry
+  //    tags from steps 4 + 5 are current. The base query is the 8s join
+  //    that the live chord RPC used to perform; here it runs once nightly
+  //    against a session timeout big enough to complete, then the RPC
+  //    serves cached rows the rest of the day.
+  try {
+    const { createAdminClient } = await import("@civitics/db");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const admin = createAdminClient() as any;
+    await admin.rpc("refresh_chord_industry_flows_mv");
+  } catch (err) {
+    const msg = errMsg(err);
+    console.error("[nightly] refresh_chord_industry_flows_mv failed:", msg);
+    results.errors.push(`Chord MV refresh: ${msg}`);
+  }
+
   results.completed_at = new Date();
   results.duration_ms = results.completed_at.getTime() - startedAt.getTime();
 

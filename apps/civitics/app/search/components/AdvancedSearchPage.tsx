@@ -221,7 +221,10 @@ export function AdvancedSearchPage({
 
   const allResults = sortResults(flattenResults(pages), filters.type, sort);
   const selectedResults = allResults.filter((r) => selectedIds.has(resultId(r)));
-  const total = pages[0]?.total ?? 0;
+  const totals = pages[0]?.totals;
+  const grandTotal = totals
+    ? (totals.officials + totals.proposals + totals.agencies + totals.financial_entities + totals.initiatives)
+    : (pages[0]?.total ?? 0);
 
   // ── Graph seed (single entity from detail panel) ───────────────────────────
   function handleSeedToGraph(result: AnySearchResult) {
@@ -302,12 +305,12 @@ export function AdvancedSearchPage({
           {TYPE_TABS.map((tab) => {
             const active = filters.type === tab.key;
             const count =
-              tab.key === "all"         ? total
-              : tab.key === "officials" ? (pages[0]?.officials.length ?? 0)
-              : tab.key === "proposals" ? (pages[0]?.proposals.length ?? 0)
-              : tab.key === "agencies"  ? (pages[0]?.agencies.length ?? 0)
-              : tab.key === "financial" ? (pages[0]?.financial_entities.length ?? 0)
-              : ((pages[0]?.initiatives ?? []).length);
+              tab.key === "all"         ? grandTotal
+              : tab.key === "officials" ? (totals?.officials ?? 0)
+              : tab.key === "proposals" ? (totals?.proposals ?? 0)
+              : tab.key === "agencies"  ? (totals?.agencies ?? 0)
+              : tab.key === "financial" ? (totals?.financial_entities ?? 0)
+              : (totals?.initiatives ?? 0);
             return (
               <button
                 key={tab.key}
@@ -381,8 +384,8 @@ export function AdvancedSearchPage({
             <span className="text-xs text-gray-500">
               {loading && pages.length === 0
                 ? "Loading…"
-                : total > 0
-                  ? <><span className="font-semibold text-gray-700">{allResults.length}</span> of <span className="font-semibold text-gray-700">{total.toLocaleString()}</span> results{debouncedQuery ? ` for "${debouncedQuery}"` : ""}</>
+                : grandTotal > 0
+                  ? <><span className="font-semibold text-gray-700">{allResults.length.toLocaleString()}</span> of <span className="font-semibold text-gray-700">{grandTotal.toLocaleString()}</span> results{debouncedQuery ? ` for "${debouncedQuery}"` : ""}</>
                   : pages.length > 0
                     ? "No results"
                     : ""}

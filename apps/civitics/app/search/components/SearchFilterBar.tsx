@@ -96,7 +96,7 @@ export function SearchFilterBar({ filters, onFiltersChange, sort, onSortChange }
   const showProposals  = t === "all" || t === "proposals" || t === "initiatives";
   const showAgencies   = t === "all" || t === "agencies";
   const showFinancial  = t === "all" || t === "financial";
-  const showAmountInputs = t === "financial";
+  const showAmountInputs = t === "financial" || t === "all";
 
   function pill(
     label: string,
@@ -139,7 +139,7 @@ export function SearchFilterBar({ filters, onFiltersChange, sort, onSortChange }
   }
 
   return (
-    <div className="shrink-0 bg-white border-b border-gray-200 px-4 py-2 flex items-center gap-2 overflow-x-auto scrollbar-hide">
+    <div className="shrink-0 bg-white border-b border-gray-200 px-4 py-2 flex flex-wrap items-center gap-2">
 
       {/* Sort select */}
       <select

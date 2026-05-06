@@ -88,6 +88,13 @@ export type SearchResults = {
   financial_entities: SearchFinancialEntity[];
   initiatives: SearchInitiative[];
   total: number;
+  totals: {
+    officials: number;
+    proposals: number;
+    agencies: number;
+    financial_entities: number;
+    initiatives: number;
+  };
   timing_ms: number;
   has_more: boolean;
   next_cursor: string | null;
@@ -206,9 +213,17 @@ export async function GET(req: NextRequest) {
   const partyMatch = !filterParty   ? (PARTY_KEYWORDS[qLower] ?? null) : null;
   const roleMatch  = !filterChamber ? (ROLE_KEYWORDS[qLower] ?? null)  : null;
 
-  // Pagination mode: single-type uses cursor pagination; "all" returns first page only
-  const isPaginated = typeFilter !== "all";
-  const fetchLimit  = isPaginated ? pageSize + 1 : pageSize * 3;
+  // Filter group booleans — used to type-scope "all" tab results
+  const hasOfficialFilters  = !!(filterParty || filterChamber || filterState || filterOfficialRole);
+  const hasProposalFilters  = !!(filterStatus || filterProposalType || filterDateFrom || filterDateTo);
+  const hasAgencyFilters    = !!filterAgencyType;
+  const hasFinancialFilters = !!(filterEntityType || filterIndustry || filterMinAmountCents || filterMaxAmountCents);
+  const hasInitiativeFilters = !!filterInitiativeStage;
+  const anyTypeFilter = hasOfficialFilters || hasProposalFilters || hasAgencyFilters || hasFinancialFilters || hasInitiativeFilters;
+
+  // Always use cursor pagination; "all" tab now supports infinite scroll
+  const isPaginated = true;
+  const fetchLimit  = pageSize + 1;
 
   // Batch connection count helper
   async function getConnectionCounts(ids: string[]): Promise<Map<string, number>> {
@@ -233,12 +248,13 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Officials ──────────────────────────────────────────────────────────────
-  const searchOfficials = async (): Promise<{ results: SearchOfficial[]; hasMore: boolean }> => {
-    if (typeFilter !== "all" && typeFilter !== "officials") return { results: [], hasMore: false };
+  const searchOfficials = async (): Promise<{ results: SearchOfficial[]; hasMore: boolean; total_count: number }> => {
+    if (typeFilter !== "all" && typeFilter !== "officials") return { results: [], hasMore: false, total_count: 0 };
+    if (typeFilter === "all" && anyTypeFilter && !hasOfficialFilters) return { results: [], hasMore: false, total_count: 0 };
 
     let qb = db2
       .from("officials")
-      .select("id, full_name, role_title, party, photo_url, is_active, metadata, source_ids");
+      .select("id, full_name, role_title, party, photo_url, is_active, metadata, source_ids", { count: "exact" });
 
     if (filterIsActive && !filterOfficialRole) qb = qb.eq("is_active", true);
     if (filterParty)    qb = qb.eq("party", filterParty);
@@ -260,7 +276,7 @@ export async function GET(req: NextRequest) {
           .select("id")
           .eq("type", gbType);
         const ids = (gbRows ?? []).map((g: { id: string }) => g.id);
-        if (ids.length === 0) return { results: [], hasMore: false };
+        if (ids.length === 0) return { results: [], hasMore: false, total_count: 0 };
         qb = qb.in("governing_body_id", ids);
       }
     }
@@ -277,13 +293,9 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    if (isPaginated) {
-      qb = qb.order("full_name", { ascending: true }).range(offset, offset + fetchLimit - 1);
-    } else {
-      qb = qb.limit(fetchLimit);
-    }
+    qb = qb.order("full_name", { ascending: true }).range(offset, offset + fetchLimit - 1);
 
-    const { data } = await qb;
+    const { data, count: totalCount } = await qb;
     const rows: Array<{
       id: string; full_name: string; role_title: string; party: string | null;
       photo_url: string | null; is_active: boolean;
@@ -291,37 +303,13 @@ export async function GET(req: NextRequest) {
       metadata: any; source_ids: Record<string, string> | null;
     }> = data ?? [];
 
-    if (rows.length === 0) return { results: [], hasMore: false };
+    if (rows.length === 0) return { results: [], hasMore: false, total_count: 0 };
 
-    const hasMore = isPaginated && rows.length > pageSize;
-    const resultRows = isPaginated ? rows.slice(0, pageSize) : rows;
+    const hasMore = rows.length > pageSize;
+    const resultRows = rows.slice(0, pageSize);
     const countMap = await getConnectionCounts(resultRows.map((r) => r.id));
 
-    let ranked = resultRows;
-    if (!isPaginated) {
-      ranked = rows
-        .sort((a, b) => {
-          const pri = (o: typeof rows[0]): number => {
-            const name = o.full_name.toLowerCase();
-            if (name === qLower) return 0;
-            const last = (o.full_name.split(" ").pop() ?? "").toLowerCase();
-            if (last === qLower) return 1;
-            if (name.startsWith(qLower)) return 2;
-            const isFed = !!o.source_ids?.["congress_gov"];
-            const conn = countMap.get(o.id) ?? 0;
-            if (isFed && conn > 0) return 3;
-            if (isFed) return 4;
-            if (conn > 0) return 5;
-            return 6;
-          };
-          const pa = pri(a), pb = pri(b);
-          if (pa !== pb) return pa - pb;
-          return (countMap.get(b.id) ?? 0) - (countMap.get(a.id) ?? 0);
-        })
-        .slice(0, pageSize);
-    }
-
-    const results = ranked.map((o) => {
+    const results = resultRows.map((o) => {
       const connCount = countMap.get(o.id) ?? 0;
       const isFederal = !!o.source_ids?.["congress_gov"];
       let score = q.length >= 2 ? baseRelevance(o.full_name, q) : 50;
@@ -337,16 +325,17 @@ export async function GET(req: NextRequest) {
         connection_count: connCount,
       };
     });
-    return { results: applySort(results, (r) => r.full_name), hasMore };
+    return { results: applySort(results, (r) => r.full_name), hasMore, total_count: totalCount ?? 0 };
   };
 
   // ── Proposals ──────────────────────────────────────────────────────────────
-  const searchProposals = async (): Promise<{ results: SearchProposal[]; hasMore: boolean }> => {
-    if (typeFilter !== "all" && typeFilter !== "proposals") return { results: [], hasMore: false };
+  const searchProposals = async (): Promise<{ results: SearchProposal[]; hasMore: boolean; total_count: number }> => {
+    if (typeFilter !== "all" && typeFilter !== "proposals") return { results: [], hasMore: false, total_count: 0 };
+    if (typeFilter === "all" && anyTypeFilter && !hasProposalFilters) return { results: [], hasMore: false, total_count: 0 };
 
     let qb = db2
       .from("proposals")
-      .select("id, title, status, type, comment_period_end, metadata, summary_plain")
+      .select("id, title, status, type, comment_period_end, metadata, summary_plain", { count: "exact" })
       .neq("type", "initiative");
 
     if (filterStatus)       qb = qb.eq("status", filterStatus);
@@ -358,19 +347,15 @@ export async function GET(req: NextRequest) {
       qb = qb.or(`title.ilike.%${q}%,summary_plain.ilike.%${q}%`);
     }
 
-    if (isPaginated) {
-      qb = qb.order("comment_period_end", { ascending: false, nullsFirst: false })
-             .range(offset, offset + fetchLimit - 1);
-    } else {
-      qb = qb.limit(pageSize);
-    }
+    qb = qb.order("comment_period_end", { ascending: false, nullsFirst: false })
+           .range(offset, offset + fetchLimit - 1);
 
-    const { data: proposalData } = await qb;
+    const { data: proposalData, count: totalCount } = await qb;
     const rows = proposalData ?? [];
-    if (rows.length === 0) return { results: [], hasMore: false };
+    if (rows.length === 0) return { results: [], hasMore: false, total_count: 0 };
 
-    const hasMore = isPaginated && rows.length > pageSize;
-    const resultRows = isPaginated ? rows.slice(0, pageSize) : rows;
+    const hasMore = rows.length > pageSize;
+    const resultRows = rows.slice(0, pageSize);
 
     const ids = resultRows.map((p: { id: string }) => p.id);
     const [summaryRes, countMap] = await Promise.all([
@@ -397,16 +382,17 @@ export async function GET(req: NextRequest) {
         connection_count: countMap.get(p.id) ?? 0,
       };
     });
-    return { results: applySort(results, (r) => r.title), hasMore };
+    return { results: applySort(results, (r) => r.title), hasMore, total_count: totalCount ?? 0 };
   };
 
   // ── Agencies ───────────────────────────────────────────────────────────────
-  const searchAgencies = async (): Promise<{ results: SearchAgency[]; hasMore: boolean }> => {
-    if (typeFilter !== "all" && typeFilter !== "agencies") return { results: [], hasMore: false };
+  const searchAgencies = async (): Promise<{ results: SearchAgency[]; hasMore: boolean; total_count: number }> => {
+    if (typeFilter !== "all" && typeFilter !== "agencies") return { results: [], hasMore: false, total_count: 0 };
+    if (typeFilter === "all" && anyTypeFilter && !hasAgencyFilters) return { results: [], hasMore: false, total_count: 0 };
 
     let qb = db2
       .from("agencies")
-      .select("id, name, slug, acronym, agency_type, description")
+      .select("id, name, slug, acronym, agency_type, description", { count: "exact" })
       .eq("is_active", true);
 
     if (filterAgencyType) qb = qb.eq("agency_type", filterAgencyType);
@@ -415,18 +401,14 @@ export async function GET(req: NextRequest) {
       qb = qb.or(`name.ilike.%${q}%,acronym.ilike.%${q}%,description.ilike.%${q}%`);
     }
 
-    if (isPaginated) {
-      qb = qb.order("name", { ascending: true }).range(offset, offset + fetchLimit - 1);
-    } else {
-      qb = qb.limit(pageSize);
-    }
+    qb = qb.order("name", { ascending: true }).range(offset, offset + fetchLimit - 1);
 
-    const { data: agencyData } = await qb;
+    const { data: agencyData, count: totalCount } = await qb;
     const rows = agencyData ?? [];
-    if (rows.length === 0) return { results: [], hasMore: false };
+    if (rows.length === 0) return { results: [], hasMore: false, total_count: 0 };
 
-    const hasMore = isPaginated && rows.length > pageSize;
-    const resultRows = isPaginated ? rows.slice(0, pageSize) : rows;
+    const hasMore = rows.length > pageSize;
+    const resultRows = rows.slice(0, pageSize);
     const countMap = await getConnectionCounts(resultRows.map((a: { id: string }) => a.id));
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -442,16 +424,17 @@ export async function GET(req: NextRequest) {
         connection_count: countMap.get(a.id) ?? 0,
       };
     }).sort((a: SearchAgency, b: SearchAgency) => b.relevance_score - a.relevance_score);
-    return { results: applySort(results, (r) => r.name), hasMore };
+    return { results: applySort(results, (r) => r.name), hasMore, total_count: totalCount ?? 0 };
   };
 
   // ── Financial entities ─────────────────────────────────────────────────────
-  const searchFinancialEntities = async (): Promise<{ results: SearchFinancialEntity[]; hasMore: boolean }> => {
-    if (typeFilter !== "all" && typeFilter !== "financial") return { results: [], hasMore: false };
+  const searchFinancialEntities = async (): Promise<{ results: SearchFinancialEntity[]; hasMore: boolean; total_count: number }> => {
+    if (typeFilter !== "all" && typeFilter !== "financial") return { results: [], hasMore: false, total_count: 0 };
+    if (typeFilter === "all" && anyTypeFilter && !hasFinancialFilters) return { results: [], hasMore: false, total_count: 0 };
 
-    let qb = db
+    let qb = db2
       .from("financial_entities")
-      .select("id, display_name, entity_type, total_donated_cents");
+      .select("id, display_name, entity_type, total_donated_cents", { count: "exact" });
 
     // financial_type / entity_type filter (when set, allow individuals too)
     if (filterEntityType) {
@@ -471,9 +454,8 @@ export async function GET(req: NextRequest) {
         .eq("tag_type", "industry")
         .ilike("tag_value", filterIndustry);
       const tagIds = (tagRows ?? []).map((r: { entity_id: string }) => r.entity_id);
-      if (tagIds.length === 0) return { results: [], hasMore: false };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      qb = (qb as any).in("id", tagIds);
+      if (tagIds.length === 0) return { results: [], hasMore: false, total_count: 0 };
+      qb = qb.in("id", tagIds);
     }
 
     if (q.length >= 2) {
@@ -484,18 +466,14 @@ export async function GET(req: NextRequest) {
       qb = qb.order("total_donated_cents", { ascending: false, nullsFirst: false });
     }
 
-    if (isPaginated) {
-      qb = qb.range(offset, offset + fetchLimit - 1);
-    } else {
-      qb = qb.limit(pageSize);
-    }
+    qb = qb.range(offset, offset + fetchLimit - 1);
 
-    const { data } = await qb;
+    const { data, count: totalCount } = await qb;
     const rows = data ?? [];
-    if (rows.length === 0) return { results: [], hasMore: false };
+    if (rows.length === 0) return { results: [], hasMore: false, total_count: 0 };
 
-    const hasMore = isPaginated && rows.length > pageSize;
-    const resultRows = isPaginated ? rows.slice(0, pageSize) : rows;
+    const hasMore = rows.length > pageSize;
+    const resultRows = rows.slice(0, pageSize);
     const [industryByEntityId, countMap] = await Promise.all([
       fetchIndustryTagsByEntityId(db, resultRows.map((f: { id: string }) => f.id)),
       getConnectionCounts(resultRows.map((f: { id: string }) => f.id)),
@@ -513,16 +491,17 @@ export async function GET(req: NextRequest) {
         connection_count: countMap.get(f.id) ?? 0,
       };
     });
-    return { results: applySort(results, (r) => r.name), hasMore };
+    return { results: applySort(results, (r) => r.name), hasMore, total_count: totalCount ?? 0 };
   };
 
   // ── Initiatives ────────────────────────────────────────────────────────────
-  const searchInitiatives = async (): Promise<{ results: SearchInitiative[]; hasMore: boolean }> => {
-    if (typeFilter !== "all" && typeFilter !== "initiatives") return { results: [], hasMore: false };
+  const searchInitiatives = async (): Promise<{ results: SearchInitiative[]; hasMore: boolean; total_count: number }> => {
+    if (typeFilter !== "all" && typeFilter !== "initiatives") return { results: [], hasMore: false, total_count: 0 };
+    if (typeFilter === "all" && anyTypeFilter && !hasInitiativeFilters) return { results: [], hasMore: false, total_count: 0 };
 
     let qb = db2
       .from("proposals")
-      .select("id, title, status, initiative_details!inner(stage)")
+      .select("id, title, status, initiative_details!inner(stage)", { count: "exact" })
       .eq("type", "initiative");
 
     if (filterInitiativeStage) {
@@ -538,18 +517,14 @@ export async function GET(req: NextRequest) {
       qb = qb.ilike("title", `%${q}%`);
     }
 
-    if (isPaginated) {
-      qb = qb.order("title", { ascending: true }).range(offset, offset + fetchLimit - 1);
-    } else {
-      qb = qb.limit(pageSize);
-    }
+    qb = qb.order("title", { ascending: true }).range(offset, offset + fetchLimit - 1);
 
-    const { data } = await qb;
+    const { data, count: totalCount } = await qb;
     const rows = data ?? [];
-    if (rows.length === 0) return { results: [], hasMore: false };
+    if (rows.length === 0) return { results: [], hasMore: false, total_count: 0 };
 
-    const hasMore = isPaginated && rows.length > pageSize;
-    const resultRows = isPaginated ? rows.slice(0, pageSize) : rows;
+    const hasMore = rows.length > pageSize;
+    const resultRows = rows.slice(0, pageSize);
     const countMap = await getConnectionCounts(resultRows.map((r: { id: string }) => r.id));
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -564,16 +539,16 @@ export async function GET(req: NextRequest) {
         connection_count: countMap.get(r.id) ?? 0,
       };
     });
-    return { results: applySort(results, (r) => r.title), hasMore };
+    return { results: applySort(results, (r) => r.title), hasMore, total_count: totalCount ?? 0 };
   };
 
   // ── Run in parallel ────────────────────────────────────────────────────────
   const [
-    { results: officials,          hasMore: officialsMore },
-    { results: proposals,          hasMore: proposalsMore },
-    { results: agencies,           hasMore: agenciesMore },
-    { results: financial_entities, hasMore: financialMore },
-    { results: initiatives,        hasMore: initiativesMore },
+    { results: officials,          hasMore: officialsMore,  total_count: officialsTotal },
+    { results: proposals,          hasMore: proposalsMore,  total_count: proposalsTotal },
+    { results: agencies,           hasMore: agenciesMore,   total_count: agenciesTotal },
+    { results: financial_entities, hasMore: financialMore,  total_count: financialTotal },
+    { results: initiatives,        hasMore: initiativesMore, total_count: initiativesTotal },
   ] = await Promise.all([
     searchOfficials(),
     searchProposals(),
@@ -583,11 +558,19 @@ export async function GET(req: NextRequest) {
   ]);
 
   const has_more = officialsMore || proposalsMore || agenciesMore || financialMore || initiativesMore;
-  const next_cursor = has_more && isPaginated ? encodeCursor(offset + pageSize) : null;
+  const next_cursor = has_more ? encodeCursor(offset + pageSize) : null;
   const total = officials.length + proposals.length + agencies.length + financial_entities.length + initiatives.length;
 
   return NextResponse.json({
     query: q, officials, proposals, agencies, financial_entities, initiatives,
-    total, timing_ms: Date.now() - t0, has_more, next_cursor,
+    total,
+    totals: {
+      officials: officialsTotal,
+      proposals: proposalsTotal,
+      agencies: agenciesTotal,
+      financial_entities: financialTotal,
+      initiatives: initiativesTotal,
+    },
+    timing_ms: Date.now() - t0, has_more, next_cursor,
   } satisfies SearchResults);
 }

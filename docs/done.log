@@ -262,3 +262,4 @@
 2026-05-04 | FIX-205 | d30c9653 | local-only | perf(graph): dynamic-import each viz, render only the active one
 2026-05-05 | FIX-089 | 4dc7aca8 | local-only | feat(dashboard): reduce stat cards 6→4, add StatsRow primitive
 2026-05-05 | FIX-206 | 852b3223 | local+prod | fix(dashboard): unblock Votes/Open Proposals — count modes + metadata column
+2026-05-05 | FIX-207 | 4f7b89d0 | local+prod | fix(chord): materialize chord_industry_flows — 8s timeout → 355ms

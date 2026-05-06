@@ -15,6 +15,7 @@ export type { BadgeProps } from "./components/Badge";
 export { SectionCard } from "./components/layout/SectionCard";
 export { SectionHeader } from "./components/layout/SectionHeader";
 export { PageHeader } from "./components/layout/PageHeader";
+export { StatsRow } from "./components/layout/StatsRow";
 
 // Feedback
 export { StatusBadge } from "./components/feedback/StatusBadge";

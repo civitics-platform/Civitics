@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from "react";
 import {
-  Users, ScrollText, Vote, Network, DollarSign, Sparkles,
+  Users, ScrollText, Vote, DollarSign,
   RefreshCw, Lightbulb, Eye, Rocket, CircleCheck, CircleX,
   Megaphone,
 } from "lucide-react";
 import {
   StatCard,
+  StatsRow,
   SectionCard,
   SectionHeader,
   EmptyState,
@@ -298,24 +299,23 @@ function pathLabel(path: string): string {
 
 function StatsSection({
   database,
-  aiCosts,
   officialsBreakdown,
   openProposalCount,
+  chordTotalFlowUsd,
 }: {
   database: NonNullable<ReturnType<typeof useDashboardData>["data"]>["status"]["database"];
-  aiCosts: NonNullable<ReturnType<typeof useDashboardData>["data"]>["status"]["ai_costs"];
   officialsBreakdown: OfficialsBreakdown;
   openProposalCount: number;
+  chordTotalFlowUsd: number;
 }) {
   const db = isPartial(database) ? null : database;
-  const costs = isPartial(aiCosts) ? null : aiCosts;
 
   const officialsBreakdownLabel = officialsBreakdown
     ? `${formatNumber(officialsBreakdown.federal)} federal · ${formatNumber(officialsBreakdown.state)} state · ${formatNumber(officialsBreakdown.judges)} judges`
     : "Federal, state & judicial officials";
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <StatsRow>
       <StatCard
         icon={<Users size={16} />}
         label="Officials"
@@ -327,25 +327,20 @@ function StatsSection({
       />
       <StatCard
         icon={<ScrollText size={16} />}
-        label="Proposals"
-        value={db?.proposals ?? 0}
+        label="Open Proposals"
+        value={openProposalCount}
         formatAs="number"
-        href="/proposals"
-        badge={
-          openProposalCount > 0
-            ? {
-                label: `${openProposalCount} open now`,
-                href: "/proposals?status=open",
-                variant: "warning",
-              }
-            : { label: "Federal regulations", variant: "info" }
+        href="/proposals?status=open"
+        sublabel={
+          db
+            ? `of ${formatNumber(db.proposals)} total federal regulations`
+            : "Federal regulations open for comment"
         }
-        sublabel="Federal regulations open for comment"
         loading={!db}
       />
       <StatCard
         icon={<Vote size={16} />}
-        label="Votes on Record"
+        label="Votes"
         value={db?.votes ?? 0}
         formatAs="number"
         href="/graph"
@@ -353,40 +348,15 @@ function StatsSection({
         loading={!db}
       />
       <StatCard
-        icon={<Network size={16} />}
-        label="Connections"
-        value={db?.entity_connections ?? 0}
-        formatAs="number"
-        href="/graph"
-        trend="Explore the graph →"
-        trendDirection="neutral"
-        sublabel="Donations, votes, oversight mapped"
-        loading={!db}
-      />
-      <StatCard
         icon={<DollarSign size={16} />}
-        label="Donor Records"
-        value={db?.financial_relationships ?? 0}
-        formatAs="number"
+        label="Donation Flow"
+        value={chordTotalFlowUsd * 100}
+        formatAs="usd"
         href="/graph?preset=follow-the-money"
         sublabel="FEC-tracked PAC and individual contributions"
         loading={!db}
       />
-      <StatCard
-        icon={<Sparkles size={16} />}
-        label="AI Summaries"
-        value={db?.ai_summary_cache ?? 0}
-        formatAs="number"
-        sublabel="Plain-language summaries generated"
-        trend={
-          costs
-            ? `$${costs.monthly_spent_usd.toFixed(2)} this month`
-            : undefined
-        }
-        trendDirection="neutral"
-        loading={!db}
-      />
-    </div>
+    </StatsRow>
   );
 }
 
@@ -1340,9 +1310,9 @@ export function DashboardClient({
         {/* ── Hero: Stat Cards ── */}
         <StatsSection
           database={data?.status.database ?? { error: "Loading", partial: true }}
-          aiCosts={data?.status.ai_costs ?? { error: "Loading", partial: true }}
           officialsBreakdown={officialsBreakdown}
           openProposalCount={openProposals.length}
+          chordTotalFlowUsd={chordTotalFlowUsd}
         />
 
         {/* ── Comment Periods ── */}

@@ -13,7 +13,7 @@ import { createAdminClient } from "@civitics/db";
 import { getDbSizeMb, getLastSync, startSync, completeSync, failSync } from "./sync-log";
 import { runRegulationsPipeline } from "./regulations";
 import { runFecBulkPipeline } from "./fec-bulk";
-import { runUsaSpendingPipeline } from "./usaspending";
+import { runUsaSpendingBulkPipeline } from "./usaspending-bulk";
 import { runCourtListenerPipeline } from "./courtlistener";
 import { runOpenStatesPipeline } from "./openstates";
 import { runBulkPeoplePipeline } from "./openstates-bulk/people";
@@ -203,12 +203,13 @@ export async function runAllPipelines(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // 3. USASpending
+  // 3. USASpending bulk (contracts then assistance — sequential: each is 300MB–1GB)
   // -------------------------------------------------------------------------
   {
     try {
-      const r = await runUsaSpendingPipeline();
-      results.push({ name: "usaspending", ...r });
+      const contracts  = await runUsaSpendingBulkPipeline({ category: "contracts" });
+      const assistance = await runUsaSpendingBulkPipeline({ category: "assistance" });
+      results.push({ name: "usaspending", inserted: contracts.inserted + assistance.inserted, updated: 0, failed: contracts.failed + assistance.failed, estimatedMb: 0 });
     } catch (err) {
       const msg = errMsg(err);
       console.error("\n  USASpending pipeline threw:", msg);
@@ -482,8 +483,14 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
     {
       const t0 = Date.now();
       try {
-        const r = await runUsaSpendingPipeline();
-        results.pipelines.usaspending = { status: "complete", rows_added: r.inserted, duration_ms: Date.now() - t0 };
+        // Sequential — each archive file is 300 MB–1 GB; parallel would double peak disk usage.
+        const contracts  = await runUsaSpendingBulkPipeline({ category: "contracts" });
+        const assistance = await runUsaSpendingBulkPipeline({ category: "assistance" });
+        results.pipelines.usaspending = {
+          status: "complete",
+          rows_added: contracts.inserted + assistance.inserted,
+          duration_ms: Date.now() - t0,
+        };
       } catch (err) {
         const msg = errMsg(err);
         console.error("[nightly] usaspending failed:", msg);
@@ -588,6 +595,20 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
     const msg = errMsg(err);
     console.error("[nightly] refresh_proposal_popularity failed:", msg);
     results.errors.push(`Popularity refresh: ${msg}`);
+  }
+
+  // 3b-ii. Refresh spending totals (total_contract_cents / total_grant_cents on financial_entities)
+  // Cheap single-query aggregate update; runs nightly so any weekly USASpending ingestion
+  // is reflected immediately rather than waiting for the next weekly run.
+  {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (db as any).rpc("refresh_spending_totals");
+      if (error) console.warn("[nightly] refresh_spending_totals warning:", error.message);
+      else console.log("[nightly] refresh_spending_totals — complete");
+    } catch (err) {
+      console.warn("[nightly] refresh_spending_totals failed (non-fatal):", errMsg(err));
+    }
   }
 
   // 3c. Rebuild entity_connections via SQL derivation (FIX-100)

@@ -67,6 +67,7 @@ export type SearchFinancialEntity = {
   entity_type: string;
   industry: string | null;
   total_amount_cents: number | null;
+  amount_label: "contract" | "grant" | "donation";
   relevance_score: number;
   connection_count: number;
 };
@@ -434,7 +435,7 @@ export async function GET(req: NextRequest) {
 
     let qb = db2
       .from("financial_entities")
-      .select("id, display_name, entity_type, total_donated_cents", { count: "exact" });
+      .select("id, display_name, entity_type, total_donated_cents, total_contract_cents, total_grant_cents", { count: "exact" });
 
     // financial_type / entity_type filter (when set, allow individuals too)
     if (filterEntityType) {
@@ -479,14 +480,27 @@ export async function GET(req: NextRequest) {
       getConnectionCounts(resultRows.map((f: { id: string }) => f.id)),
     ]);
 
-    const results = resultRows.map((f: { id: string; display_name: string; entity_type: string; total_donated_cents: number | null }) => {
-      const amountCents = f.total_donated_cents ?? null;
+    const results = resultRows.map((f: { id: string; display_name: string; entity_type: string; total_donated_cents: number | null; total_contract_cents: number | null; total_grant_cents: number | null }) => {
+      const contractCents = f.total_contract_cents ?? 0;
+      const grantCents    = f.total_grant_cents    ?? 0;
+      const donationCents = f.total_donated_cents  ?? 0;
+      const spendingCents = contractCents + grantCents;
+
+      // Corps/orgs: show federal spending if present; PACs/individuals: show donations.
+      const showSpending = spendingCents > 0 &&
+        (f.entity_type === "corporation" || f.entity_type === "organization");
+      const dominantAmount = showSpending ? spendingCents : donationCents;
+      const amountLabel: SearchFinancialEntity["amount_label"] = showSpending
+        ? (contractCents >= grantCents ? "contract" : "grant")
+        : "donation";
+
       let score = q.length >= 2 ? baseRelevance(f.display_name, q) : 50;
-      if (amountCents != null && amountCents > 100_000_00) score += 5;
+      if (dominantAmount > 100_000_00) score += 5;
       return {
         id: f.id, name: f.display_name, entity_type: f.entity_type,
         industry: industryByEntityId.get(f.id)?.display_label ?? null,
-        total_amount_cents: amountCents,
+        total_amount_cents: dominantAmount || null,
+        amount_label: amountLabel,
         relevance_score: Math.min(score, 100),
         connection_count: countMap.get(f.id) ?? 0,
       };

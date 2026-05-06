@@ -261,10 +261,21 @@ function AgencyCardContent({ a, badge, isInGraph }: { a: SearchAgency; badge?: b
   );
 }
 
+const FINANCIAL_BADGE_LABEL: Record<string, string> = {
+  pac:             "PAC",
+  super_pac:       "Super PAC",
+  corporation:     "Corp",
+  union:           "Union",
+  party_committee: "Party Cmte",
+  individual:      "Donor",
+};
+
 function FinancialCardContent({ f, badge, isInGraph }: { f: SearchFinancialEntity; badge?: boolean; isInGraph?: boolean }) {
+  const badgeLabel = FINANCIAL_BADGE_LABEL[f.entity_type] ?? "Donor";
+  const showAmt = f.total_amount_cents != null && f.total_amount_cents > 0;
   return (
     <div className="flex items-center gap-3">
-      {badge && <TypeBadge label="Donor" color="green" />}
+      {badge && <TypeBadge label={badgeLabel} color="green" />}
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-gray-200 bg-gray-50 text-gray-400">
         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -281,9 +292,9 @@ function FinancialCardContent({ f, badge, isInGraph }: { f: SearchFinancialEntit
       <div className="flex items-center gap-2 shrink-0">
         {isInGraph && <InGraphBadge />}
         <ConnectionBadge count={f.connection_count} />
-        {f.total_amount_cents != null && (
+        {showAmt && (
           <span className="rounded bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">
-            {formatDollars(f.total_amount_cents)}
+            {formatDollars(f.total_amount_cents!)} · Donations
           </span>
         )}
       </div>

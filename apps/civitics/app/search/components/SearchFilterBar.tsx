@@ -93,9 +93,10 @@ interface SearchFilterBarProps {
 export function SearchFilterBar({ filters, onFiltersChange, sort, onSortChange }: SearchFilterBarProps) {
   const t = filters.type;
   const showOfficials  = t === "all" || t === "officials";
-  const showProposals  = t === "proposals" || t === "initiatives";
-  const showAgencies   = t === "agencies";
-  const showFinancial  = t === "financial";
+  const showProposals  = t === "all" || t === "proposals" || t === "initiatives";
+  const showAgencies   = t === "all" || t === "agencies";
+  const showFinancial  = t === "all" || t === "financial";
+  const showAmountInputs = t === "financial";
 
   function pill(
     label: string,
@@ -194,7 +195,8 @@ export function SearchFilterBar({ filters, onFiltersChange, sort, onSortChange }
         </select>
       )}
 
-      {/* Proposals: Status pills */}
+      {/* Proposals: Status pills (section divider only in "All" tab) */}
+      {showProposals && t === "all" && <div className="shrink-0 h-4 w-px bg-gray-200" />}
       {showProposals && PROPOSAL_STATUSES.slice(1).map(({ value, label }) =>
         pill(label, filters.status === value,
           () => onFiltersChange({ status: filters.status === value ? undefined : value }),
@@ -213,14 +215,16 @@ export function SearchFilterBar({ filters, onFiltersChange, sort, onSortChange }
         </>
       )}
 
-      {/* Agencies: Type pills */}
+      {/* Agencies: Type pills (section divider only in "All" tab) */}
+      {showAgencies && t === "all" && <div className="shrink-0 h-4 w-px bg-gray-200" />}
       {showAgencies && AGENCY_TYPES.map(({ value, label }) =>
         pill(label, filters.agency_type === value,
           () => onFiltersChange({ agency_type: filters.agency_type === value ? undefined : value }),
         )
       )}
 
-      {/* Financial: Entity type pills */}
+      {/* Financial: Entity type pills (section divider only in "All" tab) */}
+      {showFinancial && t === "all" && <div className="shrink-0 h-4 w-px bg-gray-200" />}
       {showFinancial && FINANCIAL_ENTITY_TYPES.map(({ value, label }) =>
         pill(label, (filters.financial_type ?? filters.entity_type) === value,
           () => onFiltersChange({
@@ -230,8 +234,8 @@ export function SearchFilterBar({ filters, onFiltersChange, sort, onSortChange }
         )
       )}
 
-      {/* Financial: Amount range */}
-      {showFinancial && (
+      {/* Financial: Amount range (only on dedicated financial tab) */}
+      {showAmountInputs && (
         <>
           <div className="shrink-0 h-4 w-px bg-gray-200" />
           <input

@@ -276,3 +276,4 @@
 2026-05-06 | FIX-210 | 05312220 | local+prod | fix(pipelines): fix agency enrichment/leadership pipeline issues
 2026-05-06 | FIX-211 | 05312220 | local+prod | fix(pipelines): fix agency enrichment/leadership pipeline issues
 2026-05-06 | FIX-212 | 05312220 | local+prod | fix(pipelines): fix agency enrichment/leadership pipeline issues
+2026-05-06 | FIX-211 | 1a50374f | prod-only | feat(agencies): tiered leadership display on agency profile page

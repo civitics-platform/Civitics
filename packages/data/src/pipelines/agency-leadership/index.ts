@@ -166,7 +166,7 @@ export async function runAgencyLeadershipPipeline(): Promise<PipelineResult> {
             p_entity_type: "agency",
             p_task_type: "summary",
             p_context: { name: agency.name, acronym: agency.acronym, wikidata_id: agency.wikidata_id },
-          }).catch(() => null); // non-fatal
+          }); // non-fatal — ignore { error } return value
         }
         continue;
       }
@@ -240,7 +240,7 @@ export async function runAgencyLeadershipPipeline(): Promise<PipelineResult> {
           wikidata_source: personQid,
         };
 
-        await db
+        const { error: connErr } = await db
           .from("entity_connections")
           .upsert(
             {
@@ -249,11 +249,15 @@ export async function runAgencyLeadershipPipeline(): Promise<PipelineResult> {
               to_type: "agency",
               to_id: agency.id,
               connection_type: "appointment",
+              evidence_source: "wikidata",
+              evidence_ids: [],
               metadata: connMeta,
             },
             { onConflict: "from_type,from_id,to_type,to_id,connection_type", ignoreDuplicates: false }
-          )
-          .catch((e: Error) => console.warn(`  Connection upsert failed (${fullName}→${agency.acronym}): ${e.message}`));
+          );
+        if (connErr) {
+          console.warn(`  Connection upsert failed (${fullName}→${agency.acronym ?? agency.name}): ${connErr.message}`);
+        }
       }
 
       console.log(`  ${agency.acronym ?? agency.name}: ${recent.length} leader(s) processed`);

@@ -1,12 +1,16 @@
 /**
  * Agency enrichment pipeline — FIX-208.
  *
- * Three passes:
- *   1. USASpending /api/v2/agency/{toptier_code}/employees/ → personnel_fte
- *   2. USA.gov Social Media Registry → metadata.{twitter_handle, youtube_handle,
+ * Two passes:
+ *   1. USA.gov Social Media Registry → metadata.{twitter_handle, youtube_handle,
  *      facebook_url, instagram_handle}
- *   3. Federal Register /api/v1/agencies.json → fill empty description/website_url
+ *   2. Federal Register /api/v1/agencies.json → fill empty description/website_url
  *      + Wikidata SPARQL → founded_year, wikidata_id
+ *
+ * NOTE: personnel_fte (FTE headcount) was originally planned via USASpending
+ * /api/v2/agency/{toptier_code}/employees/ but that endpoint was removed from
+ * the USASpending API. FTE data requires OPM FedScope bulk download — deferred
+ * to a future pipeline pass.
  *
  * Safe to re-run: all writes are upserts or conditional updates.
  *
@@ -31,56 +35,13 @@ interface AgencyRow {
   agency_type: string;
   description: string | null;
   website_url: string | null;
-  usaspending_agency_id: string | null;
   metadata: Record<string, unknown> | null;
   wikidata_id: string | null;
-  personnel_fte: number | null;
   founded_year: number | null;
 }
 
 // ---------------------------------------------------------------------------
-// Pass 1: USASpending FTE
-// ---------------------------------------------------------------------------
-
-async function enrichFTE(db: ReturnType<typeof createAdminClient>, agencies: AgencyRow[], result: PipelineResult): Promise<void> {
-  console.log("\n  Pass 1: USASpending FTE headcounts");
-  const eligible = agencies.filter(a => a.usaspending_agency_id && !a.personnel_fte);
-  console.log(`    ${eligible.length} agencies with toptier code and no FTE yet`);
-
-  for (const agency of eligible) {
-    try {
-      const url = `https://api.usaspending.gov/api/v2/agency/${agency.usaspending_agency_id}/employees/`;
-      const resp = await fetch(url, { headers: { accept: "application/json" } });
-      if (!resp.ok) {
-        console.warn(`    ${agency.acronym ?? agency.name}: FTE ${resp.status}`);
-        continue;
-      }
-      const body = await resp.json() as { results?: Array<{ employment_type: string; count: number }> };
-      const total = body.results?.find(r => r.employment_type === "Total")?.count
-        ?? body.results?.reduce((s, r) => s + (r.count ?? 0), 0)
-        ?? null;
-      if (total == null) continue;
-
-      const { error } = await db
-        .from("agencies")
-        .update({ personnel_fte: total, updated_at: new Date().toISOString() })
-        .eq("id", agency.id);
-      if (error) {
-        console.warn(`    ${agency.acronym ?? agency.name}: FTE write failed: ${error.message}`);
-        result.failed++;
-      } else {
-        result.updated++;
-      }
-    } catch (err) {
-      console.warn(`    ${agency.acronym ?? agency.name}: FTE fetch error:`, err instanceof Error ? err.message : err);
-    }
-    await sleep(500);
-  }
-  console.log(`    FTE pass: ${result.updated} updated`);
-}
-
-// ---------------------------------------------------------------------------
-// Pass 2: USA.gov Social Media Registry
+// Pass 1: USA.gov Social Media Registry
 // ---------------------------------------------------------------------------
 
 function normalizeName(s: string): string {
@@ -88,7 +49,10 @@ function normalizeName(s: string): string {
 }
 
 async function enrichSocialMedia(db: ReturnType<typeof createAdminClient>, agencies: AgencyRow[], result: PipelineResult): Promise<void> {
-  console.log("\n  Pass 2: USA.gov Social Media Registry");
+  console.log("\n  Pass 1: USA.gov Social Media Registry");
+  // NOTE: registry.usa.gov was decommissioned. The archived dataset is available
+  // at https://github.com/unitedstates/social-media — future pass can read from
+  // there. For now we skip gracefully so the rest of the pipeline runs.
 
   let registryData: Array<{
     service: string;
@@ -99,12 +63,15 @@ async function enrichSocialMedia(db: ReturnType<typeof createAdminClient>, agenc
 
   try {
     const url = "https://registry.usa.gov/accounts.json?services[]=twitter&services[]=youtube&services[]=facebook&services[]=instagram";
-    const resp = await fetch(url, { headers: { accept: "application/json" } });
+    const resp = await fetch(url, {
+      headers: { accept: "application/json" },
+      redirect: "error",
+    });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const body = await resp.json() as { accounts?: typeof registryData };
     registryData = body.accounts ?? [];
   } catch (err) {
-    console.warn("    Social Media Registry unavailable:", err instanceof Error ? err.message : err);
+    console.warn("    Social Media Registry unavailable (decommissioned) — skipping:", err instanceof Error ? err.message : String(err));
     return;
   }
 
@@ -166,7 +133,7 @@ async function enrichSocialMedia(db: ReturnType<typeof createAdminClient>, agenc
 }
 
 // ---------------------------------------------------------------------------
-// Pass 3: Federal Register descriptions + Wikidata
+// Pass 2: Federal Register descriptions + Wikidata
 // ---------------------------------------------------------------------------
 
 interface FedRegAgency {
@@ -184,7 +151,7 @@ interface WikidataBinding {
 }
 
 async function enrichFedRegAndWikidata(db: ReturnType<typeof createAdminClient>, agencies: AgencyRow[], result: PipelineResult): Promise<void> {
-  console.log("\n  Pass 3: Federal Register + Wikidata");
+  console.log("\n  Pass 2: Federal Register + Wikidata");
 
   // ── Federal Register ────────────────────────────────────────────────────────
   let fedRegAgencies: FedRegAgency[] = [];
@@ -208,21 +175,20 @@ async function enrichFedRegAndWikidata(db: ReturnType<typeof createAdminClient>,
   }
 
   // ── Wikidata: bulk query for US federal agencies ─────────────────────────────
-  // One big request — Wikidata's SPARQL endpoint supports queries up to ~1 MB.
-  // P31/P279* wd:Q327333 = "is a (subclass of) government agency"
-  // P17 wd:Q30 = "country = United States"
-  // P571 = inception date
+  // Q910252 = "United States federal executive department" (DOD, State, etc.)
+  // Q1752939 = "independent agency of the United States government" (EPA, FCC, etc.)
+  //   (constrained by P17=Q30 to exclude non-US agencies with same P31)
+  // Q48525   = "Federal Government of the United States" parent org (P749)
+  // P571 = inception date; label service returns English label
   const sparql = `
 SELECT DISTINCT ?agency ?agencyLabel ?founded WHERE {
   {
-    ?agency wdt:P31 wd:Q327333 .
+    ?agency wdt:P31 wd:Q910252 .
+  } UNION {
+    ?agency wdt:P31 wd:Q1752939 .
     ?agency wdt:P17 wd:Q30 .
   } UNION {
-    ?agency wdt:P31 wd:Q3204374 .
-    ?agency wdt:P17 wd:Q30 .
-  } UNION {
-    ?agency wdt:P31 wd:Q2101564 .
-    ?agency wdt:P17 wd:Q30 .
+    ?agency wdt:P749 wd:Q48525 .
   }
   OPTIONAL { ?agency wdt:P571 ?founded }
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en" }
@@ -252,27 +218,44 @@ LIMIT 3000
     console.warn("    Wikidata unavailable:", err instanceof Error ? err.message : err);
   }
 
-  // Index by label
+  // Index by label — store both the full label and a stripped version without
+  // common "United States " / "U.S. " prefixes so we can match our DB names
+  // like "Department of Defense" against Wikidata's "United States Department
+  // of Defense".
+  const US_PREFIXES = ["unitedstates", "us", "usfederal"];
+  function stripUsPrefix(normalized: string): string {
+    for (const p of US_PREFIXES) {
+      if (normalized.startsWith(p)) return normalized.slice(p.length);
+    }
+    return normalized;
+  }
+
   const wikidataByLabel = new Map<string, { qid: string; founded: number | null }>();
   for (const row of wikidataRows) {
-    const label = normalizeName(row.agencyLabel?.value ?? "");
-    if (!label) continue;
+    const rawLabel = row.agencyLabel?.value ?? "";
     const qid = row.agency?.value?.replace("http://www.wikidata.org/entity/", "") ?? null;
+    if (!rawLabel || !qid) continue;
     const foundedRaw = row.founded?.value;
     const founded = foundedRaw ? new Date(foundedRaw).getFullYear() : null;
-    if (!wikidataByLabel.has(label) && qid) {
-      wikidataByLabel.set(label, { qid, founded: isNaN(founded as number) ? null : founded });
-    }
+    const entry = { qid, founded: isNaN(founded as number) ? null : (founded ?? null) };
+    const full = normalizeName(rawLabel);
+    if (!wikidataByLabel.has(full)) wikidataByLabel.set(full, entry);
+    const stripped = stripUsPrefix(full);
+    if (stripped !== full && !wikidataByLabel.has(stripped)) wikidataByLabel.set(stripped, entry);
   }
 
   // ── Apply to each agency ─────────────────────────────────────────────────────
+  let wdMatched = 0;
+  let frMatched = 0;
   for (const agency of agencies) {
     const update: Record<string, unknown> = {};
 
     // Federal Register: fill empty description / website
     const frMatch = fedRegByName.get(normalizeName(agency.name))
-      ?? fedRegByName.get(normalizeName(agency.acronym ?? ""));
+      ?? fedRegByName.get(normalizeName(agency.acronym ?? ""))
+      ?? fedRegByName.get(normalizeName(agency.short_name ?? ""));
     if (frMatch) {
+      frMatched++;
       if (!agency.description && frMatch.description?.trim()) {
         update["description"] = frMatch.description.trim();
       }
@@ -282,10 +265,13 @@ LIMIT 3000
     }
 
     // Wikidata: founded_year, wikidata_id
-    const wdMatch = wikidataByLabel.get(normalizeName(agency.name))
+    const nameKey = normalizeName(agency.name);
+    const wdMatch = wikidataByLabel.get(nameKey)
+      ?? wikidataByLabel.get(stripUsPrefix(nameKey))
       ?? wikidataByLabel.get(normalizeName(agency.acronym ?? ""))
       ?? wikidataByLabel.get(normalizeName(agency.short_name ?? ""));
     if (wdMatch) {
+      wdMatched++;
       if (!agency.wikidata_id && wdMatch.qid) update["wikidata_id"] = wdMatch.qid;
       if (!agency.founded_year && wdMatch.founded) update["founded_year"] = wdMatch.founded;
     }
@@ -300,7 +286,7 @@ LIMIT 3000
       result.updated++;
     }
   }
-  console.log(`    Federal Register + Wikidata pass complete`);
+  console.log(`    FedReg matches: ${frMatched}, Wikidata matches: ${wdMatched}, DB writes: ${result.updated}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -318,16 +304,15 @@ export async function runAgencyEnrichmentPipeline(): Promise<PipelineResult> {
   try {
     const { data: agencies, error } = await db
       .from("agencies")
-      .select("id, name, acronym, short_name, agency_type, description, website_url, usaspending_agency_id, metadata, wikidata_id, personnel_fte, founded_year")
+      .select("id, name, acronym, short_name, agency_type, description, website_url, metadata, wikidata_id, founded_year")
       .eq("agency_type", "federal");
     if (error) throw new Error(error.message);
 
     const rows = (agencies ?? []) as AgencyRow[];
     console.log(`  Loaded ${rows.length} federal agencies`);
 
-    if (!pass || pass === "1") await enrichFTE(db, rows, result);
-    if (!pass || pass === "2") await enrichSocialMedia(db, rows, result);
-    if (!pass || pass === "3") await enrichFedRegAndWikidata(db, rows, result);
+    if (!pass || pass === "1") await enrichSocialMedia(db, rows, result);
+    if (!pass || pass === "2") await enrichFedRegAndWikidata(db, rows, result);
 
     await completeSync(logId, result);
     console.log(`\n  ✓ Done. Updated: ${result.updated}, failed: ${result.failed}`);

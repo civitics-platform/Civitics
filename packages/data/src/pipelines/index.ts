@@ -23,6 +23,7 @@ import { runAiTagger } from "./tags/ai-tagger";
 import { runAiSummariesPipeline } from "./ai-summaries";
 import { runAgenciesHierarchyPipeline } from "./agencies-hierarchy";
 import { runOpmFtePipeline } from "./opm-fte";
+import { runPlumBookPipeline } from "./plum-book";
 import { runElectionsPipeline } from "./elections";
 import { seedJurisdictions, seedGoverningBodies } from "../jurisdictions/us-states";
 
@@ -345,6 +346,7 @@ export interface NightlySyncResults {
     openstates_bulk_people?: NightlyPipelineResult;
     agencies_hierarchy?: NightlyPipelineResult;
     opm_fte?: NightlyPipelineResult;
+    plum_book?: NightlyPipelineResult;
     elections?: NightlyPipelineResult;
     congress_committees?: NightlyPipelineResult;
     entity_connections_rebuild?: NightlyPipelineResult;
@@ -554,6 +556,21 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         console.error("[nightly] opm-fte failed (non-fatal):", msg);
         results.pipelines.opm_fte = { status: "failed", error: msg };
         // Non-fatal: OPM ZIP URL may be unreachable; don't add to errors array
+      }
+    }
+
+    {
+      const t0 = Date.now();
+      try {
+        // Version-aware: pipeline skips automatically if OpenSanctions dataset
+        // hasn't changed since last run (ETag stored in pipeline_state).
+        const r = await runPlumBookPipeline();
+        results.pipelines.plum_book = { status: "complete", rows_added: r.inserted + r.updated, duration_ms: Date.now() - t0 };
+      } catch (err) {
+        const msg = errMsg(err);
+        console.error("[nightly] plum-book failed:", msg);
+        results.pipelines.plum_book = { status: "failed", error: msg };
+        results.errors.push(`PLUM Book: ${msg}`);
       }
     }
 

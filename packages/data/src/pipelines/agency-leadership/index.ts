@@ -1,18 +1,19 @@
 /**
- * Agency leadership pipeline — FIX-209.
+ * Agency leadership pipeline — FIX-209 (extended).
  *
- * Uses Wikidata SPARQL to populate current + recent (last 15 years) agency
- * heads into:
- *   - officials     (one row per person, dedup via source_ids->>'wikidata_id')
- *   - entity_connections  (connection_type='appointment', metadata with
- *                         start_date, end_date, position_title, is_current)
+ * Pass 1: Wikidata SPARQL — fetches agency heads (P488) plus sub-Cabinet
+ *   positions: deputy heads (P457), administrators (P3764), director generals
+ *   (P6774), executive directors (P7628).
+ *   Determines correct current holder per position group by sorting start dates
+ *   DESC and inferring end dates for past holders who lack explicit P582, fixing
+ *   the stale is_current bug (e.g. FCC showing Ajit Pai after Brendan Carr's
+ *   start).
  *
- * Agencies with wikidata_id = NULL are skipped (run agency-enrichment first).
- * Agencies where Wikidata returns 0 leaders are enqueued in enrichment_queue
- * with entity_type='agency', task_type='leadership', priority=40.
+ * Pass 2: Congress.gov nominations (current Congress) — Senate-confirmed
+ *   officials. Authoritative for current-holder status.
  *
- * Run:
- *   pnpm --filter @civitics/data data:agency-leadership
+ * Stale-fix sweep: after each agency, any entity_connections still flagged
+ *   is_current=true for officials not in the current-holder set are closed.
  */
 
 import { createAdminClient } from "@civitics/db";
@@ -27,31 +28,73 @@ interface AgencyRow {
   id: string;
   name: string;
   acronym: string | null;
+  short_name: string | null;
   wikidata_id: string | null;
 }
 
 interface LeaderBinding {
   person: { value: string };
   personLabel: { value: string };
+  posProperty: { value: string };
   start?: { value: string };
   end?: { value: string };
   posLabel?: { value: string };
 }
 
 // ---------------------------------------------------------------------------
-// SPARQL helper
+// Constants
 // ---------------------------------------------------------------------------
 
 const SPARQL_ENDPOINT = "https://query.wikidata.org/sparql";
 const CUTOFF_YEAR = new Date().getFullYear() - 15;
 
+const POSITION_PROP_LABELS: Record<string, string> = {
+  P488: "Head",
+  P457: "Deputy Head",
+  P3764: "Administrator",
+  P6774: "Director General",
+  P7628: "Executive Director",
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function normalizeName(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function parseDate(raw: string | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return null;
+    return d.toISOString().slice(0, 10);
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Wikidata SPARQL — extended to include sub-Cabinet position properties
+// ---------------------------------------------------------------------------
+
 async function fetchAgencyLeaders(wikidataId: string): Promise<LeaderBinding[]> {
-  // P488 = "head of government/executive" statement on the agency item.
-  // We use both P488 (head of agency) as the primary property.
+  const props = Object.keys(POSITION_PROP_LABELS);
+  const unionBlocks = props
+    .map(
+      (prop) => `
+  {
+    wd:${wikidataId} p:${prop} ?stmt .
+    ?stmt ps:${prop} ?person .
+    BIND("${prop}" AS ?posProperty)
+  }`
+    )
+    .join(" UNION ");
+
   const sparql = `
-SELECT ?person ?personLabel ?start ?end ?posLabel WHERE {
-  wd:${wikidataId} p:P488 ?stmt .
-  ?stmt ps:P488 ?person .
+SELECT DISTINCT ?person ?personLabel ?posProperty ?start ?end ?posLabel WHERE {
+  ${unionBlocks}
   OPTIONAL { ?stmt pq:P580 ?start }
   OPTIONAL { ?stmt pq:P582 ?end }
   OPTIONAL {
@@ -60,9 +103,8 @@ SELECT ?person ?personLabel ?start ?end ?posLabel WHERE {
   }
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en" }
 }
-ORDER BY DESC(?start)
-LIMIT 15
-`.trim();
+ORDER BY ?posProperty DESC(?start)
+LIMIT 50`.trim();
 
   const qs = new URLSearchParams({ query: sparql, format: "json" });
   const resp = await fetch(`${SPARQL_ENDPOINT}?${qs.toString()}`, {
@@ -72,23 +114,260 @@ LIMIT 15
     },
   });
   if (!resp.ok) throw new Error(`Wikidata SPARQL ${resp.status}`);
-  const body = await resp.json() as { results?: { bindings?: LeaderBinding[] } };
+  const body = (await resp.json()) as { results?: { bindings?: LeaderBinding[] } };
   return body.results?.bindings ?? [];
 }
 
-function parseDate(raw: string | undefined): string | null {
-  if (!raw) return null;
-  try {
-    const d = new Date(raw);
-    if (isNaN(d.getTime())) return null;
-    return d.toISOString().slice(0, 10); // YYYY-MM-DD
-  } catch {
-    return null;
+// ---------------------------------------------------------------------------
+// Stale is_current cleanup
+// ---------------------------------------------------------------------------
+
+async function closeStaleConnections(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db: any,
+  agencyId: string,
+  currentOfficialIds: Set<string>,
+  today: string
+): Promise<number> {
+  if (currentOfficialIds.size === 0) return 0;
+
+  const inList = [...currentOfficialIds].join(",");
+  const { data: staleConns } = await db
+    .from("entity_connections")
+    .select("id, metadata")
+    .eq("to_type", "agency")
+    .eq("to_id", agencyId)
+    .eq("from_type", "official")
+    .eq("connection_type", "appointment")
+    .filter("metadata->>is_current", "eq", "true")
+    .not("from_id", "in", `(${inList})`);
+
+  if (!staleConns?.length) return 0;
+
+  let closed = 0;
+  for (const conn of staleConns) {
+    const updatedMeta = { ...(conn.metadata ?? {}), is_current: false };
+    const { error } = await db
+      .from("entity_connections")
+      .update({ metadata: updatedMeta, ended_at: today, updated_at: new Date().toISOString() })
+      .eq("id", conn.id);
+    if (!error) closed++;
+  }
+  return closed;
+}
+
+// ---------------------------------------------------------------------------
+// Congress.gov nominations pass
+// ---------------------------------------------------------------------------
+
+function parseNomineeDescription(description: string): { name: string; positionTitle: string } | null {
+  // Format: "First Last, of State, to be Title [, vice Predecessor]"
+  const nameMatch = description.match(/^([^,]+),\s+of\s+/);
+  if (!nameMatch) return null;
+  const name = nameMatch[1].trim();
+
+  const posMatch = description.match(/\bto be\s+(.+?)(?:,\s+vice\s+|$)/i);
+  if (!posMatch) return null;
+  const positionTitle = posMatch[1]
+    .trim()
+    .replace(/,$/, "")
+    .replace(/\s+for\s+a\s+term.*$/i, "")
+    .trim();
+
+  return { name, positionTitle };
+}
+
+async function runCongressNominationsPass(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db: any,
+  agencies: AgencyRow[],
+  federalJurisdictionId: string | null,
+  result: PipelineResult,
+  today: string
+): Promise<void> {
+  const apiKey = process.env["CONGRESS_API_KEY"];
+  if (!apiKey) {
+    console.log("\n  Pass 2: Congress.gov nominations — SKIPPED (CONGRESS_API_KEY not set)");
+    return;
+  }
+
+  // Current Congress: 119th (2025–). This covers Trump administration nominations.
+  const CURRENT_CONGRESS = 119;
+  console.log(`\n  Pass 2: Congress.gov nominations (${CURRENT_CONGRESS}th Congress)`);
+
+  // Agency lookup by normalized name
+  const agencyByNormName = new Map<string, AgencyRow>();
+  for (const agency of agencies) {
+    agencyByNormName.set(normalizeName(agency.name), agency);
+    if (agency.acronym) agencyByNormName.set(normalizeName(agency.acronym), agency);
+    if (agency.short_name) agencyByNormName.set(normalizeName(agency.short_name), agency);
+  }
+
+  // Paginate all civilian nominations
+  let offset = 0;
+  const pageSize = 250;
+  let hasMore = true;
+  let totalFetched = 0;
+
+  // Collect confirmed nominations per agency
+  const confirmedByAgency = new Map<
+    string,
+    Array<{ name: string; nominationId: string; confirmedDate: string; positionTitle: string }>
+  >();
+
+  while (hasMore) {
+    let nominations: unknown[] = [];
+    try {
+      const url = `https://api.congress.gov/v3/nomination?congress=${CURRENT_CONGRESS}&format=json&limit=${pageSize}&offset=${offset}&api_key=${apiKey}`;
+      const resp = await fetch(url, { headers: { accept: "application/json" } });
+      if (!resp.ok) {
+        console.warn(`  Congress.gov: HTTP ${resp.status} at offset ${offset} — stopping`);
+        break;
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const body = (await resp.json()) as any;
+      nominations = body.nominations ?? [];
+    } catch (err) {
+      console.warn("  Congress.gov fetch error:", err instanceof Error ? err.message : err);
+      break;
+    }
+
+    for (const nom of nominations) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const n = nom as any;
+
+      // Only civilian, non-privileged nominations
+      if (!n.nominationType?.isCivilian) continue;
+      if (n.isPrivileged) continue;
+
+      // Only confirmed (Senate confirmed text in latest action)
+      const actionText = ((n.latestAction?.text ?? "") as string).toLowerCase();
+      if (!actionText.includes("confirmed")) continue;
+
+      // Match to one of our agencies
+      const orgNorm = normalizeName(n.organization ?? "");
+      const matchedAgency = agencyByNormName.get(orgNorm);
+      if (!matchedAgency) continue;
+
+      // Parse nominee name and position from description
+      const parsed = parseNomineeDescription(n.description ?? "");
+      if (!parsed) continue;
+
+      const nominationId = `${CURRENT_CONGRESS}-${n.number}-${n.partNumber ?? "00"}`;
+      const confirmedDate = (n.latestAction?.actionDate ?? n.receivedDate ?? today) as string;
+
+      const arr = confirmedByAgency.get(matchedAgency.id) ?? [];
+      arr.push({
+        name: parsed.name,
+        nominationId,
+        confirmedDate,
+        positionTitle: parsed.positionTitle.slice(0, 200),
+      });
+      confirmedByAgency.set(matchedAgency.id, arr);
+    }
+
+    totalFetched += nominations.length;
+    hasMore = nominations.length === pageSize;
+    offset += pageSize;
+    await sleep(300);
+  }
+
+  console.log(
+    `  Congress.gov: ${totalFetched} nominations scanned → confirmed matches for ${confirmedByAgency.size} agencies`
+  );
+
+  // Upsert officials and connections, then close stale
+  for (const [agencyId, nominees] of confirmedByAgency) {
+    const currentOfficialIds = new Set<string>();
+
+    for (const { name, nominationId, confirmedDate, positionTitle } of nominees) {
+      let officialId: string | undefined;
+
+      // Look up by congress_nomination_id first
+      const { data: byNomId } = await db
+        .from("officials")
+        .select("id")
+        .filter("source_ids->>congress_nomination_id", "eq", nominationId)
+        .maybeSingle();
+      if (byNomId?.id) {
+        officialId = byNomId.id as string;
+      }
+
+      if (!officialId) {
+        // Fall back to name match
+        const { data: byName } = await db
+          .from("officials")
+          .select("id, source_ids")
+          .eq("full_name", name)
+          .maybeSingle();
+        if (byName?.id) {
+          officialId = byName.id as string;
+          // Add nomination ID to source_ids
+          const updatedSourceIds = { ...(byName.source_ids ?? {}), congress_nomination_id: nominationId };
+          await db
+            .from("officials")
+            .update({ source_ids: updatedSourceIds, is_active: true, updated_at: new Date().toISOString() })
+            .eq("id", officialId);
+        }
+      }
+
+      if (!officialId && federalJurisdictionId) {
+        const { data: inserted, error: insErr } = await db
+          .from("officials")
+          .insert({
+            full_name: name,
+            role_title: positionTitle,
+            is_active: true,
+            jurisdiction_id: federalJurisdictionId,
+            source_ids: { congress_nomination_id: nominationId },
+            metadata: { source: "congress_nominations" },
+          })
+          .select("id")
+          .single();
+        if (insErr || !inserted?.id) {
+          result.failed++;
+          continue;
+        }
+        officialId = inserted.id as string;
+        result.inserted++;
+      }
+
+      if (!officialId) continue;
+      currentOfficialIds.add(officialId);
+
+      // Upsert connection (Congress confirmation is authoritative — is_current=true)
+      await db.from("entity_connections").upsert(
+        {
+          from_type: "official",
+          from_id: officialId,
+          to_type: "agency",
+          to_id: agencyId,
+          connection_type: "appointment",
+          strength: 1.0,
+          occurred_at: confirmedDate,
+          metadata: {
+            start_date: confirmedDate,
+            end_date: null,
+            position_title: positionTitle,
+            position_property: "congress_confirmed",
+            is_current: true,
+            congress_nomination_id: nominationId,
+          },
+        },
+        { onConflict: "from_type,from_id,to_type,to_id,connection_type", ignoreDuplicates: false }
+      );
+      result.updated++;
+    }
+
+    // Congress confirmations are authoritative — close stale connections
+    if (currentOfficialIds.size > 0) {
+      await closeStaleConnections(db, agencyId, currentOfficialIds, today);
+    }
   }
 }
 
 // ---------------------------------------------------------------------------
-// Main
+// Main pipeline
 // ---------------------------------------------------------------------------
 
 export async function runAgencyLeadershipPipeline(): Promise<PipelineResult> {
@@ -98,12 +377,13 @@ export async function runAgencyLeadershipPipeline(): Promise<PipelineResult> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = createAdminClient() as any;
   const result: PipelineResult = { inserted: 0, updated: 0, failed: 0, estimatedMb: 0 };
+  const today = new Date().toISOString().slice(0, 10);
 
   try {
     // Load all federal agencies that have a wikidata_id
     const { data: agencyData, error: agErr } = await db
       .from("agencies")
-      .select("id, name, acronym, wikidata_id")
+      .select("id, name, acronym, short_name, wikidata_id")
       .eq("agency_type", "federal")
       .not("wikidata_id", "is", null);
     if (agErr) throw new Error(agErr.message);
@@ -111,7 +391,7 @@ export async function runAgencyLeadershipPipeline(): Promise<PipelineResult> {
     const agencies = (agencyData ?? []) as AgencyRow[];
     console.log(`  ${agencies.length} federal agencies with wikidata_id`);
 
-    // Look up the US federal jurisdiction (fips_code='00')
+    // Federal jurisdiction (fips_code='00')
     const { data: jurData } = await db
       .from("jurisdictions")
       .select("id")
@@ -119,10 +399,10 @@ export async function runAgencyLeadershipPipeline(): Promise<PipelineResult> {
       .maybeSingle();
     const federalJurisdictionId = jurData?.id as string | null;
     if (!federalJurisdictionId) {
-      console.warn("  WARNING: federal jurisdiction (fips_code=00) not found — officials will be skipped");
+      console.warn("  WARNING: federal jurisdiction (fips_code=00) not found — official inserts will be skipped");
     }
 
-    // Build existing wikidata_id → official UUID map to avoid N inserts
+    // Build wikidata_id → official UUID map
     const { data: existingOfficials } = await db
       .from("officials")
       .select("id, source_ids")
@@ -135,6 +415,10 @@ export async function runAgencyLeadershipPipeline(): Promise<PipelineResult> {
     console.log(`  ${officialByWdId.size} officials with wikidata_id already in DB`);
 
     let noLeadersCount = 0;
+    let totalStaleClosed = 0;
+
+    // ── Pass 1: Wikidata ────────────────────────────────────────────────────
+    console.log("\n  Pass 1: Wikidata SPARQL (P488 head + sub-Cabinet positions)");
 
     for (const agency of agencies) {
       if (!agency.wikidata_id) continue;
@@ -144,130 +428,179 @@ export async function runAgencyLeadershipPipeline(): Promise<PipelineResult> {
         leaders = await fetchAgencyLeaders(agency.wikidata_id);
         await sleep(1200); // Wikidata rate limit: ~1 req/sec
       } catch (err) {
-        console.warn(`  ${agency.acronym ?? agency.name}: SPARQL error:`, err instanceof Error ? err.message : err);
+        console.warn(
+          `  ${agency.acronym ?? agency.name}: SPARQL error:`,
+          err instanceof Error ? err.message : err
+        );
         result.failed++;
         await sleep(2000);
         continue;
       }
 
-      // Filter to last 15 years (keep if end_date is null OR year >= CUTOFF_YEAR)
-      const recent = leaders.filter(l => {
+      // Filter to last 15 years
+      const recent = leaders.filter((l) => {
         const endDate = parseDate(l.end?.value);
-        if (!endDate) return true; // current/no end date → keep
+        if (!endDate) return true;
         return new Date(endDate).getFullYear() >= CUTOFF_YEAR;
       });
 
       if (recent.length === 0) {
         noLeadersCount++;
-        // Enqueue for AI gap-fill
         if (federalJurisdictionId) {
           await db.rpc("enqueue_enrichment", {
             p_entity_id: agency.id,
             p_entity_type: "agency",
             p_task_type: "summary",
             p_context: { name: agency.name, acronym: agency.acronym, wikidata_id: agency.wikidata_id },
-          }); // non-fatal — ignore { error } return value
+          });
         }
         continue;
       }
 
-      for (const leader of recent) {
-        const personQid = leader.person.value.replace("http://www.wikidata.org/entity/", "");
-        const fullName = leader.personLabel?.value ?? "Unknown";
-        const startDate = parseDate(leader.start?.value);
-        const endDate = parseDate(leader.end?.value);
-        const posTitle = leader.posLabel?.value ?? `Head of ${agency.acronym ?? agency.name}`;
-        const isCurrent = !endDate;
+      // Group by position property; determine current holder per group
+      const byProp = new Map<string, LeaderBinding[]>();
+      for (const l of recent) {
+        const prop = l.posProperty?.value ?? "P488";
+        const arr = byProp.get(prop) ?? [];
+        arr.push(l);
+        byProp.set(prop, arr);
+      }
 
-        // ── Upsert official ────────────────────────────────────────────────────
-        let officialId = officialByWdId.get(personQid);
+      const currentOfficialIds = new Set<string>();
 
-        if (!officialId) {
-          if (!federalJurisdictionId) continue;
+      for (const [positionProp, groupLeaders] of byProp) {
+        // Sort most-recent start first (undefined start → treated as oldest)
+        const sorted = [...groupLeaders].sort((a, b) => {
+          const aStart = parseDate(a.start?.value) ?? "1900-01-01";
+          const bStart = parseDate(b.start?.value) ?? "1900-01-01";
+          return bStart.localeCompare(aStart);
+        });
 
-          const { data: insertedOfficial, error: insErr } = await db
-            .from("officials")
-            .insert({
-              full_name: fullName,
-              role_title: posTitle,
-              is_active: isCurrent,
-              jurisdiction_id: federalJurisdictionId,
-              source_ids: { wikidata_id: personQid },
-              metadata: { source: "wikidata_agency_leadership" },
-            })
-            .select("id")
-            .single();
-
-          if (insErr) {
-            // May already exist under a different source — try to find by name
-            const { data: found } = await db
-              .from("officials")
-              .select("id")
-              .eq("full_name", fullName)
-              .maybeSingle();
-            if (found?.id) {
-              officialId = found.id as string;
-              officialByWdId.set(personQid, officialId);
-            } else {
-              console.warn(`  ${fullName}: insert failed: ${insErr.message}`);
-              result.failed++;
-              continue;
-            }
-          } else if (insertedOfficial?.id) {
-            officialId = insertedOfficial.id as string;
-            officialByWdId.set(personQid, officialId);
-            result.inserted++;
+        // Current holder: most-recent start with no explicit past end date
+        let currentIdx = -1;
+        for (let i = 0; i < sorted.length; i++) {
+          const end = parseDate(sorted[i].end?.value);
+          if (!end || new Date(end) >= new Date()) {
+            currentIdx = i;
+            break;
           }
-        } else {
-          // Update is_active if current status changed
-          await db
-            .from("officials")
-            .update({ is_active: isCurrent, role_title: posTitle, updated_at: new Date().toISOString() })
-            .eq("id", officialId)
-            .is("source_ids->>wikidata_id", personQid);
-          result.updated++;
         }
 
-        if (!officialId) continue;
+        for (let i = 0; i < sorted.length; i++) {
+          const leader = sorted[i];
+          const explicitEnd = parseDate(leader.end?.value);
+          const isCurrent = i === currentIdx;
 
-        // ── Upsert entity_connection ────────────────────────────────────────────
-        // Dedup: unique on (from_id, to_id, connection_type) with metadata check
-        const connMeta = {
-          start_date: startDate,
-          end_date: endDate,
-          position_title: posTitle,
-          is_current: isCurrent,
-          wikidata_source: personQid,
-        };
+          // For past holders with no explicit end date, infer end from the
+          // more-recent holder's start date (sorted[i-1] is more recent).
+          let effectiveEnd = explicitEnd;
+          if (!explicitEnd && !isCurrent) {
+            effectiveEnd = i > 0 ? (parseDate(sorted[i - 1].start?.value) ?? today) : today;
+          }
 
-        const { error: connErr } = await db
-          .from("entity_connections")
-          .upsert(
+          const personQid = leader.person.value.replace("http://www.wikidata.org/entity/", "");
+          const fullName = leader.personLabel?.value ?? "Unknown";
+          const propLabel = POSITION_PROP_LABELS[positionProp] ?? "Leader";
+          const posTitle =
+            leader.posLabel?.value ?? `${propLabel} of ${agency.acronym ?? agency.name}`;
+
+          // ── Upsert official ────────────────────────────────────────────────
+          let officialId = officialByWdId.get(personQid);
+
+          if (!officialId) {
+            if (!federalJurisdictionId) continue;
+
+            const { data: insertedOfficial, error: insErr } = await db
+              .from("officials")
+              .insert({
+                full_name: fullName,
+                role_title: posTitle,
+                is_active: isCurrent,
+                jurisdiction_id: federalJurisdictionId,
+                source_ids: { wikidata_id: personQid },
+                metadata: { source: "wikidata_agency_leadership" },
+              })
+              .select("id")
+              .single();
+
+            if (insErr) {
+              const { data: found } = await db
+                .from("officials")
+                .select("id")
+                .eq("full_name", fullName)
+                .maybeSingle();
+              if (found?.id) {
+                officialId = found.id as string;
+                officialByWdId.set(personQid, officialId);
+              } else {
+                console.warn(`  ${fullName}: insert failed: ${insErr.message}`);
+                result.failed++;
+                continue;
+              }
+            } else if (insertedOfficial?.id) {
+              officialId = insertedOfficial.id as string;
+              officialByWdId.set(personQid, officialId);
+              result.inserted++;
+            }
+          } else {
+            await db
+              .from("officials")
+              .update({ is_active: isCurrent, role_title: posTitle, updated_at: new Date().toISOString() })
+              .eq("id", officialId);
+            result.updated++;
+          }
+
+          if (!officialId) continue;
+          if (isCurrent) currentOfficialIds.add(officialId);
+
+          // ── Upsert entity_connection ──────────────────────────────────────
+          const { error: connErr } = await db.from("entity_connections").upsert(
             {
               from_type: "official",
               from_id: officialId,
               to_type: "agency",
               to_id: agency.id,
               connection_type: "appointment",
-              // P488 = head of agency — always top-level (1.0 current, 0.5 past)
               strength: isCurrent ? 1.0 : 0.5,
-              evidence_source: "wikidata",
-              evidence_ids: [],
-              metadata: connMeta,
+              occurred_at: parseDate(leader.start?.value),
+              ended_at: effectiveEnd,
+              metadata: {
+                start_date: parseDate(leader.start?.value),
+                end_date: effectiveEnd,
+                position_title: posTitle,
+                position_property: positionProp,
+                is_current: isCurrent,
+                wikidata_source: personQid,
+              },
             },
             { onConflict: "from_type,from_id,to_type,to_id,connection_type", ignoreDuplicates: false }
           );
-        if (connErr) {
-          console.warn(`  Connection upsert failed (${fullName}→${agency.acronym ?? agency.name}): ${connErr.message}`);
+          if (connErr) {
+            console.warn(
+              `  Connection upsert failed (${fullName}→${agency.acronym ?? agency.name}): ${connErr.message}`
+            );
+          }
         }
       }
 
-      console.log(`  ${agency.acronym ?? agency.name}: ${recent.length} leader(s) processed`);
+      // Close any stale is_current=true connections for officials no longer current
+      const staleClosed = await closeStaleConnections(db, agency.id, currentOfficialIds, today);
+      totalStaleClosed += staleClosed;
+
+      const staleNote = staleClosed > 0 ? `, ${staleClosed} stale closed` : "";
+      console.log(`  ${agency.acronym ?? agency.name}: ${recent.length} leader(s) processed${staleNote}`);
     }
 
     console.log(`\n  ${noLeadersCount} agencies with no Wikidata leaders → enqueued for AI enrichment`);
+    if (totalStaleClosed > 0) {
+      console.log(`  ${totalStaleClosed} stale is_current connections corrected`);
+    }
+
+    // ── Pass 2: Congress.gov nominations ───────────────────────────────────
+    await runCongressNominationsPass(db, agencies, federalJurisdictionId, result, today);
+
     await completeSync(logId, result);
-    console.log(`  ✓ Done. Inserted: ${result.inserted}, updated: ${result.updated}, failed: ${result.failed}`);
+    console.log(`\n  ✓ Done. Inserted: ${result.inserted}, updated: ${result.updated}, failed: ${result.failed}`);
     return result;
   } catch (err) {
     await failSync(logId, err instanceof Error ? err.message : String(err));

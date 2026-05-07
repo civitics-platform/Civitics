@@ -22,6 +22,7 @@ import { runRuleBasedTagger } from "./tags/rules";
 import { runAiTagger } from "./tags/ai-tagger";
 import { runAiSummariesPipeline } from "./ai-summaries";
 import { runAgenciesHierarchyPipeline } from "./agencies-hierarchy";
+import { runOpmFtePipeline } from "./opm-fte";
 import { runElectionsPipeline } from "./elections";
 import { seedJurisdictions, seedGoverningBodies } from "../jurisdictions/us-states";
 
@@ -343,6 +344,7 @@ export interface NightlySyncResults {
     openstates?: NightlyPipelineResult;
     openstates_bulk_people?: NightlyPipelineResult;
     agencies_hierarchy?: NightlyPipelineResult;
+    opm_fte?: NightlyPipelineResult;
     elections?: NightlyPipelineResult;
     congress_committees?: NightlyPipelineResult;
     entity_connections_rebuild?: NightlyPipelineResult;
@@ -539,6 +541,19 @@ export async function runNightlySync(): Promise<NightlySyncResults> {
         console.error("[nightly] agencies-hierarchy failed:", msg);
         results.pipelines.agencies_hierarchy = { status: "failed", error: msg };
         results.errors.push(`Agencies hierarchy: ${msg}`);
+      }
+    }
+
+    {
+      const t0 = Date.now();
+      try {
+        const r = await runOpmFtePipeline();
+        results.pipelines.opm_fte = { status: "complete", rows_added: r.updated, duration_ms: Date.now() - t0 };
+      } catch (err) {
+        const msg = errMsg(err);
+        console.error("[nightly] opm-fte failed (non-fatal):", msg);
+        results.pipelines.opm_fte = { status: "failed", error: msg };
+        // Non-fatal: OPM ZIP URL may be unreachable; don't add to errors array
       }
     }
 

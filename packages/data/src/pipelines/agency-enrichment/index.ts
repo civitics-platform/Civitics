@@ -48,88 +48,11 @@ function normalizeName(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-async function enrichSocialMedia(db: ReturnType<typeof createAdminClient>, agencies: AgencyRow[], result: PipelineResult): Promise<void> {
-  console.log("\n  Pass 1: USA.gov Social Media Registry");
-  // NOTE: registry.usa.gov was decommissioned. The archived dataset is available
-  // at https://github.com/unitedstates/social-media — future pass can read from
-  // there. For now we skip gracefully so the rest of the pipeline runs.
-
-  let registryData: Array<{
-    service: string;
-    account: string;
-    organization_name: string;
-    agencies?: Array<{ name: string }>;
-  }>;
-
-  try {
-    const url = "https://registry.usa.gov/accounts.json?services[]=twitter&services[]=youtube&services[]=facebook&services[]=instagram";
-    const resp = await fetch(url, {
-      headers: { accept: "application/json" },
-      redirect: "error",
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const body = await resp.json() as { accounts?: typeof registryData };
-    registryData = body.accounts ?? [];
-  } catch (err) {
-    console.warn("    Social Media Registry unavailable (decommissioned) — skipping:", err instanceof Error ? err.message : String(err));
-    return;
-  }
-
-  console.log(`    ${registryData.length} social accounts fetched`);
-
-  // Build name → social handles map
-  const socialByName = new Map<string, Record<string, string>>();
-  for (const acct of registryData) {
-    const orgName = normalizeName(acct.organization_name ?? "");
-    if (!orgName) continue;
-    const existing = socialByName.get(orgName) ?? {};
-    const serviceKey = acct.service === "twitter" ? "twitter_handle"
-      : acct.service === "youtube" ? "youtube_handle"
-      : acct.service === "facebook" ? "facebook_url"
-      : acct.service === "instagram" ? "instagram_handle"
-      : null;
-    if (serviceKey) {
-      // Prefer shorter / first account if duplicates
-      if (!existing[serviceKey]) {
-        existing[serviceKey] = acct.account;
-      }
-    }
-    // Also index by agency sub-names if provided
-    for (const sub of acct.agencies ?? []) {
-      const subName = normalizeName(sub.name ?? "");
-      if (subName) {
-        const subExisting = socialByName.get(subName) ?? {};
-        if (serviceKey && !subExisting[serviceKey]) subExisting[serviceKey] = acct.account;
-        socialByName.set(subName, subExisting);
-      }
-    }
-    socialByName.set(orgName, existing);
-  }
-
-  let matched = 0;
-  for (const agency of agencies) {
-    const key = normalizeName(agency.name);
-    const handles = socialByName.get(key)
-      ?? socialByName.get(normalizeName(agency.acronym ?? ""))
-      ?? socialByName.get(normalizeName(agency.short_name ?? ""))
-      ?? null;
-    if (!handles) continue;
-
-    const existing = (agency.metadata ?? {}) as Record<string, unknown>;
-    const merged = { ...existing, ...handles };
-
-    const { error } = await db
-      .from("agencies")
-      .update({ metadata: merged, updated_at: new Date().toISOString() })
-      .eq("id", agency.id);
-    if (error) {
-      result.failed++;
-    } else {
-      result.updated++;
-      matched++;
-    }
-  }
-  console.log(`    Social media: ${matched} agencies matched`);
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function enrichSocialMedia(_db: ReturnType<typeof createAdminClient>, _agencies: AgencyRow[], _result: PipelineResult): Promise<void> {
+  // registry.usa.gov was decommissioned. No working archive source found.
+  // Implement this pass when a replacement source is available.
+  console.log("\n  Pass 1: Social media handles — DEFERRED (no source available)");
 }
 
 // ---------------------------------------------------------------------------

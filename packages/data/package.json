@@ -32,6 +32,7 @@
     "data:agencies-hierarchy": "tsx --env-file=../../.env.local src/pipelines/agencies-hierarchy/index.ts",
     "data:agency-enrichment": "tsx --env-file=../../.env.local src/pipelines/agency-enrichment/index.ts",
     "data:agency-leadership": "tsx --env-file=../../.env.local src/pipelines/agency-leadership/index.ts",
+    "data:opm-fte": "tsx --env-file=../../.env.local src/pipelines/opm-fte/index.ts",
     "data:votes-backfill": "tsx --env-file=../../.env.local src/pipelines/congress/votes-backfill.ts",
     "data:elections": "tsx --env-file=../../.env.local src/pipelines/elections/index.ts",
     "data:govtrack-cosponsors": "tsx --env-file=../../.env.local src/pipelines/govtrack-cosponsors/index.ts",

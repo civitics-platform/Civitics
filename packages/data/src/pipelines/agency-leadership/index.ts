@@ -149,7 +149,7 @@ async function closeStaleConnections(
     const updatedMeta = { ...(conn.metadata ?? {}), is_current: false };
     const { error } = await db
       .from("entity_connections")
-      .update({ metadata: updatedMeta, ended_at: today, updated_at: new Date().toISOString() })
+      .update({ metadata: updatedMeta, ended_at: today, derived_at: new Date().toISOString() })
       .eq("id", conn.id);
     if (!error) closed++;
   }
@@ -191,9 +191,13 @@ async function runCongressNominationsPass(
     return;
   }
 
-  // Current Congress: 119th (2025–). This covers Trump administration nominations.
+  // 119th Congress started 2025-01-03. Only nominations received after this date
+  // represent current-term appointments. Older nominations may still appear in
+  // API results despite the congress= filter, so we use receivedDate as a hard
+  // cutoff to avoid treating historical commissioners as currently serving.
   const CURRENT_CONGRESS = 119;
-  console.log(`\n  Pass 2: Congress.gov nominations (${CURRENT_CONGRESS}th Congress)`);
+  const CONGRESS_START_DATE = "2025-01-03";
+  console.log(`\n  Pass 2: Congress.gov nominations (${CURRENT_CONGRESS}th Congress, on/after ${CONGRESS_START_DATE})`);
 
   // Agency lookup by normalized name
   const agencyByNormName = new Map<string, AgencyRow>();
@@ -232,9 +236,17 @@ async function runCongressNominationsPass(
       break;
     }
 
+    let pageHadRecentNominations = false;
+
     for (const nom of nominations) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const n = nom as any;
+
+      // Skip nominations predating the 119th Congress — the congress= filter
+      // is unreliable; use receivedDate as a hard client-side cutoff.
+      const receivedDate = (n.receivedDate ?? "") as string;
+      if (receivedDate && receivedDate < CONGRESS_START_DATE) continue;
+      pageHadRecentNominations = true;
 
       // Only civilian, non-privileged nominations
       if (!n.nominationType?.isCivilian) continue;
@@ -267,7 +279,13 @@ async function runCongressNominationsPass(
     }
 
     totalFetched += nominations.length;
-    hasMore = nominations.length === pageSize;
+    // If the entire page predated CONGRESS_START_DATE, all further pages will too
+    if (nominations.length > 0 && !pageHadRecentNominations) {
+      console.log(`    Reached nominations older than ${CONGRESS_START_DATE} — stopping pagination`);
+      hasMore = false;
+    } else {
+      hasMore = nominations.length === pageSize;
+    }
     offset += pageSize;
     await sleep(300);
   }
@@ -345,6 +363,7 @@ async function runCongressNominationsPass(
           connection_type: "appointment",
           strength: 1.0,
           occurred_at: confirmedDate,
+          evidence_source: "congress_nominations",
           metadata: {
             start_date: confirmedDate,
             end_date: null,
@@ -476,14 +495,14 @@ export async function runAgencyLeadershipPipeline(): Promise<PipelineResult> {
           return bStart.localeCompare(aStart);
         });
 
-        // Current holder: most-recent start with no explicit past end date
+        // Current holder: only sorted[0] (most-recent start) can be current.
+        // If they already have an explicit past end date the position's current
+        // holder is not in this dataset — mark nobody current rather than
+        // falling back to an older no-end-date entry (the Ajit Pai bug).
         let currentIdx = -1;
-        for (let i = 0; i < sorted.length; i++) {
-          const end = parseDate(sorted[i].end?.value);
-          if (!end || new Date(end) >= new Date()) {
-            currentIdx = i;
-            break;
-          }
+        const end0 = parseDate(sorted[0].end?.value);
+        if (!end0 || new Date(end0) >= new Date()) {
+          currentIdx = 0;
         }
 
         for (let i = 0; i < sorted.length; i++) {
@@ -564,6 +583,7 @@ export async function runAgencyLeadershipPipeline(): Promise<PipelineResult> {
               strength: isCurrent ? 1.0 : 0.5,
               occurred_at: parseDate(leader.start?.value),
               ended_at: effectiveEnd,
+              evidence_source: "wikidata",
               metadata: {
                 start_date: parseDate(leader.start?.value),
                 end_date: effectiveEnd,

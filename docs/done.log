@@ -266,3 +266,8 @@
 2026-04-27 | FIX-163 | 4448cd4d | local+prod | feat(districts): TIGER state-legislative boundaries + maps UI
 2026-05-05 | FIX-163 | 95405d71 | local+prod | chore(fixes): archive completed BUGS items + backfill FIX-163
 2026-05-06 | FIX-194 | 3618cdb7 | local-only | feat(usaspending): wire bulk pipeline, add spending aggregate columns, label search amounts
+2026-05-06 | FIX-208 | 38c01e91 | local-only | feat(agencies): enrichment pipelines, leadership graph, SEC CIK groundwork
+2026-05-06 | FIX-209 | 38c01e91 | local-only | feat(agencies): enrichment pipelines, leadership graph, SEC CIK groundwork
+2026-05-06 | FIX-210 | 38c01e91 | local-only | feat(agencies): enrichment pipelines, leadership graph, SEC CIK groundwork
+2026-05-06 | FIX-211 | 38c01e91 | local-only | feat(agencies): enrichment pipelines, leadership graph, SEC CIK groundwork
+2026-05-06 | FIX-212 | 38c01e91 | local-only | feat(agencies): enrichment pipelines, leadership graph, SEC CIK groundwork

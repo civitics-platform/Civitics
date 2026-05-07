@@ -34,6 +34,7 @@ type OfficialLink = {
   name: string;
   title: string;
   connectionType: string;
+  strength: number;
   startDate: string | null;
   endDate: string | null;
   isCurrent: boolean;
@@ -285,7 +286,7 @@ export default async function AgencyProfilePage({
   // Officials connected to this agency via entity_connections
   const { data: connectionRows } = await supabase
     .from("entity_connections")
-    .select("from_id, from_type, to_id, to_type, connection_type, metadata")
+    .select("from_id, from_type, to_id, to_type, connection_type, strength, metadata")
     .or(
       `and(from_type.eq.official,to_id.eq.${agency.id}),and(to_type.eq.official,from_id.eq.${agency.id})`
     )
@@ -301,9 +302,11 @@ export default async function AgencyProfilePage({
 
   const connectionByOfficialId = new Map<string, {
     connectionType: string;
-    startDate: string | null;
-    endDate: string | null;
-    isCurrent: boolean;
+    positionTitle:  string | null;
+    strength:       number;
+    startDate:      string | null;
+    endDate:        string | null;
+    isCurrent:      boolean;
   }>(
     (connectionRows ?? []).map((r) => {
       const officialId = r.from_type === "official" ? r.from_id : r.to_id;
@@ -312,9 +315,11 @@ export default async function AgencyProfilePage({
         officialId,
         {
           connectionType: r.connection_type,
-          startDate:  typeof meta["start_date"] === "string" ? meta["start_date"] : null,
-          endDate:    typeof meta["end_date"]   === "string" ? meta["end_date"]   : null,
-          isCurrent:  meta["is_current"] === true || meta["end_date"] == null,
+          positionTitle:  typeof meta["position_title"] === "string" ? meta["position_title"] : null,
+          strength:       typeof r.strength === "number" ? r.strength : 0,
+          startDate:      typeof meta["start_date"] === "string" ? meta["start_date"] : null,
+          endDate:        typeof meta["end_date"]   === "string" ? meta["end_date"]   : null,
+          isCurrent:      meta["is_current"] === true,
         },
       ];
     })
@@ -327,20 +332,22 @@ export default async function AgencyProfilePage({
       .select("id, full_name, role_title")
       .in("id", officialIds);
     officials = (officialRows ?? []).map((o) => {
-      const conn = connectionByOfficialId.get(o.id) ?? { connectionType: "oversight", startDate: null, endDate: null, isCurrent: false };
+      const conn = connectionByOfficialId.get(o.id) ?? { connectionType: "oversight", positionTitle: null, strength: 0, startDate: null, endDate: null, isCurrent: false };
       return {
         id:             o.id,
         name:           o.full_name,
-        title:          o.role_title,
+        title:          conn.positionTitle ?? o.role_title,
         connectionType: conn.connectionType,
+        strength:       conn.strength,
         startDate:      conn.startDate,
         endDate:        conn.endDate,
         isCurrent:      conn.isCurrent,
       };
     });
-    // Sort: current first, then by endDate desc
+    // Sort: current first, then by strength desc, then endDate desc
     officials.sort((a, b) => {
       if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1;
+      if (a.strength !== b.strength) return b.strength - a.strength;
       if (a.endDate && b.endDate) return b.endDate.localeCompare(a.endDate);
       return 0;
     });
@@ -692,18 +699,34 @@ export default async function AgencyProfilePage({
                   <p className="text-sm text-gray-400">No leadership data on record yet.</p>
                 </div>
               ) : (
-                <>
-                  {/* Current leadership */}
-                  {officials.filter(o => o.isCurrent).length > 0 && (
-                    <div className="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
-                      {officials.filter(o => o.isCurrent).map((o) => (
-                        <OfficialCard key={o.id} official={o} />
-                      ))}
+                <div className="flex flex-col gap-3">
+                  {/* Agency Head: current + strength >= 0.9 */}
+                  {officials.filter(o => o.isCurrent && o.strength >= 0.9).length > 0 && (
+                    <div>
+                      <p className="mb-1.5 text-xs font-medium uppercase tracking-wider text-gray-400">Agency Head</p>
+                      <div className="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
+                        {officials.filter(o => o.isCurrent && o.strength >= 0.9).map((o) => (
+                          <OfficialCard key={o.id} official={o} />
+                        ))}
+                      </div>
                     </div>
                   )}
-                  {/* Past leadership */}
+                  {/* Senior Leadership: current + strength < 0.9 */}
+                  {officials.filter(o => o.isCurrent && o.strength < 0.9).length > 0 && (
+                    <div>
+                      <p className="mb-1.5 text-xs font-medium uppercase tracking-wider text-gray-400">
+                        {officials.filter(o => o.isCurrent && o.strength >= 0.9).length > 0 ? "Senior Leadership" : "Current"}
+                      </p>
+                      <div className="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
+                        {officials.filter(o => o.isCurrent && o.strength < 0.9).map((o) => (
+                          <OfficialCard key={o.id} official={o} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {/* Past: all non-current, capped at 5 */}
                   {officials.filter(o => !o.isCurrent).length > 0 && (
-                    <div className="mt-3">
+                    <div>
                       <p className="mb-1.5 text-xs font-medium uppercase tracking-wider text-gray-400">Past</p>
                       <div className="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
                         {officials.filter(o => !o.isCurrent).slice(0, 5).map((o) => (
@@ -712,7 +735,7 @@ export default async function AgencyProfilePage({
                       </div>
                     </div>
                   )}
-                </>
+                </div>
               )}
             </section>
 

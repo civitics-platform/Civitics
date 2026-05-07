@@ -249,6 +249,8 @@ export async function runAgencyLeadershipPipeline(): Promise<PipelineResult> {
               to_type: "agency",
               to_id: agency.id,
               connection_type: "appointment",
+              // P488 = head of agency — always top-level (1.0 current, 0.5 past)
+              strength: isCurrent ? 1.0 : 0.5,
               evidence_source: "wikidata",
               evidence_ids: [],
               metadata: connMeta,

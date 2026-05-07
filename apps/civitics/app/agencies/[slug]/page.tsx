@@ -38,6 +38,8 @@ type OfficialLink = {
   startDate: string | null;
   endDate: string | null;
   isCurrent: boolean;
+  evidenceSource: string | null;
+  sourceDate: string | null;  // date OPM/Wikidata last changed this record
 };
 
 type SpendingRow = {
@@ -286,11 +288,11 @@ export default async function AgencyProfilePage({
   // Officials connected to this agency via entity_connections
   const { data: connectionRows } = await supabase
     .from("entity_connections")
-    .select("from_id, from_type, to_id, to_type, connection_type, strength, metadata")
+    .select("from_id, from_type, to_id, to_type, connection_type, strength, metadata, evidence_source")
     .or(
       `and(from_type.eq.official,to_id.eq.${agency.id}),and(to_type.eq.official,from_id.eq.${agency.id})`
     )
-    .limit(30);
+    .limit(100);
 
   const officialIds = Array.from(
     new Set(
@@ -300,6 +302,10 @@ export default async function AgencyProfilePage({
     )
   );
 
+  // Prefer plum_book rows over wikidata/congress rows for the same official —
+  // PLUM is more complete and has source_date for freshness display.
+  const SOURCE_PRIORITY: Record<string, number> = { plum_book: 3, congress_nominations: 2, wikidata: 1 };
+
   const connectionByOfficialId = new Map<string, {
     connectionType: string;
     positionTitle:  string | null;
@@ -307,23 +313,30 @@ export default async function AgencyProfilePage({
     startDate:      string | null;
     endDate:        string | null;
     isCurrent:      boolean;
-  }>(
-    (connectionRows ?? []).map((r) => {
-      const officialId = r.from_type === "official" ? r.from_id : r.to_id;
-      const meta = (r.metadata ?? {}) as Record<string, unknown>;
-      return [
-        officialId,
-        {
-          connectionType: r.connection_type,
-          positionTitle:  typeof meta["position_title"] === "string" ? meta["position_title"] : null,
-          strength:       typeof r.strength === "number" ? r.strength : 0,
-          startDate:      typeof meta["start_date"] === "string" ? meta["start_date"] : null,
-          endDate:        typeof meta["end_date"]   === "string" ? meta["end_date"]   : null,
-          isCurrent:      meta["is_current"] === true,
-        },
-      ];
-    })
-  );
+    evidenceSource: string | null;
+    sourceDate:     string | null;
+  }>();
+
+  for (const r of connectionRows ?? []) {
+    const officialId = r.from_type === "official" ? r.from_id : r.to_id;
+    const meta = (r.metadata ?? {}) as Record<string, unknown>;
+    const incoming = {
+      connectionType: r.connection_type,
+      positionTitle:  typeof meta["position_title"] === "string" ? meta["position_title"] : null,
+      strength:       typeof r.strength === "number" ? r.strength : 0,
+      startDate:      typeof meta["start_date"] === "string" ? meta["start_date"] : null,
+      endDate:        typeof meta["end_date"]   === "string" ? meta["end_date"]   : null,
+      isCurrent:      meta["is_current"] === true,
+      evidenceSource: typeof r.evidence_source === "string" ? r.evidence_source : null,
+      sourceDate:     typeof meta["source_date"] === "string" ? meta["source_date"] : null,
+    };
+    const existing = connectionByOfficialId.get(officialId);
+    const inPriority  = SOURCE_PRIORITY[incoming.evidenceSource ?? ""] ?? 0;
+    const exPriority  = SOURCE_PRIORITY[existing?.evidenceSource ?? ""] ?? 0;
+    if (!existing || inPriority > exPriority) {
+      connectionByOfficialId.set(officialId, incoming);
+    }
+  }
 
   let officials: OfficialLink[] = [];
   if (officialIds.length > 0) {
@@ -332,7 +345,7 @@ export default async function AgencyProfilePage({
       .select("id, full_name, role_title")
       .in("id", officialIds);
     officials = (officialRows ?? []).map((o) => {
-      const conn = connectionByOfficialId.get(o.id) ?? { connectionType: "oversight", positionTitle: null, strength: 0, startDate: null, endDate: null, isCurrent: false };
+      const conn = connectionByOfficialId.get(o.id) ?? { connectionType: "oversight", positionTitle: null, strength: 0, startDate: null, endDate: null, isCurrent: false, evidenceSource: null, sourceDate: null };
       return {
         id:             o.id,
         name:           o.full_name,
@@ -342,6 +355,8 @@ export default async function AgencyProfilePage({
         startDate:      conn.startDate,
         endDate:        conn.endDate,
         isCurrent:      conn.isCurrent,
+        evidenceSource: conn.evidenceSource,
+        sourceDate:     conn.sourceDate,
       };
     });
     // Sort: current first, then by strength desc, then endDate desc
@@ -352,6 +367,15 @@ export default async function AgencyProfilePage({
       return 0;
     });
   }
+
+  // PLUM Book data freshness — last time OPM actually changed the underlying data
+  const plumStateRes = await supabase
+    .from("pipeline_state")
+    .select("value")
+    .eq("key", "plum_book_state")
+    .maybeSingle();
+  const plumState = plumStateRes.data?.value as Record<string, string> | null;
+  const plumLastChange: string | null = plumState?.last_change?.slice(0, 10) ?? null;
 
   // Agency hierarchy: parent + children
   const [parentRes, childrenRes] = await Promise.all([
@@ -706,7 +730,7 @@ export default async function AgencyProfilePage({
                       <p className="mb-1.5 text-xs font-medium uppercase tracking-wider text-gray-400">Agency Head</p>
                       <div className="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
                         {officials.filter(o => o.isCurrent && o.strength >= 0.9).map((o) => (
-                          <OfficialCard key={o.id} official={o} />
+                          <OfficialCard key={o.id} official={o} plumLastChange={plumLastChange} />
                         ))}
                       </div>
                     </div>
@@ -719,7 +743,7 @@ export default async function AgencyProfilePage({
                       </p>
                       <div className="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
                         {officials.filter(o => o.isCurrent && o.strength < 0.9).map((o) => (
-                          <OfficialCard key={o.id} official={o} />
+                          <OfficialCard key={o.id} official={o} plumLastChange={plumLastChange} />
                         ))}
                       </div>
                     </div>
@@ -730,11 +754,12 @@ export default async function AgencyProfilePage({
                       <p className="mb-1.5 text-xs font-medium uppercase tracking-wider text-gray-400">Past</p>
                       <div className="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
                         {officials.filter(o => !o.isCurrent).slice(0, 5).map((o) => (
-                          <OfficialCard key={o.id} official={o} />
+                          <OfficialCard key={o.id} official={o} plumLastChange={plumLastChange} />
                         ))}
                       </div>
                     </div>
                   )}
+                  <DataFreshnessNote plumLastChange={plumLastChange} />
                 </div>
               )}
             </section>
@@ -829,8 +854,20 @@ function formatTenure(startDate: string | null, endDate: string | null): string 
   return "";
 }
 
-function OfficialCard({ official }: { official: OfficialLink }) {
+function OfficialCard({
+  official,
+  plumLastChange,
+}: {
+  official: OfficialLink;
+  plumLastChange?: string | null;
+}) {
   const tenure = formatTenure(official.startDate, official.endDate);
+  // Stale if current, sourced from PLUM, and last OPM update was >60 days ago
+  const isStale =
+    official.isCurrent &&
+    official.evidenceSource === "plum_book" &&
+    plumLastChange != null &&
+    (Date.now() - new Date(plumLastChange).getTime()) > 60 * 24 * 60 * 60 * 1000;
   return (
     <a
       href={`/officials/${official.id}`}
@@ -842,9 +879,14 @@ function OfficialCard({ official }: { official: OfficialLink }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <p className="truncate text-sm font-semibold text-gray-900">{official.name}</p>
-          {official.isCurrent && (
+          {official.isCurrent && !isStale && (
             <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
               Current
+            </span>
+          )}
+          {official.isCurrent && isStale && (
+            <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700" title="Data may be outdated — OPM PLUM Book hasn't been updated recently">
+              Current*
             </span>
           )}
         </div>
@@ -855,5 +897,18 @@ function OfficialCard({ official }: { official: OfficialLink }) {
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
       </svg>
     </a>
+  );
+}
+
+function DataFreshnessNote({ plumLastChange }: { plumLastChange: string | null }) {
+  if (!plumLastChange) return null;
+  const date = new Date(plumLastChange);
+  const isStale = (Date.now() - date.getTime()) > 60 * 24 * 60 * 60 * 1000;
+  const formatted = date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  return (
+    <p className={`mt-2 text-[11px] ${isStale ? "text-amber-600" : "text-gray-400"}`}>
+      {isStale ? "* " : ""}OPM PLUM Book data as of {formatted}
+      {isStale && " — may not reflect recent changes"}
+    </p>
   );
 }

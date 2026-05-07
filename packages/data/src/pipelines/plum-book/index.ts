@@ -21,7 +21,7 @@
  */
 
 import { createAdminClient } from "@civitics/db";
-import { completeSync, failSync, startSync, getLastSync, type PipelineResult } from "../sync-log";
+import { completeSync, failSync, startSync, type PipelineResult } from "../sync-log";
 
 // ---------------------------------------------------------------------------
 // FTM types
@@ -63,42 +63,68 @@ function firstProp(entity: FtmEntity, prop: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Version check
+// Version check — uses index.json last_change, not ETag.
+// OpenSanctions re-exports daily but last_change only advances when OPM
+// actually updates the underlying data (often weeks apart).
 // ---------------------------------------------------------------------------
 
-async function getCurrentDatasetVersion(): Promise<string | null> {
+const INDEX_URL =
+  "https://data.opensanctions.org/datasets/latest/us_plum_book/index.json";
+
+interface DatasetIndex {
+  last_change?: string;   // ISO datetime when OPM data last changed
+  updated_at?:  string;   // ISO datetime of latest export (advances daily)
+  version?:     string;   // opaque version string
+}
+
+async function fetchDatasetIndex(): Promise<DatasetIndex | null> {
   try {
-    const resp = await fetch(FTM_URL, {
-      method: "HEAD",
+    const resp = await fetch(INDEX_URL, {
       headers: { "User-Agent": "Civitics/1.0 (civic data platform; contact@civitics.com)" },
     });
-    // Prefer ETag (stable content hash) over Last-Modified (clock-sensitive)
-    return resp.headers.get("ETag") ?? resp.headers.get("Last-Modified") ?? null;
+    if (!resp.ok) return null;
+    return (await resp.json()) as DatasetIndex;
   } catch {
     return null;
   }
 }
 
+interface StoredState {
+  last_change: string | null;  // OPM data change date (version key)
+  export_date: string | null;  // last export date (display only)
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function getStoredVersion(db: any): Promise<string | null> {
+async function getStoredState(db: any): Promise<StoredState> {
   try {
     const { data } = await db
       .from("pipeline_state")
       .select("value")
       .eq("key", "plum_book_state")
       .maybeSingle();
-    return (data?.value as Record<string, string> | null)?.version ?? null;
+    const v = data?.value as Record<string, string> | null;
+    return { last_change: v?.last_change ?? null, export_date: v?.export_date ?? null };
   } catch {
-    return null;
+    return { last_change: null, export_date: null };
   }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function storeVersion(db: any, version: string): Promise<void> {
+async function storeState(db: any, idx: DatasetIndex): Promise<void> {
   try {
     await db
       .from("pipeline_state")
-      .upsert({ key: "plum_book_state", value: { version }, updated_at: new Date().toISOString() }, { onConflict: "key" });
+      .upsert(
+        {
+          key: "plum_book_state",
+          value: {
+            last_change: idx.last_change ?? null,
+            export_date: idx.updated_at  ?? null,
+          },
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "key" }
+      );
   } catch {
     // non-fatal
   }
@@ -241,19 +267,27 @@ export async function runPlumBookPipeline(opts: { force?: boolean } = {}): Promi
   const force  = opts.force ?? process.argv.includes("--force");
 
   try {
-    // ── Version check ──────────────────────────────────────────────────────
-    const currentVersion = await getCurrentDatasetVersion();
-    if (currentVersion && !force) {
-      const storedVersion = await getStoredVersion(db);
-      if (storedVersion === currentVersion) {
-        console.log(`  No new release (${currentVersion}) — skipping`);
+    // ── Version check (compare last_change, not ETag) ─────────────────────
+    const datasetIdx = await fetchDatasetIndex();
+    const lastChange = datasetIdx?.last_change ?? null;
+
+    if (lastChange && !force) {
+      const stored = await getStoredState(db);
+      if (stored.last_change === lastChange) {
+        console.log(`  No new OPM data since ${lastChange} — skipping`);
         await completeSync(logId, result);
         return result;
       }
-      console.log(`  New release detected: ${currentVersion} (was ${storedVersion ?? "never run"})`);
+      console.log(`  OPM data changed: ${lastChange} (was ${stored.last_change ?? "never run"})`);
     } else if (force) {
-      console.log("  --force: skipping version check");
+      console.log(`  --force: skipping version check${lastChange ? ` (OPM data: ${lastChange})` : ""}`);
+    } else {
+      console.log("  Could not fetch dataset index — proceeding anyway");
     }
+
+    // Use the OPM last_change date as the authoritative source_date for all
+    // connections written this run. Falls back to today if index unavailable.
+    const sourceDate = lastChange?.slice(0, 10) ?? today;
 
     // ── Download + parse ───────────────────────────────────────────────────
     console.log("  Downloading entities.ftm.json...");
@@ -308,126 +342,216 @@ export async function runPlumBookPipeline(opts: { force?: boolean } = {}): Promi
     });
     console.log(`  ${relevant.length.toLocaleString()} relevant occupancies (current + ended ≥ ${HISTORICAL_CUTOFF})`);
 
-    // ── Process occupancies ────────────────────────────────────────────────
-    const currentsByAgency = new Map<string, Set<string>>();
-    let matched   = 0;
-    let unmatched = 0;
+    // ── Phase 1: Resolve occupancies in-memory (no DB) ────────────────────
+    interface ResolvedOcc {
+      personId:        string;
+      positionId:      string;
+      personName:      string;
+      agencyId:        string;
+      posTitle:        string;
+      isCurrent:       boolean;
+      startDate:       string | null;
+      endDate:         string | null;
+      appointmentType: string | null;
+    }
+
+    const resolved: ResolvedOcc[] = [];
+    let matched = 0, unmatched = 0;
 
     for (const occ of relevant) {
       const personId   = firstProp(occ, "holder");
       const positionId = firstProp(occ, "post");
       if (!personId || !positionId) continue;
-
       const person   = persons.get(personId);
       const position = positions.get(positionId);
       if (!person || !position) continue;
-
       const positionName = firstProp(position, "name");
       if (!positionName) continue;
-
       const hit = matchPosition(positionName, agencyLookup);
       if (!hit) { unmatched++; continue; }
       matched++;
-
-      const { agency, posTitle } = hit;
-      const isCurrent       = firstProp(occ, "status") === "current";
-      const startDate       = firstProp(occ, "startDate");
-      const endDate         = firstProp(occ, "endDate");
-      const appointmentType = firstProp(occ, "description"); // pay/appointment code
-      const personName      = firstProp(person, "name") ?? "Unknown";
-
-      // ── Upsert official ──────────────────────────────────────────────────
-      let officialId = officialByPlumId.get(personId);
-
-      if (!officialId) {
-        if (!federalJurisdictionId) continue;
-
-        // Name-match fallback before creating a new row
-        const { data: byName } = await db
-          .from("officials")
-          .select("id, source_ids")
-          .eq("full_name", personName)
-          .maybeSingle();
-
-        if (byName?.id) {
-          officialId = byName.id as string;
-          await db
-            .from("officials")
-            .update({
-              source_ids:  { ...(byName.source_ids ?? {}), plum_id: personId },
-              is_active:   isCurrent,
-              updated_at:  new Date().toISOString(),
-            })
-            .eq("id", officialId);
-          officialByPlumId.set(personId, officialId);
-          result.updated++;
-        } else {
-          const { data: ins, error: insErr } = await db
-            .from("officials")
-            .insert({
-              full_name:       personName,
-              role_title:      posTitle.slice(0, 200),
-              is_active:       isCurrent,
-              jurisdiction_id: federalJurisdictionId,
-              source_ids:      { plum_id: personId },
-              metadata:        { source: "plum_book", appointment_type: appointmentType },
-            })
-            .select("id")
-            .single();
-
-          if (insErr || !ins?.id) { result.failed++; continue; }
-          officialId = ins.id as string;
-          officialByPlumId.set(personId, officialId);
-          result.inserted++;
-        }
-      } else {
-        await db
-          .from("officials")
-          .update({
-            is_active:  isCurrent,
-            role_title: posTitle.slice(0, 200),
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", officialId);
-        result.updated++;
-      }
-
-      if (!officialId) continue;
-
-      if (isCurrent) {
-        const s = currentsByAgency.get(agency.id) ?? new Set<string>();
-        s.add(officialId);
-        currentsByAgency.set(agency.id, s);
-      }
-
-      // ── Upsert entity_connection ─────────────────────────────────────────
-      await db.from("entity_connections").upsert(
-        {
-          from_type:       "official",
-          from_id:         officialId,
-          to_type:         "agency",
-          to_id:           agency.id,
-          connection_type: "appointment",
-          strength:        isCurrent ? 1.0 : 0.5,
-          occurred_at:     startDate ?? null,
-          ended_at:        endDate   ?? null,
-          evidence_source: "plum_book",
-          metadata: {
-            start_date:       startDate,
-            end_date:         endDate,
-            position_title:   posTitle.slice(0, 300),
-            position_property: "plum_book",
-            appointment_type: appointmentType,
-            is_current:       isCurrent,
-            plum_person_id:   personId,
-            plum_position_id: positionId,
-          },
-        },
-        { onConflict: "from_type,from_id,to_type,to_id,connection_type", ignoreDuplicates: false }
-      );
+      resolved.push({
+        personId, positionId,
+        personName:      firstProp(person, "name") ?? "Unknown",
+        agencyId:        hit.agency.id,
+        posTitle:        hit.posTitle,
+        isCurrent:       firstProp(occ, "status") === "current",
+        startDate:       firstProp(occ, "startDate"),
+        endDate:         firstProp(occ, "endDate"),
+        appointmentType: firstProp(occ, "description"),
+      });
     }
 
     console.log(`  Agency matches: ${matched.toLocaleString()}, unmatched: ${unmatched.toLocaleString()}`);
+
+    // ── Phase 2: Pre-fetch all officials for case-insensitive name dedup ───
+    // One query instead of one ilike per unknown person.
+    // PLUM names are ALL CAPS; DB names from other pipelines are mixed case.
+    const { data: allOfficials, error: allOffErr } = await db
+      .from("officials")
+      .select("id, full_name, source_ids")
+      .limit(100000);
+    if (allOffErr) throw new Error(allOffErr.message);
+
+    const officialByLowerName = new Map<
+      string,
+      { id: string; source_ids: Record<string, string> | null }
+    >();
+    for (const o of allOfficials ?? []) {
+      const lower = (o.full_name as string).toLowerCase();
+      if (!officialByLowerName.has(lower)) {
+        officialByLowerName.set(lower, {
+          id:         o.id as string,
+          source_ids: o.source_ids as Record<string, string> | null,
+        });
+      }
+    }
+
+    // ── Phase 3: Categorise unique persons ────────────────────────────────
+    // known     — already in officialByPlumId (loaded at startup)
+    // toLink    — found by name in allOfficials (from other pipelines)
+    // toInsert  — not found anywhere, need batch insert
+    interface NewOfficial {
+      full_name:       string;
+      role_title:      string;
+      is_active:       boolean;
+      jurisdiction_id: string;
+      source_ids:      { plum_id: string };
+      metadata:        { source: string; appointment_type: string | null };
+      _plumId:         string; // stripped before DB call
+    }
+    interface LinkUpdate {
+      id:                string;
+      plumId:            string;
+      existingSourceIds: Record<string, string> | null;
+      isCurrent:         boolean;
+      roleTitle:         string;
+    }
+
+    const toInsert: NewOfficial[] = [];
+    const toLink:   LinkUpdate[]  = [];
+    const seenPlumIds = new Set<string>();
+
+    for (const r of resolved) {
+      if (officialByPlumId.has(r.personId) || seenPlumIds.has(r.personId)) continue;
+      seenPlumIds.add(r.personId);
+
+      const byName = officialByLowerName.get(r.personName.toLowerCase());
+      if (byName) {
+        officialByPlumId.set(r.personId, byName.id);
+        toLink.push({
+          id: byName.id, plumId: r.personId,
+          existingSourceIds: byName.source_ids,
+          isCurrent: r.isCurrent, roleTitle: r.posTitle.slice(0, 200),
+        });
+      } else {
+        if (!federalJurisdictionId) continue;
+        toInsert.push({
+          full_name:       r.personName,
+          role_title:      r.posTitle.slice(0, 200),
+          is_active:       r.isCurrent,
+          jurisdiction_id: federalJurisdictionId,
+          source_ids:      { plum_id: r.personId },
+          metadata:        { source: "plum_book", appointment_type: r.appointmentType },
+          _plumId:         r.personId,
+        });
+      }
+    }
+
+    // Phase 3a: Batch insert new officials, get back IDs
+    const OFFICIAL_BATCH = 500;
+    for (let i = 0; i < toInsert.length; i += OFFICIAL_BATCH) {
+      const batch = toInsert.slice(i, i + OFFICIAL_BATCH);
+      const rows = batch.map(({ _plumId: _, ...row }) => row);
+      const { data: ins, error } = await db
+        .from("officials")
+        .insert(rows)
+        .select("id, source_ids");
+      if (error) {
+        result.failed += batch.length;
+        console.warn(`  Official batch insert error: ${error.message}`);
+        continue;
+      }
+      for (const o of ins ?? []) {
+        const plumId = (o.source_ids as Record<string, string>).plum_id;
+        if (plumId) { officialByPlumId.set(plumId, o.id as string); result.inserted++; }
+      }
+    }
+
+    // Phase 3b: Update name-matched officials to add plum_id (individual —
+    // these are few ~hundreds, from Wikidata/Congress pipelines)
+    for (const u of toLink) {
+      const { error } = await db
+        .from("officials")
+        .update({
+          source_ids: { ...(u.existingSourceIds ?? {}), plum_id: u.plumId },
+          is_active:  u.isCurrent,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", u.id);
+      if (!error) result.updated++;
+    }
+
+    // ── Phase 4: Collect connections, then batch-upsert ───────────────────
+    interface ConnectionRow {
+      from_type: string; from_id: string;
+      to_type: string;   to_id: string;
+      connection_type: string;
+      strength: number;
+      occurred_at: string | null; ended_at: string | null;
+      evidence_source: string;
+      metadata: Record<string, unknown>;
+    }
+
+    const connections: ConnectionRow[] = [];
+    const currentsByAgency = new Map<string, Set<string>>();
+
+    for (const r of resolved) {
+      const officialId = officialByPlumId.get(r.personId);
+      if (!officialId) continue;
+
+      if (r.isCurrent) {
+        const s = currentsByAgency.get(r.agencyId) ?? new Set<string>();
+        s.add(officialId);
+        currentsByAgency.set(r.agencyId, s);
+      }
+
+      connections.push({
+        from_type: "official", from_id: officialId,
+        to_type:   "agency",   to_id:   r.agencyId,
+        connection_type: "appointment",
+        strength:    r.isCurrent ? 1.0 : 0.5,
+        occurred_at: r.startDate,
+        ended_at:    r.endDate,
+        evidence_source: "plum_book",
+        metadata: {
+          start_date:        r.startDate,
+          end_date:          r.endDate,
+          position_title:    r.posTitle.slice(0, 300),
+          position_property: "plum_book",
+          appointment_type:  r.appointmentType,
+          is_current:        r.isCurrent,
+          source_date:       sourceDate,
+          plum_person_id:    r.personId,
+          plum_position_id:  r.positionId,
+        },
+      });
+    }
+
+    const CONNECTION_BATCH = 500;
+    for (let i = 0; i < connections.length; i += CONNECTION_BATCH) {
+      const batch = connections.slice(i, i + CONNECTION_BATCH);
+      const { error } = await db
+        .from("entity_connections")
+        .upsert(batch, {
+          onConflict:       "from_type,from_id,to_type,to_id,connection_type",
+          ignoreDuplicates: false,
+        });
+      if (error) {
+        console.warn(`  Connection batch upsert error: ${error.message}`);
+        result.failed += batch.length;
+      }
+    }
 
     // ── Close stale is_current connections ────────────────────────────────
     let totalStaleClosed = 0;
@@ -439,7 +563,7 @@ export async function runPlumBookPipeline(opts: { force?: boolean } = {}): Promi
     }
 
     // ── Persist version so next weekly run can skip if unchanged ──────────
-    if (currentVersion) await storeVersion(db, currentVersion);
+    if (datasetIdx) await storeState(db, datasetIdx);
 
     await completeSync(logId, result);
     console.log(`\n  ✓ Done. Inserted: ${result.inserted}, updated: ${result.updated}, failed: ${result.failed}`);

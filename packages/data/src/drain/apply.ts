@@ -26,7 +26,7 @@ type QueueRow = {
   id: number;
   task_type: "tag" | "summary";
   entity_id: string;
-  entity_type: "proposal" | "official" | "financial_entity";
+  entity_type: "proposal" | "official" | "financial_entity" | "agency";
 };
 
 type TagResultItem = {

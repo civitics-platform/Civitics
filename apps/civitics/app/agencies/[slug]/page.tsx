@@ -34,6 +34,9 @@ type OfficialLink = {
   name: string;
   title: string;
   connectionType: string;
+  startDate: string | null;
+  endDate: string | null;
+  isCurrent: boolean;
 };
 
 type SpendingRow = {
@@ -169,7 +172,7 @@ export default async function AgencyProfilePage({
   // Step 1: fetch agency
   const agencyRes = await supabase
     .from("agencies")
-    .select("id, name, short_name, acronym, agency_type, website_url, contact_email, description, governing_body_id, parent_agency_id")
+    .select("id, name, short_name, acronym, agency_type, website_url, contact_email, description, governing_body_id, parent_agency_id, founded_year, personnel_fte, metadata")
     .eq("id", slug)
     .single();
 
@@ -282,11 +285,11 @@ export default async function AgencyProfilePage({
   // Officials connected to this agency via entity_connections
   const { data: connectionRows } = await supabase
     .from("entity_connections")
-    .select("from_id, from_type, to_id, to_type, connection_type")
+    .select("from_id, from_type, to_id, to_type, connection_type, metadata")
     .or(
       `and(from_type.eq.official,to_id.eq.${agency.id}),and(to_type.eq.official,from_id.eq.${agency.id})`
     )
-    .limit(20);
+    .limit(30);
 
   const officialIds = Array.from(
     new Set(
@@ -296,11 +299,25 @@ export default async function AgencyProfilePage({
     )
   );
 
-  const officialConnTypes = new Map<string, string>(
-    (connectionRows ?? []).map((r) => [
-      r.from_type === "official" ? r.from_id : r.to_id,
-      r.connection_type,
-    ])
+  const connectionByOfficialId = new Map<string, {
+    connectionType: string;
+    startDate: string | null;
+    endDate: string | null;
+    isCurrent: boolean;
+  }>(
+    (connectionRows ?? []).map((r) => {
+      const officialId = r.from_type === "official" ? r.from_id : r.to_id;
+      const meta = (r.metadata ?? {}) as Record<string, unknown>;
+      return [
+        officialId,
+        {
+          connectionType: r.connection_type,
+          startDate:  typeof meta["start_date"] === "string" ? meta["start_date"] : null,
+          endDate:    typeof meta["end_date"]   === "string" ? meta["end_date"]   : null,
+          isCurrent:  meta["is_current"] === true || meta["end_date"] == null,
+        },
+      ];
+    })
   );
 
   let officials: OfficialLink[] = [];
@@ -309,12 +326,24 @@ export default async function AgencyProfilePage({
       .from("officials")
       .select("id, full_name, role_title")
       .in("id", officialIds);
-    officials = (officialRows ?? []).map((o) => ({
-      id:             o.id,
-      name:           o.full_name,
-      title:          o.role_title,
-      connectionType: officialConnTypes.get(o.id) ?? "oversight",
-    }));
+    officials = (officialRows ?? []).map((o) => {
+      const conn = connectionByOfficialId.get(o.id) ?? { connectionType: "oversight", startDate: null, endDate: null, isCurrent: false };
+      return {
+        id:             o.id,
+        name:           o.full_name,
+        title:          o.role_title,
+        connectionType: conn.connectionType,
+        startDate:      conn.startDate,
+        endDate:        conn.endDate,
+        isCurrent:      conn.isCurrent,
+      };
+    });
+    // Sort: current first, then by endDate desc
+    officials.sort((a, b) => {
+      if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1;
+      if (a.endDate && b.endDate) return b.endDate.localeCompare(a.endDate);
+      return 0;
+    });
   }
 
   // Agency hierarchy: parent + children
@@ -341,6 +370,10 @@ export default async function AgencyProfilePage({
   const typeColor = AGENCY_TYPE_COLORS[agency.agency_type] ?? AGENCY_TYPE_COLORS["other"]!;
   const typeLabel = AGENCY_TYPE_LABELS[agency.agency_type] ?? "Agency";
   const displayAcronym = agency.acronym ?? agency.short_name ?? agency.name.slice(0, 5).toUpperCase();
+  const agencyMeta = (agency.metadata ?? {}) as Record<string, string | null>;
+  const twitterHandle = agencyMeta["twitter_handle"] ?? null;
+  const youtubeHandle = agencyMeta["youtube_handle"] ?? null;
+  const facebookUrl   = agencyMeta["facebook_url"]   ?? null;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -375,6 +408,11 @@ export default async function AgencyProfilePage({
                 <span className={`rounded border px-2 py-0.5 text-xs font-semibold ${typeColor}`}>
                   {typeLabel}
                 </span>
+                {agency.founded_year && (
+                  <span className="rounded border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-gray-500">
+                    Est. {agency.founded_year}
+                  </span>
+                )}
               </div>
               <h1 className="mt-1 text-2xl font-bold text-gray-900 leading-tight">
                 {agency.name}
@@ -398,6 +436,39 @@ export default async function AgencyProfilePage({
                     {agency.website_url.replace(/^https?:\/\//, "")} ↗
                   </a>
                 )}
+                {twitterHandle && (
+                  <a
+                    href={`https://twitter.com/${twitterHandle}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-gray-400 hover:text-gray-700 transition-colors"
+                    title={`@${twitterHandle} on X/Twitter`}
+                  >
+                    𝕏 @{twitterHandle}
+                  </a>
+                )}
+                {youtubeHandle && (
+                  <a
+                    href={`https://youtube.com/${youtubeHandle}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-gray-400 hover:text-gray-700 transition-colors"
+                    title="YouTube channel"
+                  >
+                    ▶ YouTube
+                  </a>
+                )}
+                {facebookUrl && (
+                  <a
+                    href={facebookUrl.startsWith("http") ? facebookUrl : `https://facebook.com/${facebookUrl}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-gray-400 hover:text-gray-700 transition-colors"
+                    title="Facebook"
+                  >
+                    f Facebook
+                  </a>
+                )}
                 {agency.contact_email && (
                   <a
                     href={`mailto:${agency.contact_email}`}
@@ -417,7 +488,7 @@ export default async function AgencyProfilePage({
         </div>
 
         {/* ── 2. QUICK STATS BAR ────────────────────────────────────────────── */}
-        <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-gray-200 bg-gray-200 sm:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-gray-200 bg-gray-200 sm:grid-cols-5">
           <StatBox value={totalRules > 0 ? totalRules.toLocaleString() : "—"} label="Total rules" />
           <StatBox
             value={openRules > 0 ? openRules.toLocaleString() : "—"}
@@ -427,6 +498,10 @@ export default async function AgencyProfilePage({
           <StatBox
             value={totalSpentCents > 0 ? formatDollars(totalSpentCents) : "—"}
             label="Spending on record"
+          />
+          <StatBox
+            value={agency.personnel_fte ? `~${(agency.personnel_fte as number).toLocaleString()}` : "—"}
+            label="Personnel (FTE)"
           />
           <StatBox value="—" label="Promises tracked" note="Phase 2" />
         </div>
@@ -612,32 +687,33 @@ export default async function AgencyProfilePage({
             {/* ── 3. LEADERSHIP ─────────────────────────────────────────────── */}
             <section>
               <SectionHeader title="Leadership" />
-              <div className="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
-                {officials.length === 0 ? (
-                  <div className="px-4 py-5">
-                    <p className="text-sm text-gray-400">No leadership data on record yet.</p>
-                  </div>
-                ) : (
-                  officials.map((o) => (
-                    <a
-                      key={o.id}
-                      href={`/officials/${o.id}`}
-                      className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors"
-                    >
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-600">
-                        {o.name.split(" ").map((w) => w[0]).join("").slice(0, 2)}
+              {officials.length === 0 ? (
+                <div className="rounded-lg border border-gray-200 bg-white px-4 py-5">
+                  <p className="text-sm text-gray-400">No leadership data on record yet.</p>
+                </div>
+              ) : (
+                <>
+                  {/* Current leadership */}
+                  {officials.filter(o => o.isCurrent).length > 0 && (
+                    <div className="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
+                      {officials.filter(o => o.isCurrent).map((o) => (
+                        <OfficialCard key={o.id} official={o} />
+                      ))}
+                    </div>
+                  )}
+                  {/* Past leadership */}
+                  {officials.filter(o => !o.isCurrent).length > 0 && (
+                    <div className="mt-3">
+                      <p className="mb-1.5 text-xs font-medium uppercase tracking-wider text-gray-400">Past</p>
+                      <div className="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
+                        {officials.filter(o => !o.isCurrent).slice(0, 5).map((o) => (
+                          <OfficialCard key={o.id} official={o} />
+                        ))}
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold text-gray-900">{o.name}</p>
-                        <p className="text-xs text-gray-500">{o.title}</p>
-                      </div>
-                      <svg className="h-4 w-4 shrink-0 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                      </svg>
-                    </a>
-                  ))
-                )}
-              </div>
+                    </div>
+                  )}
+                </>
+              )}
             </section>
 
             {/* Comment banner */}
@@ -718,5 +794,43 @@ function EmptyState({ message }: { message: string }) {
     <div className="rounded-lg border border-gray-200 bg-white px-5 py-8 text-center">
       <p className="text-sm text-gray-400">{message}</p>
     </div>
+  );
+}
+
+function formatTenure(startDate: string | null, endDate: string | null): string {
+  const fmt = (iso: string) =>
+    new Date(iso).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+  if (startDate && !endDate) return `${fmt(startDate)} – present`;
+  if (startDate && endDate)  return `${fmt(startDate)} – ${fmt(endDate)}`;
+  if (!startDate && endDate) return `until ${fmt(endDate)}`;
+  return "";
+}
+
+function OfficialCard({ official }: { official: OfficialLink }) {
+  const tenure = formatTenure(official.startDate, official.endDate);
+  return (
+    <a
+      href={`/officials/${official.id}`}
+      className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors"
+    >
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-600">
+        {official.name.split(" ").map((w: string) => w[0]).join("").slice(0, 2)}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <p className="truncate text-sm font-semibold text-gray-900">{official.name}</p>
+          {official.isCurrent && (
+            <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+              Current
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-gray-500">{official.title}</p>
+        {tenure && <p className="text-xs text-gray-400">{tenure}</p>}
+      </div>
+      <svg className="h-4 w-4 shrink-0 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+      </svg>
+    </a>
   );
 }

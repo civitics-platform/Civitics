@@ -1417,3 +1417,5 @@
 2026-09-07 | FIX-935 | be723562 | closes-as-superseded | fix(db,fec): EC and FE vacuum owners go daily ahead of the 06:00 daily and the daily records the visibility map it ran against; the orphan classifier gains the role-ineligible branch and the containment override; role-ineligible holders get their own remediation path; --defer-tails hands the heavy tails to their owners
 2026-09-07 | FIX-1153 | e7c06a65 | local+prod | fix(data): --defer-tails also defers the phase-3 MV refreshes, which have scheduled owners and a prod-outage precedent
 2026-09-08 | FIX-1153 | reopen | local-only | closed on the be723562 and e7c06a65 CODE commits; set 1 was never applied to prod — reopens until the manifest lands
+2026-09-07 | FIX-1154 | a7e41f7c | prod-only | chore(fec): record prod verification of FIX-1154
+2026-09-07 | FIX-1165 | a4c678fb | local-only | fix(fec,db,grants): the remediation scripts apply from a manifest and never derive on prod; every tail step names its owner and --defer-tails defers all platform-scoped work; group_donor_rollup gets a scheduled owner; entity_grants' active-uniqueness sees NULL targets and active grants can be revoked

@@ -1207,7 +1207,7 @@ export async function getSelfTests(
   // two scheduled firings is Wed→Mon = 5 days. 6d clears that with cushion
   // without false-passing a genuinely missed schedule. (Was Mon-full/Wed-
   // incremental where Monday's 6h CALL budget pushed the newest completed row
-  // to ~5.25d; before that 4.5d for the retired Sun+Wed GHA cadence — FIX-H.)
+  // to ~5.25d; before that 4.5d for the retired Sun+Wed GHA cadence — FIX-831.)
   //
   // FIX-1084 re-checked this against the real cadence rather than the old
   // "~42min incremental" assumption, which no longer holds: a firing now runs

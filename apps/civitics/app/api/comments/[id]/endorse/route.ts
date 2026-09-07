@@ -5,7 +5,7 @@ import { createServerClient } from "@civitics/db";
 export const dynamic = "force-dynamic";
 
 // ─── POST /api/comments/[id]/endorse ──────────────────────────────────────────
-// Q&A v2 PR-2b (FIX-B): a verified answerer endorses (or withdraws endorsement of)
+// Q&A v2 PR-2b (FIX-631): a verified answerer endorses (or withdraws endorsement of)
 // a community note. Body: { endorsed: boolean }.
 //
 // The SECURITY DEFINER set_community_note_endorsement RPC is the single

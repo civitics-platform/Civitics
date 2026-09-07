@@ -48,7 +48,7 @@ type CommunityNote = {
   is_constituent: boolean;
   author_name: string;
   author_is_synthetic?: boolean;
-  // Q&A v2 PR-2b (FIX-C): the office has endorsed this note ("confirms it reflects
+  // Q&A v2 PR-2b (FIX-632): the office has endorsed this note ("confirms it reflects
   // the record"). Endorsed notes sort first and resolve the question (answered).
   is_endorsed: boolean;
 };
@@ -627,7 +627,7 @@ function AddContextComposer({
 }
 
 // ─── Endorse control (grant-holders only) ─────────────────────────────────────
-// Q&A v2 PR-2b (FIX-C): a one-click "the office confirms this reflects the record"
+// Q&A v2 PR-2b (FIX-632): a one-click "the office confirms this reflects the record"
 // for a community note. Toggles endorsed/withdrawn via the gated RPC; on success a
 // full reload (onChanged) re-derives the question's "✓ Answered" badge + ordering.
 function EndorseControl({

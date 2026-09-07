@@ -24,7 +24,7 @@ export interface DonorRow {
   entity_type: string;
 }
 
-// FIX-848/FIX-A — individual-donor size brackets for the treemap "Individual
+// FIX-848/FIX-862 — individual-donor size brackets for the treemap "Individual
 // donors" group. Boundaries + the small=catch-all(<$500) convention MATCH the
 // treemap_individual_brackets_for_official RPC and the sibling
 // chord_donor_brackets_for_official, so the chord and treemap donor-size views
@@ -98,7 +98,7 @@ export async function GET(request: Request) {
     // read would silently drop the tail (where most of a small-dollar official's
     // money lives). rank is a stable unique total order per (official, type).
     //
-    // FIX-848/FIX-A — read BOTH donation and ie_support (ie_oppose stays
+    // FIX-848/FIX-862 — read BOTH donation and ie_support (ie_oppose stays
     // excluded from Top Donors). donation → named donor cells + individual
     // size-bracket cells (replacing the FIX-845 single "Individual donors (N)"
     // tail cell). ie_support → a separate "Independent support" group: super-PAC
@@ -186,7 +186,7 @@ export async function GET(request: Request) {
       });
     }
 
-    // ── Individual size-bracket cells (FIX-848/FIX-A) ────────────────────────
+    // ── Individual size-bracket cells (FIX-848/FIX-862) ────────────────────────
     // Replace the single donation tail cell with per-tier bracket cells inside
     // the "Individual donors" group. The RPC's per-tier totals cover ALL
     // individuals (named + unnamed); subtract the named individuals (rendered as
@@ -263,7 +263,7 @@ export async function GET(request: Request) {
       }
     }
 
-    // ── Independent-support tail (FIX-A) ─────────────────────────────────────
+    // ── Independent-support tail (FIX-862) ─────────────────────────────────────
     if (ieTailCents > 0 && minAmountCents === 0) {
       rows.push({
         donor_id: `tail:ie:${validEntityId}`,
@@ -388,7 +388,7 @@ export async function GET(request: Request) {
   const chamber = searchParams.get("chamber");
   const party   = searchParams.get("party");
   const state   = searchParams.get("state");
-  // FIX-K — gb cohort scoping. `governingBody` (slug canonical, UUID fallback)
+  // FIX-853 — gb cohort scoping. `governingBody` (slug canonical, UUID fallback)
   // resolves the cohort via officials.governing_body_id — the FIX-470 roster
   // predicate the group route uses — NOT role_title, which is polluted: state
   // legislators carry role.title "Representative"/"Senator" verbatim from
@@ -435,7 +435,7 @@ export async function GET(request: Request) {
     .select("id, full_name, party, role_title, metadata, source_ids, jurisdictions:jurisdiction_id(short_name)");
 
   if (gbId) {
-    // FIX-K — governing_body_id cohort + current-member predicate (is_active +
+    // FIX-853 — governing_body_id cohort + current-member predicate (is_active +
     // tier='elected', excluding FEC-candidate pollution). party composes as it
     // does in the group route. state is intentionally NOT composed here: no
     // built-in gb group combines gb+state, and federal officials carry empty

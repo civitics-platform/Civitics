@@ -89,6 +89,17 @@ import {
   usd,
 } from "./fec-orphan-classify";
 import { FEC_ELECTABLE_ROLE_TITLES } from "../pipelines/fec-bulk/electable-role";
+import {
+  diffActionable,
+  diffVerdict,
+  formatDiffLine,
+  manifestArg,
+  manifestColumn,
+  declareRemediationTail,
+  printTailTable,
+  requireManifestOnProd,
+  type DiffInput,
+} from "./remediation-manifest";
 
 /** Sanity bound. The clone measured 84; the reconciliation ceiling is ~200. */
 const MAX_OFFICIALS = 400;
@@ -118,6 +129,16 @@ const STEP_BUDGET_S: Record<string, number> = {
 };
 
 class BudgetExceeded extends Error {}
+
+/**
+ * 57014 query_canceled / 57P01 admin_shutdown — a human or a watchdog said stop.
+ * Distinguished from an ordinary step failure because the response differs: an
+ * ordinary failure is logged and the next step runs, a cancellation aborts.
+ */
+function isCancellation(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === "57014" || code === "57P01";
+}
 
 function isProd(): boolean {
   return /supabase\.co/i.test(process.env["NEXT_PUBLIC_SUPABASE_URL"] ?? "");
@@ -159,6 +180,84 @@ SELECT o.id::text                           AS official_id,
  ORDER BY sum(fr.amount_cents) DESC;
 `;
 
+/**
+ * FIX-1165 — the SAME facts, keyed on the manifest's ids.
+ *
+ * This is what runs on prod. `o.id = ANY($1)` is an index scan on the officials
+ * PK feeding a nested loop into financial_relationships_to (to_type, to_id), so
+ * the cost is the manifest's length and not the table's. POPULATION_SQL above
+ * — which finds WHICH officials qualify, and therefore cannot be keyed — runs
+ * only on the clone.
+ *
+ * LEFT JOIN, not JOIN: a manifest official may legitimately hold zero FR rows
+ * (FIX-1164's 55 zero-money fec_id carriers are exactly that case, and they
+ * still need their id retired). An inner join would silently drop them.
+ */
+const KEYED_POPULATION_SQL = `
+SELECT o.id::text                           AS official_id,
+       o.full_name,
+       o.role_title,
+       o.is_active,
+       o.tier,
+       j.short_name                         AS jurisdiction,
+       o.source_ids->>'fec_id'              AS stored_fec_id,
+       count(fr.id)::text                   AS fec_rows,
+       COALESCE(sum(fr.amount_cents), 0)::text AS fec_cents
+  FROM officials o
+  LEFT JOIN jurisdictions j ON j.id = o.jurisdiction_id
+  LEFT JOIN financial_relationships fr
+    ON fr.to_type = 'official'
+   AND fr.to_id = o.id
+   AND fr.relationship_type = 'donation'
+   AND fr.metadata->>'source' LIKE 'fec_bulk%'
+ WHERE o.id = ANY($1::uuid[])
+ GROUP BY o.id, o.full_name, o.role_title, o.is_active, o.tier, j.short_name, o.source_ids
+ ORDER BY sum(fr.amount_cents) DESC NULLS LAST;
+`;
+
+/**
+ * FIX-1165 — conservation, keyed on the affected donors.
+ *
+ * PLATFORM_SQL aggregates every official donation row on the instance. That is
+ * the right check on a clone and it is the WRONG one on prod: it was the
+ * "conservation phase" that cost 132 of the 2026-09-07 apply's 202 statement
+ * cancellations, for a 28-row change. Keyed on the donors whose rows are
+ * actually moving, the same invariant holds — after = before - deleted — and
+ * the read is a bitmap scan over financial_relationships_from rather than the
+ * table.
+ */
+const KEYED_CONSERVATION_SQL = `
+SELECT count(*)::text                              AS rows,
+       COALESCE(sum(fr.amount_cents), 0)::text     AS cents
+  FROM financial_relationships fr
+ WHERE fr.to_type = 'official'
+   AND fr.relationship_type = 'donation'
+   AND fr.from_id = ANY($1::uuid[]);
+`;
+
+/**
+ * The closing number, keyed. Answers both halves of the class in one pass, for
+ * the manifest's officials only: still holding fec_bulk money (FIX-1153), and
+ * still carrying an fec_id their role cannot hold (FIX-1164).
+ */
+const KEYED_CLOSING_SQL = `
+SELECT count(*) FILTER (WHERE fr_rows > 0)::text AS still_money,
+       count(*) FILTER (WHERE has_fec_id)::text  AS still_id
+  FROM (
+    SELECT o.id,
+           (SELECT count(*)
+              FROM financial_relationships fr
+             WHERE fr.to_type = 'official'
+               AND fr.to_id = o.id
+               AND fr.relationship_type = 'donation'
+               AND fr.metadata->>'source' LIKE 'fec_bulk%') AS fr_rows,
+           (o.source_ids ? 'fec_id')                        AS has_fec_id
+      FROM officials o
+     WHERE o.id = ANY($1::uuid[])
+       AND COALESCE(o.role_title, '') <> ALL($2::text[])
+  ) t;
+`;
+
 interface PopRow extends Record<string, unknown> {
   official_id: string;
   full_name: string;
@@ -179,8 +278,15 @@ interface PopRow extends Record<string, unknown> {
  * unrecoverable (FIX-964's lesson — a DELETE leaves no trace to rebuild the
  * donor-scoped rollups from).
  */
+const FREEZE_DROP_SQL = `DROP TABLE IF EXISTS _doomed`;
+
+/**
+ * FIX-1165 — ONE command, because it now takes a bind parameter. Postgres'
+ * extended query protocol (which node-postgres uses the moment a query has
+ * values) rejects a multi-statement string with 42601, so the DROP above and
+ * the indexes below are issued separately rather than folded in here.
+ */
 const FREEZE_SQL = `
-DROP TABLE IF EXISTS _doomed;
 CREATE TEMP TABLE _doomed AS
 SELECT fr.id            AS row_id,
        fr.to_id         AS official_id,
@@ -195,7 +301,7 @@ SELECT fr.id            AS row_id,
        CASE WHEN o2.id IS NULL THEN 'ONLY-COPY' ELSE 'CROSS' END AS row_class
   FROM financial_relationships fr
   JOIN _pop p ON p.official_id = fr.to_id
-  LEFT JOIN LATERAL (
+  LEFT JOIN LATERAL (  -- keyed per doomed row on financial_relationships_relcycle_unique
         SELECT x.id, x.amount_cents, x.updated_at
           FROM financial_relationships x
          WHERE x.to_type = 'official'
@@ -208,9 +314,20 @@ SELECT fr.id            AS row_id,
   ) o2 ON true
  WHERE fr.to_type = 'official'
    AND fr.relationship_type = 'donation'
-   AND fr.metadata->>'source' LIKE 'fec_bulk%';
+   AND fr.metadata->>'source' LIKE 'fec_bulk%'
+   -- FIX-1165: the explicit array bound, not just the join to _pop. A TEMP TABLE
+   -- created by CREATE TABLE AS carries no statistics, so the planner has no row
+   -- estimate for _pop and is free to hash-join it against a SEQUENTIAL SCAN of
+   -- financial_relationships — which on prod is the whole cost of the change.
+   -- = ANY($1) gives it a concrete array and the (to_type, to_id) index; the
+   -- caller ANALYZEs _pop as well, for the join order.
+   AND fr.to_id = ANY($1::uuid[])
+`;
+
+const FREEZE_POST_SQL = `
 CREATE INDEX ON _doomed (official_id);
 CREATE INDEX ON _doomed (donor_id);
+ANALYZE _doomed;
 `;
 
 // ---------------------------------------------------------------------------
@@ -332,12 +449,18 @@ async function runRollups(client: Client, prod: boolean, defer = false): Promise
       STEP_BUDGET_S["donor_rollup"]!,
     );
 
-    await budgeted(
-      client,
-      "rebuild_official_donation_totals()",
-      `SELECT rebuild_official_donation_totals()`,
-      STEP_BUDGET_S["official_totals"]!,
-    );
+    // FIX-1165 — rebuild_official_donation_totals() call REMOVED. Two reasons,
+    // either sufficient. (1) The function does not exist: it is absent from
+    // pg_proc on both prod and the local clone, so this step could only ever
+    // have thrown 42883, and because the surrounding catch rethrows anything
+    // that is not BudgetExceeded it would have aborted the whole rollup phase.
+    // This path had never been run. (2) FIX-942 had already removed the same
+    // call from remediate-cross-person-misattribution.ts and
+    // merge-same-person-official-dupes.ts on its own merits — it writes
+    // officials.total_received_cents, a column with no reader left, since the
+    // treemap, the small-dollar route and the search index all read
+    // official_donor_totals.total_cents, which donor_rollup_rebuild_recipients
+    // above maintains. This script was written later and reintroduced it.
 
     const chunks = Math.max(1, Math.ceil(donors / DONOR_CHUNK));
     for (let i = 0; i < chunks; i++) {
@@ -364,18 +487,41 @@ async function runRollups(client: Client, prod: boolean, defer = false): Promise
     // FIX-1153 — the search index is the 06:00 daily's ninth unit and the
     // treemap is treemap-individuals-global-refresh's whole job.
     if (defer) printDeferredTail("heavy");
-    const heavySteps = [
-      ["rebuild_financial_entity_ie_totals()", `SELECT rebuild_financial_entity_ie_totals()`],
-      ["refresh_group_donor_rollup()", `SELECT refresh_group_donor_rollup()`],
-      ...(defer
-        ? []
-        : ([["rebuild_entity_search_index()", `SELECT rebuild_entity_search_index()`]] as const)),
-    ] as ReadonlyArray<readonly [string, string]>;
+    // FIX-1165 — ALL THREE defer, not just the search index. The first two used
+    // to run unconditionally, which is precisely the bug: on the 2026-09-07
+    // set-2 apply, a 28-row manifest, rebuild_financial_entity_ie_totals() ran
+    // 28 minutes before being cancelled by hand and accounted for 70 of the
+    // run's 202 statement cancellations. Its cost is a function of
+    // financial_entities, not of the manifest.
+    const heavySteps: ReadonlyArray<readonly [string, string]> = defer
+      ? []
+      : [
+          ["rebuild_financial_entity_ie_totals()", `SELECT rebuild_financial_entity_ie_totals()`],
+          ["refresh_group_donor_rollup()", `SELECT refresh_group_donor_rollup()`],
+          ["rebuild_entity_search_index()", `SELECT rebuild_entity_search_index()`],
+        ];
     for (const [label, sql] of heavySteps) {
       try {
         await budgeted(client, label, sql, STEP_BUDGET_S["heavy"]!);
       } catch (err) {
         if (err instanceof BudgetExceeded) throw err;
+        // FIX-1165 — a CANCEL stops the tail. It used to be swallowed like any
+        // other error, so the loop advanced to the next step: on 2026-09-07 the
+        // hand-cancel of rebuild_financial_entity_ie_totals() at minute 28 fell
+        // straight through into refresh_group_donor_rollup(), which then ran a
+        // further 414 s (pg_stat_statements, one call) against a front door
+        // already at ~70x its baseline cancellation rate. Someone reaching for
+        // pg_cancel_backend means stop, and every step here is resumable.
+        if (isCancellation(err)) {
+          console.error(`
+✗ ${label} was CANCELLED — stopping the tail.`);
+          console.error(
+            `  The delete is COMMITTED and the manifest-scoped rollups are done.
+` +
+              `  Remaining platform-scoped steps have scheduled owners; let them collect.`,
+          );
+          throw err;
+        }
         console.error(`  ! ${label} failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
@@ -421,6 +567,18 @@ async function main(): Promise<void> {
   const allowProd = argv.includes("--allow-prod");
   const defer = deferTails(argv);
   const prod = isProd();
+  const manifestPath = manifestArg(argv);
+
+  // FIX-1165 Rule 1. Note this is checked for DRY RUNS TOO, not only applies:
+  // the derivation IS what the dry run does, and on 2026-09-07 the dry run's
+  // derivation was 81 minutes and 132 of the day's 202 statement cancellations.
+  // Deriving on prod is the expensive mistake whether or not anything is written.
+  const manifest = requireManifestOnProd({
+    prod,
+    manifestPath,
+    script: "remediate-role-ineligible-holders",
+    flag: "--manifest <path>",
+  });
 
   if (prod && apply && !allowProd) {
     console.error(
@@ -470,9 +628,61 @@ async function main(): Promise<void> {
   }
 
   // ── The population ────────────────────────────────────────────────────────
-  console.log("Deriving the role-ineligible holder population…");
-  console.log(`  electable roles (from ROLE_TO_OFFICE): ${ELECTABLE_ROLES.join(", ")}\n`);
-  const pop = await q<PopRow>(client, POPULATION_SQL, [ELECTABLE_ROLES]);
+  //
+  // Two paths, and which one runs is decided by the MANIFEST, never by the env:
+  // with a manifest the ids are READ and the facts RE-READ keyed on them; with
+  // no manifest the population is DERIVED, which needs a full audit scan and is
+  // therefore reachable only off prod (requireManifestOnProd above).
+  let pop: PopRow[];
+
+  if (manifest) {
+    const ids = manifestColumn(manifest, "official_id");
+    console.log(`Manifest: ${manifest.path}`);
+    console.log(`  ${ids.length} officials — recomputing their facts on ${envLabel()}, keyed.`);
+    pop = await q<PopRow>(client, KEYED_POPULATION_SQL, [ids]);
+
+    // The clone-vs-here diff. A clone dry run is stale the moment prod moves, so
+    // the manifest is an AUTHORISATION and not a description: rows the manifest
+    // never saw are reported and SKIPPED rather than swept in.
+    const expected = new Map(manifest.rows.map((r) => [r["official_id"]!, r] as const));
+    const diffs = pop.map((r) => {
+      const e = expected.get(r.official_id);
+      const d: DiffInput = {
+        key: r.official_id,
+        expectedRows: Number(e?.["fec_rows"] ?? 0),
+        expectedCents: Number(e?.["fec_cents"] ?? 0),
+        actualRows: Number(r.fec_rows),
+        actualCents: Number(r.fec_cents),
+      };
+      return { r, d, v: diffVerdict(d) };
+    });
+
+    const moved = diffs.filter((x) => x.v !== "match");
+    console.log(`  diff vs manifest: ${diffs.length - moved.length} match, ${moved.length} moved`);
+    for (const { r, d, v } of moved) {
+      console.log(`    ${(r.full_name ?? "").slice(0, 30).padEnd(30)} ${formatDiffLine(d, v)}`);
+    }
+
+    const blocked = diffs.filter((x) => !diffActionable(x.v) && x.v !== "gone");
+    if (blocked.length > 0) {
+      console.log(
+        `  ! ${blocked.length} official(s) hold MORE rows here than the manifest recorded.` +
+          ` They are SKIPPED — the manifest did not authorise those rows.` +
+          ` Re-derive on a fresh clone and re-authorise them.`,
+      );
+      const drop = new Set(blocked.map((x) => x.d.key));
+      pop = pop.filter((r) => !drop.has(r.official_id));
+    }
+    // An official whose rows are already gone needs no delete but may still carry
+    // an illegitimate fec_id, and the retire step is keyed on the OFFICIAL, not
+    // on its rows — so it stays in the population. This is FIX-1164's 55.
+    const gone = diffs.filter((x) => x.v === "gone").length;
+    if (gone > 0) console.log(`  ${gone} official(s) hold no FR rows here — id-retire only.`);
+  } else {
+    console.log("Deriving the role-ineligible holder population…  (clone-only path)");
+    console.log(`  electable roles (from ROLE_TO_OFFICE): ${ELECTABLE_ROLES.join(", ")}\n`);
+    pop = await q<PopRow>(client, POPULATION_SQL, [ELECTABLE_ROLES]);
+  }
 
   if (pop.length === 0) {
     console.log("Nothing to remediate — 0 role-ineligible officials hold fec_bulk money.");
@@ -501,12 +711,19 @@ async function main(): Promise<void> {
   }
 
   // ── Reconciliation against the classifier and the FIX-937 manifests ───────
-  await reconcile(client, pop);
+  // FIX-1165 — reconciliation re-derives across the classifier and the FIX-937
+  // manifests, which is a second full audit scan. It is the derivation path's
+  // check on the derivation, so it runs where the derivation runs: the clone.
+  if (!manifest) await reconcile(client, pop);
 
   // ── Freeze the doomed rows and split by class ─────────────────────────────
+  const popIds = pop.map((r) => r.official_id);
   await client.query(`DROP TABLE IF EXISTS _pop; CREATE TEMP TABLE _pop (official_id uuid PRIMARY KEY);`);
-  for (const r of pop) await client.query(`INSERT INTO _pop VALUES ($1::uuid)`, [r.official_id]);
-  await client.query(FREEZE_SQL);
+  await client.query(`INSERT INTO _pop SELECT unnest($1::uuid[])`, [popIds]);
+  await client.query(`ANALYZE _pop`);
+  await client.query(FREEZE_DROP_SQL);
+  await client.query(FREEZE_SQL, [popIds]);
+  await client.query(FREEZE_POST_SQL);
 
   const classSplit = await q<{ row_class: string; rows: string; cents: string }>(
     client,
@@ -539,7 +756,15 @@ async function main(): Promise<void> {
   const stamp = new Date().toISOString().slice(0, 10);
   const outDir = path.resolve(process.cwd(), "../../docs/audits");
   fs.mkdirSync(outDir, { recursive: true });
-  const tsvPath = path.join(outDir, `${stamp}-fix1153-role-ineligible-holders.tsv`);
+  const tsvPath = path.join(
+    outDir,
+    // A manifest-driven run does not re-derive, so what it writes is a RECEIPT of
+    // what this database actually held, not a new derivation. Different name, so
+    // it can never be mistaken for one and fed back in as an authorisation.
+    manifest
+      ? `${stamp}-fix1153-role-ineligible-holders-recomputed-${envLabel().toLowerCase()}.tsv`
+      : `${stamp}-fix1153-role-ineligible-holders.tsv`,
+  );
 
   const perClass = new Map(perOfficial.map((r) => [r.official_id, r]));
   const header = [
@@ -557,6 +782,10 @@ async function main(): Promise<void> {
   fs.writeFileSync(tsvPath, tsv([header, ...body]), "utf8");
   console.log(`\nwrote ${tsvPath}`);
 
+  // FIX-1165 (c) — the tail's cost table, printed BEFORE the go-ahead so the
+  // trade is visible at decision time rather than discovered at minute 28.
+  printTailTable(declareRemediationTail(defer), defer);
+
   if (!apply) {
     console.log("\nDRY RUN — nothing written to the database. Re-run with --apply to commit.");
     await client.end();
@@ -564,7 +793,34 @@ async function main(): Promise<void> {
   }
 
   // ── Apply ─────────────────────────────────────────────────────────────────
-  const [platformBefore] = await q<{ officials: string; cents: string }>(client, PLATFORM_SQL);
+  // The donor set is read off _doomed, which was frozen before any delete —
+  // after the delete it is unrecoverable (FIX-964).
+  const donorIds = (
+    await q<{ id: string }>(client, `SELECT DISTINCT donor_id::text AS id FROM _doomed WHERE donor_id IS NOT NULL`)
+  ).map((r) => r.id);
+
+  const conservationBefore = manifest
+    ? (await q<{ rows: string; cents: string }>(client, KEYED_CONSERVATION_SQL, [donorIds]))[0]
+    : (await q<{ rows: string; cents: string }>(client, PLATFORM_SQL))[0];
+
+  // Conservation needs two numbers that only exist BEFORE the transaction runs:
+  // what the delete removes, and what the fresher-wins propagation adds back to
+  // the owners' rows. Both are read off _doomed, both keyed.
+  const [dc] = await q<{ cents: string }>(
+    client,
+    `SELECT COALESCE(sum(amount_cents), 0)::text AS cents FROM _doomed`,
+  );
+  const deletedCents: number | null = Number(dc?.cents ?? 0);
+  const [pd] = await q<{ cents: string }>(
+    client,
+    `SELECT COALESCE(sum(d.amount_cents - o.amount_cents), 0)::text AS cents
+       FROM _doomed d
+       JOIN financial_relationships o ON o.id = d.owner_row
+      WHERE d.row_class = 'CROSS'
+        AND d.updated_at > d.owner_updated_at
+        AND d.amount_cents <> o.amount_cents`,
+  );
+  const propagatedCents = Number(pd?.cents ?? 0);
 
   console.log("\n── Phase 1: the delete (one transaction) ────────────────");
   await client.query("BEGIN");
@@ -643,26 +899,62 @@ async function main(): Promise<void> {
   }
 
   // ── Conservation ──────────────────────────────────────────────────────────
-  const [platformAfter] = await q<{ officials: string; cents: string }>(client, PLATFORM_SQL);
+  const conservationAfter = manifest
+    ? (await q<{ rows: string; cents: string }>(client, KEYED_CONSERVATION_SQL, [donorIds]))[0]
+    : (await q<{ rows: string; cents: string }>(client, PLATFORM_SQL))[0];
+
+  const scope = manifest ? `affected donors (${donorIds.length.toLocaleString()})` : "platform";
+  const before = Number(conservationBefore?.cents ?? 0);
+  const after = Number(conservationAfter?.cents ?? 0);
+  console.log(`\n  ${scope} donation total: ${usd(before)} → ${usd(after)}`);
+  const expected = before - deletedCents + propagatedCents;
   console.log(
-    `\n  platform donation total: ${usd(platformBefore?.cents ?? "0")} → ${usd(platformAfter?.cents ?? "0")}` +
-      `  (officials ${platformBefore?.officials} → ${platformAfter?.officials})`,
+    `  deleted ${usd(-deletedCents)}; fresher-wins propagation ${usd(propagatedCents)}; ` +
+      `expected ${usd(expected)}`,
   );
+  if (after !== expected) {
+    console.error(
+      `  ! CONSERVATION FAILED — expected ${usd(expected)}, got ${usd(after)} ` +
+        `(off by ${usd(after - expected)}). Rows moved that this run did not touch. ` +
+        `Investigate before reporting.`,
+    );
+  } else {
+    console.log(`  conservation OK`);
+  }
 
   await runRollups(client, prod, defer);
   await runMvsAndVacuum(client, defer);
 
   // ── The closing number ────────────────────────────────────────────────────
-  const [left] = await q<{ n: string }>(client, `
-    SELECT count(DISTINCT o.id)::text AS n
-      FROM officials o
-      JOIN financial_relationships fr
-        ON fr.to_type='official' AND fr.relationship_type='donation'
-       AND fr.to_id = o.id AND fr.metadata->>'source' LIKE 'fec_bulk%'
-     WHERE COALESCE(o.role_title,'') <> ALL($1::text[])`, [ELECTABLE_ROLES]);
-  console.log(`\n  officials with a role-ineligible title still holding fec_bulk money: ${left?.n}`);
-  if (left?.n !== "0") {
-    console.error("  ! expected 0 — the class is NOT closed. Investigate before reporting.");
+  // FIX-1165 — keyed on the manifest, and it answers BOTH halves of the class:
+  // still holding fec_bulk money (FIX-1153) and still carrying an fec_id the
+  // role cannot hold (FIX-1164). The clone path keeps the platform-wide form,
+  // which is the stronger statement and is affordable where it runs.
+  if (manifest) {
+    const [c] = await q<{ still_money: string; still_id: string }>(client, KEYED_CLOSING_SQL, [
+      popIds,
+      ELECTABLE_ROLES,
+    ]);
+    console.log(`  manifest officials still holding fec_bulk money: ${c?.still_money}`);
+    console.log(`  manifest officials still carrying an fec_id:     ${c?.still_id}`);
+    if (c?.still_money !== "0" || c?.still_id !== "0") {
+      console.error("  ! expected 0 and 0 — the class is NOT closed for this manifest.");
+    }
+  } else {
+    const [left] = await q<{ n: string }>(
+      client,
+      `SELECT count(DISTINCT o.id)::text AS n
+         FROM officials o
+         JOIN financial_relationships fr
+           ON fr.to_type='official' AND fr.relationship_type='donation'
+          AND fr.to_id = o.id AND fr.metadata->>'source' LIKE 'fec_bulk%'
+        WHERE COALESCE(o.role_title,'') <> ALL($1::text[])`,
+      [ELECTABLE_ROLES],
+    );
+    console.log(`  officials with a role-ineligible title still holding fec_bulk money: ${left?.n}`);
+    if (left?.n !== "0") {
+      console.error("  ! expected 0 — the class is NOT closed. Investigate before reporting.");
+    }
   }
 
   await client.end();

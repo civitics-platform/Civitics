@@ -85,6 +85,7 @@ import {
   type SuspectRow,
   usd,
 } from "./fec-orphan-classify";
+import { declareRemediationTail, printTailTable } from "./remediation-manifest";
 import { roleMayHoldFecOffice } from "../pipelines/fec-bulk/electable-role";
 
 /** Sanity bound — the FIX-930 clone measured 47 eligible pairs. */
@@ -1163,6 +1164,12 @@ const STEP_BUDGET_S: Record<string, number> = {
 
 class BudgetExceeded extends Error {}
 
+/** 57014 query_canceled / 57P01 admin_shutdown — a human or a watchdog said stop. */
+function isCancellation(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === "57014" || code === "57P01";
+}
+
 /**
  * Exit code for "a guard fired and the run stopped early". Distinct from 1
  * (hard failure) so a wrapper can tell a deliberate safety stop from a crash —
@@ -1334,26 +1341,41 @@ async function runRollups(client: Client, prod: boolean, defer = false): Promise
     // Platform-wide rebuilds. Each carries its own COMMIT, so they were never
     // transaction-safe anyway. Individually caught: a stale one is a stale
     // rollup, not lost data.
-    // FIX-1153 — the search index belongs to the 06:00 daily's ninth unit and
-    // the treemap to treemap-individuals-global-refresh (Tue 14:00). Under
-    // --defer-tails both are left to them; the two entity-total rebuilds stay,
-    // because nothing scheduled knows which rows this run moved.
+    // FIX-1165 — ALL of these defer, the two entity-total rebuilds included.
+    // The comment this replaces said they stay "because nothing scheduled knows
+    // which rows this run moved". That is right for the DONOR- and OFFICIAL-
+    // scoped rollups above and wrong for these two: neither takes an argument,
+    // so neither knows what this run moved either — both recompute the whole
+    // platform. rebuild_financial_entity_ie_totals() ran 28 minutes on the
+    // 28-row set-2 apply and produced 70 of its 202 statement cancellations;
+    // refresh_group_donor_rollup() had no scheduled owner at all until FIX-1165
+    // gave it one, rather than leaving it to whichever remediation ran next.
     if (defer) printDeferredTail("heavy");
-    const heavySteps = [
-      ["rebuild_financial_entity_ie_totals()", `SELECT rebuild_financial_entity_ie_totals()`],
-      ["refresh_group_donor_rollup()", `SELECT refresh_group_donor_rollup()`],
-      ...(defer
-        ? []
-        : ([
-            ["rebuild_entity_search_index()", `SELECT rebuild_entity_search_index()`],
-            ["refresh_treemap_individuals_global()", `CALL refresh_treemap_individuals_global()`],
-          ] as const)),
-    ] as ReadonlyArray<readonly [string, string]>;
+    const heavySteps: ReadonlyArray<readonly [string, string]> = defer
+      ? []
+      : [
+          ["rebuild_financial_entity_ie_totals()", `SELECT rebuild_financial_entity_ie_totals()`],
+          ["refresh_group_donor_rollup()", `SELECT refresh_group_donor_rollup()`],
+          ["rebuild_entity_search_index()", `SELECT rebuild_entity_search_index()`],
+          ["refresh_treemap_individuals_global()", `CALL refresh_treemap_individuals_global()`],
+        ];
     for (const [label, sql] of heavySteps) {
       try {
         await budgeted(client, label, sql, STEP_BUDGET_S["heavy"]!);
       } catch (err) {
         if (err instanceof BudgetExceeded) throw err;
+        // FIX-1165 — a CANCEL stops the tail rather than advancing to the next
+        // platform-scoped step. On 2026-09-07 the hand-cancel of
+        // rebuild_financial_entity_ie_totals() was swallowed by a catch shaped
+        // like this one, so the loop moved straight on to the next global
+        // rebuild and ran a further 414 s against a front door already at ~70x
+        // its baseline cancellation rate. A cancel means stop; every step here
+        // is resumable and every one has a scheduled owner.
+        if (isCancellation(err)) {
+          console.error(`  ✗ ${label} was CANCELLED — stopping the tail.`);
+          console.error(`    The merge is COMMITTED; the scoped rollups are done.`);
+          throw err;
+        }
         console.error(`  ! ${label} failed: ${err instanceof Error ? err.message : String(err)}`);
         console.error(`    (re-derivable — re-run or let the scheduled refresh pick it up)`);
       }
@@ -1428,6 +1450,38 @@ async function main(): Promise<void> {
   const allowProd = argv.includes("--allow-prod");
   const defer = deferTails(argv);
   const prod = isProd();
+
+  // FIX-1165 Rule 1 — this script's manifest IS its pair, so --pair is the
+  // manifest flag. Without it the run derives via SUSPECT_SQL + classify() +
+  // buildManifest(), a full audit scan of financial_relationships that on prod
+  // cost 81 minutes and 132 statement cancellations on 2026-09-07, for a change
+  // of 28 rows. Checked for dry runs too: the derivation IS what a dry run does.
+  const pairArg = (() => {
+    const idx = argv.indexOf("--pair");
+    if (idx === -1) return null;
+    const v = argv[idx + 1];
+    if (!v || v.startsWith("--")) {
+      console.error("✗ --pair needs <dup_official_id>,<survivor_official_id>.");
+      process.exit(1);
+    }
+    const parts = v.split(",").map((x) => x.trim());
+    if (parts.length !== 2 || !parts[0] || !parts[1]) {
+      console.error(`✗ --pair takes exactly two comma-separated uuids (got '${v}').`);
+      process.exit(1);
+    }
+    return { dup: parts[0]!, survivor: parts[1]! };
+  })();
+
+  if (prod && !pairArg && !rollupsOnly && !mvsOnly && !vacuumOnly && !repairResplit) {
+    console.error("✗ PROD requires --pair <dup_id>,<survivor_id>.");
+    console.error("  merge-same-person-official-dupes derives its manifest with a full audit");
+    console.error("  scan of financial_relationships (SUSPECT_SQL + classify + buildManifest).");
+    console.error("  On prod that scan is the change's largest cost and it is pure");
+    console.error("  re-derivation: FIX-1165 measured 81 minutes and 132 statement");
+    console.error("  cancellations for it against a manifest of 28 rows. Derive on the clone,");
+    console.error("  review the pair, then apply here with --pair.");
+    process.exit(1);
+  }
 
   if (prod && !allowProd) {
     console.error(
@@ -1607,7 +1661,96 @@ async function main(): Promise<void> {
   // ── Derive the manifest (read-only, outside the merge txn) ────────────────
   let candidates: Pair[];
   let trioCandidates: TrioCandidate[] = [];
-  if (repairResplit) {
+  if (pairArg) {
+    // FIX-1165 — the manifest path. Two ids in, both re-read HERE by primary
+    // key, every fact the merge acts on recomputed keyed on them. No derivation.
+    //
+    // --pair supplies the POPULATION, never a licence to skip the gates.
+    // buildManifest() refuses a pair whose survivor is not tier 'elected', whose
+    // duplicate is not tier 'candidate', or whose duplicate carries no FEC
+    // candidate id, and those refusals are the difference between merging a
+    // duplicate and merging two different people. They are re-applied below
+    // against values read from this database, so a pair that was safe on the
+    // clone and is not safe here is refused here.
+    const rows = await q<{
+      id: string;
+      full_name: string;
+      role_title: string | null;
+      tier: string | null;
+      fec_candidate_id: string | null;
+      fr_rows: string;
+      fr_cents: string;
+    }>(
+      client,
+      `SELECT o.id::text AS id, o.full_name, o.role_title, o.tier,
+              o.source_ids->>'fec_candidate_id' AS fec_candidate_id,
+              (SELECT count(*) FROM financial_relationships fr
+                WHERE fr.to_type='official' AND fr.to_id = o.id
+                  AND fr.relationship_type='donation')::text AS fr_rows,
+              (SELECT COALESCE(sum(fr.amount_cents),0) FROM financial_relationships fr
+                WHERE fr.to_type='official' AND fr.to_id = o.id
+                  AND fr.relationship_type='donation')::text AS fr_cents
+         FROM officials o
+        WHERE o.id = ANY($1::uuid[])`,
+      [[pairArg.dup, pairArg.survivor]],
+    );
+    const dupRow = rows.find((r) => r.id === pairArg.dup);
+    const survivorRow = rows.find((r) => r.id === pairArg.survivor);
+    if (!dupRow || !survivorRow) {
+      console.error(`✗ --pair: ${!dupRow ? "dup" : "survivor"} id not found in officials.`);
+      await client.end();
+      process.exit(1);
+    }
+
+    // buildManifest()'s gates, re-applied. Note the id is the DUPLICATE's
+    // fec_candidate_id (buildManifest uses e.twin_fec_id) and NOT source_ids
+    // ->>'fec_id': on the set-3 pair both officials have fec_id NULL and the
+    // duplicate carries H4TX09095 under fec_candidate_id, so reading the wrong
+    // key would refuse a valid pair.
+    const gateFailures: string[] = [];
+    if (survivorRow.tier !== "elected") {
+      gateFailures.push(`survivor tier is '${survivorRow.tier}', not 'elected'`);
+    }
+    if (dupRow.tier !== "candidate") {
+      gateFailures.push(`duplicate tier is '${dupRow.tier}', not 'candidate'`);
+    }
+    if (!dupRow.fec_candidate_id) {
+      gateFailures.push("duplicate carries no FEC candidate id");
+    }
+    if (dupRow.id === survivorRow.id) {
+      gateFailures.push("survivor and duplicate are the same row");
+    }
+    if (gateFailures.length > 0) {
+      console.error("✗ --pair refused by the same gates buildManifest() applies:");
+      for (const g of gateFailures) console.error(`    ${g}`);
+      await client.end();
+      process.exit(1);
+    }
+
+    console.log("");
+    console.log("PAIR (FIX-1165 manifest path) — no derivation ran");
+    for (const [label, r] of [["dup     ", dupRow], ["survivor", survivorRow]] as const) {
+      console.log(
+        `  ${label} ${r.full_name.padEnd(30)} ${(r.role_title ?? "").padEnd(30)} ` +
+          `${(r.tier ?? "").padEnd(10)} cand_id=${r.fec_candidate_id ?? "-"}  ` +
+          `${Number(r.fr_rows).toLocaleString()} rows  ${usd(r.fr_cents)}`,
+      );
+    }
+    console.log(`  merging on fec_candidate_id ${dupRow.fec_candidate_id}`);
+    console.log(
+      `  CONSERVATION TARGET ${usd(Number(dupRow.fr_cents) + Number(survivorRow.fr_cents))} ` +
+        `= dup ${usd(dupRow.fr_cents)} + survivor ${usd(survivorRow.fr_cents)}. ` +
+        `All of it must be resident on the survivor afterwards; this is a MOVE, not a delete.`,
+    );
+    candidates = [
+      {
+        survivor: survivorRow.id,
+        dup: dupRow.id,
+        fecId: dupRow.fec_candidate_id!,
+        name: `${survivorRow.full_name} ← ${dupRow.full_name}`,
+      },
+    ];
+  } else if (repairResplit) {
     await client.query("BEGIN TRANSACTION READ ONLY");
     candidates = await q<Pair>(client, REPAIR_MANIFEST_SQL);
     const trioRows = await q<TrioCandidate>(client, TRIO_SQL);
@@ -1683,6 +1826,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // FIX-1165 (c) — the cost table, before anything is written.
+  printTailTable(declareRemediationTail(defer), defer);
   await client.query("BEGIN");
   try {
     // NOT `ON COMMIT DROP` — phase 2 runs after COMMIT and needs the manifest

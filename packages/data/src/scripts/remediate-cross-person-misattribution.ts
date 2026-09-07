@@ -88,9 +88,17 @@ import {
   SPLIT_SQL,
   type SplitRow,
   SUSPECT_SQL,
+  suspectSqlKeyed,
   type SuspectRow,
   usd,
 } from "./fec-orphan-classify";
+import {
+  declareRemediationTail,
+  manifestArg,
+  manifestColumn,
+  printTailTable,
+  requireManifestOnProd,
+} from "./remediation-manifest";
 
 /** Sanity bound — phase 1 measured 59 after exclusions. */
 const MAX_SUSPECTS = 200;
@@ -127,6 +135,12 @@ const STEP_BUDGET_S: Record<string, number> = {
 };
 
 class BudgetExceeded extends Error {}
+
+/** 57014 query_canceled / 57P01 admin_shutdown — a human or a watchdog said stop. */
+function isCancellation(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === "57014" || code === "57P01";
+}
 
 function isProd(): boolean {
   return /supabase\.co/i.test(process.env["NEXT_PUBLIC_SUPABASE_URL"] ?? "");
@@ -296,22 +310,40 @@ async function runRollups(client: Client, prod: boolean, defer = false): Promise
       );
     }
 
-    // FIX-1153 — the search index is the 06:00 daily's ninth unit and the
-    // treemap is treemap-individuals-global-refresh's whole job. Under
-    // --defer-tails both are left to them; the two entity-total rebuilds stay,
-    // because nothing scheduled knows which rows this run deleted.
-    const heavySteps = [
-      ["rebuild_financial_entity_ie_totals()", `SELECT rebuild_financial_entity_ie_totals()`],
-      ["refresh_group_donor_rollup()", `SELECT refresh_group_donor_rollup()`],
-      ...(defer
-        ? []
-        : ([["rebuild_entity_search_index()", `SELECT rebuild_entity_search_index()`]] as const)),
-    ] as ReadonlyArray<readonly [string, string]>;
+    // FIX-1165 — ALL of these defer, the two entity-total rebuilds included.
+    // The comment this replaces said they stay "because nothing scheduled knows
+    // which rows this run deleted". That reasoning is right for the DONOR- and
+    // OFFICIAL-scoped rollups above and wrong for these two: neither takes an
+    // argument, so neither knows what this run deleted either — both recompute
+    // the whole platform. rebuild_financial_entity_ie_totals() ran 28 minutes on
+    // the 28-row set-2 apply and produced 70 of its 202 statement cancellations.
+    // refresh_group_donor_rollup() genuinely had no owner, which is why FIX-1165
+    // gave it one rather than leaving it to whichever remediation ran next.
+    const heavySteps: ReadonlyArray<readonly [string, string]> = defer
+      ? []
+      : [
+          ["rebuild_financial_entity_ie_totals()", `SELECT rebuild_financial_entity_ie_totals()`],
+          ["refresh_group_donor_rollup()", `SELECT refresh_group_donor_rollup()`],
+          ["rebuild_entity_search_index()", `SELECT rebuild_entity_search_index()`],
+        ];
     for (const [label, sql] of heavySteps) {
       try {
         await budgeted(client, label, sql, STEP_BUDGET_S["heavy"]!);
       } catch (err) {
         if (err instanceof BudgetExceeded) throw err;
+        // FIX-1165 — a CANCEL stops the tail rather than advancing to the next
+        // platform-scoped step. On 2026-09-07 the hand-cancel of
+        // rebuild_financial_entity_ie_totals() was swallowed here and the loop
+        // moved straight on to refresh_group_donor_rollup(), which ran a further
+        // 414 s against a front door already at ~70x its baseline.
+        if (isCancellation(err)) {
+          console.error(`\n✗ ${label} was CANCELLED — stopping the tail.`);
+          console.error(
+            `  The delete is COMMITTED and the manifest-scoped rollups are done.` +
+              ` Remaining steps have scheduled owners; let them collect.`,
+          );
+          throw err;
+        }
         console.error(`  ! ${label} failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
@@ -473,6 +505,18 @@ async function main(): Promise<void> {
   const allowProd = argv.includes("--allow-prod");
   const defer = deferTails(argv);
   const prod = isProd();
+  const manifestPath = manifestArg(argv);
+
+  // FIX-1165 Rule 1 — checked for dry runs too. The FIX-930 re-derivation below
+  // is a full audit scan of financial_relationships; on 2026-09-07 it ran 81
+  // minutes on prod and produced 132 of the day's 202 statement cancellations,
+  // for a manifest of 28 rows. Derive on the clone, apply from the TSV.
+  const manifest = requireManifestOnProd({
+    prod,
+    manifestPath,
+    script: "remediate-cross-person-misattribution",
+    flag: "--manifest <path>",
+  });
   if (officialIds.length > 0 && !rollupsOnly) {
     console.error("✗ --officials is only meaningful with --rollups-only (FIX-964 resume scope).");
     process.exit(1);
@@ -527,8 +571,22 @@ async function main(): Promise<void> {
   }
 
   // ── Re-derive the manifest live ──────────────────────────────────────────
-  console.log("Re-deriving the FIX-930 classification live…");
-  const suspects = (await client.query<SuspectRow>(SUSPECT_SQL)).rows;
+  let suspects: SuspectRow[];
+  if (manifest) {
+    const ids = manifestColumn(manifest, "official_id");
+    console.log(`Manifest: ${manifest.path}`);
+    console.log(`  ${ids.length} suspects — re-measuring their FIX-930 facts here, keyed.`);
+    suspects = (await client.query<SuspectRow>(suspectSqlKeyed(), [ids])).rows;
+    if (suspects.length !== ids.length) {
+      console.log(
+        `  note: ${ids.length - suspects.length} manifest id(s) no longer satisfy the suspect` +
+          ` predicate here — already remediated, or the twin moved. They drop out.`,
+      );
+    }
+  } else {
+    console.log("Re-deriving the FIX-930 classification live…  (clone-only path)");
+    suspects = (await client.query<SuspectRow>(SUSPECT_SQL)).rows;
+  }
   const { boundary, classified } = classify(suspects);
   console.log(
     `  suspects: ${classified.length}   boundary: frac >= ${boundary.fracCut.toFixed(4)} AND shared >= ${boundary.sharedFloor}`,
@@ -596,6 +654,9 @@ async function main(): Promise<void> {
     await client.end();
     return;
   }
+
+  // FIX-1165 (c) — the cost table, before anything is written.
+  printTailTable(declareRemediationTail(defer), defer);
 
   await client.query("BEGIN");
   try {

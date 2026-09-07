@@ -1,0 +1,80 @@
+# FIX-1164 — role-ineligible officials carrying an FEC CAND_ID they cannot hold, with ZERO fec_bulk money.
+#
+# Derived on the LOCAL CLONE 2026-09-07. 55 officials, 2 of them is_active.
+#
+# WHY THIS IS A SEPARATE MANIFEST FROM FIX-1153's. The FIX-1153 population is
+# MONEY-keyed: role cannot hold an FEC office AND holds fec_bulk-sourced
+# financial_relationships rows. These 55 satisfy the role half and hold no money
+# at all, so the money-keyed predicate correctly does not return them — which is
+# exactly the set difference the FIX-1153 dry run reported against the id-keyed
+# FIX-937 manifests, and why that difference was a predicate property rather
+# than a predicate gap.
+#
+# They still need remediating: the stored fec_id is the thing that hands the slot
+# back to the next FEC run and re-monies the wrong official. The remediation is
+# the id-retire step ALONE (source_ids fec_id -> misattributed_fec_id); there are
+# no rows to delete and no donors to re-roll up, which is why the money columns
+# below are all zero. The role-ineligible script's retire step is keyed on the
+# OFFICIAL rather than on its rows, so these pass through it unchanged.
+#
+# The zero money columns are not padding: they are what the FIX-1165 clone-vs-prod
+# diff compares against. A row here that shows rows > 0 on prod has acquired money
+# since this was derived and will be REPORTED AND SKIPPED rather than swept in.
+#
+# Cross-ref FIX-1153, FIX-937, FIX-1165.
+official_id	full_name	role_title	tier	is_active	jurisdiction	stored_fec_id	fec_rows	fec_cents	cross_rows	only_rows	cross_cents	only_cents
+456cca4c-d6d7-47ad-874a-45a192993ef1	Aaron Starr	Council Member	elected	false	SF	H6MD05347	0	0	0	0	0	0
+9a90c180-784c-4c4f-be50-fc1cda3c4db5	Ana Alvarez	Council Member	elected	false	SF	H2TX22134	0	0	0	0	0	0
+aea81d2e-165b-4a06-bb37-cdcd89a4f2fe	Andrea Woods	Council Member	elected	false	SF	S0IA00192	0	0	0	0	0	0
+6149c72f-5afa-435a-8ce0-ae5502b2adef	Andrew Boone	Council Member	elected	false	AUS	H2FL10309	0	0	0	0	0	0
+b711806e-aef3-41b4-bcdf-f541bff62326	Ben Noble	Council Member	elected	false	SEA	H2OR06058	0	0	0	0	0	0
+dba9ecd8-b9f2-4d03-a2cd-fbfc8f239b32	Briana Holt	Council Member	elected	false	AUS	S2OH00451	0	0	0	0	0	0
+1be32f77-f96b-4750-a525-32252b6357b4	Bridget Molina	Council Member	elected	false	SEA	H0FL27034	0	0	0	0	0	0
+e2c41141-cc0a-4a7b-bbcc-53c361c71b1d	Carmen Malone	Council Member	elected	false	AUS	H8MA03213	0	0	0	0	0	0
+42fa3208-4b30-49f9-95c3-6d780e3010f7	Catherine Dodd	Council Member	elected	false	SF	S0CT00037	0	0	0	0	0	0
+4645ea8e-ff77-40cc-975e-5ca8fc2efb0e	Chris Daly	Council Member	elected	false	SF	H2MO03183	0	0	0	0	0	0
+7521f7af-2598-416b-a860-38a9b144a05f	Chris Galbraith	Council Member	elected	false	SEA	H8MD01177	0	0	0	0	0	0
+d76ebf28-d65c-4571-9d03-908887c2c085	Christina Mendez	Council Member	elected	false	AUS	H6CA40366	0	0	0	0	0	0
+542b95a1-7721-4102-a536-7343e31c601f	Christine Fountain	Council Member	elected	false	SF	H0CA53222	0	0	0	0	0	0
+24bbf791-91d7-493d-bbe2-a85d0779ae17	Cindy Lott	Council Member	elected	false	AUS	H2MI08162	0	0	0	0	0	0
+f878d653-341b-48a7-a94b-9ac8e5340071	Council Member Vanessa Fuentes	Council Member	elected	true	AUS	H4TX33038	0	0	0	0	0	0
+9c0877b0-c866-4bfb-ac1d-b731b33eb55c	Dan Strauss	Council Member	elected	true	SEA	S2MO00486	0	0	0	0	0	0
+58ea303a-33ad-426a-864e-f6d9a955387e	Daniel Mitchell	Council Member	elected	false	SEA	H8TN03208	0	0	0	0	0	0
+dfffc926-fc42-4b03-a05f-2c32f6756566	Eileen McHugh	Council Member	elected	false	SF	H0PA06175	0	0	0	0	0	0
+1dd2bbc1-eb34-47f2-8665-d30cde9f9d72	Gary McCoy	Council Member	elected	false	SF	H2GA07162	0	0	0	0	0	0
+fa7f54d2-ac42-4001-a9da-ebf902be665c	Greg Doss (LEG)	Council Member	elected	false	SEA	H2TN03201	0	0	0	0	0	0
+26790bac-6339-458d-87c5-5b631ce2e90d	Guianna Henriquez	Council Member	elected	false	SF	H0PR01059	0	0	0	0	0	0
+caa0450f-a128-4a8a-ab3c-abcfe599c0d6	Jeanette Blankenship	Council Member	elected	false	SEA	S8WV00150	0	0	0	0	0	0
+4a329d76-9eab-476d-a2da-8697cc6fd004	Jennifer Scaife	Council Member	elected	false	SF	H0IN01218	0	0	0	0	0	0
+364e158a-26e6-4703-b3d9-59ed6be11c0b	Jessica Frazier	Council Member	elected	false	AUS	H6IN10075	0	0	0	0	0	0
+7a329b3d-a21b-43c4-9fcd-02db159abb34	Karl Stephenson	Council Member	elected	false	AUS	H2WA08216	0	0	0	0	0	0
+e3d410c8-b3b7-494f-ab93-9187991303b7	Latonia Stokes	Council Member	elected	false	SF	S6CA00873	0	0	0	0	0	0
+7ea4aac4-735d-4ad1-aa13-a9db7a6491f8	Lolita Espinosa	Council Member	elected	false	SF	H6CA26308	0	0	0	0	0	0
+f74db873-83e5-4ae8-a413-c0fa39d6ec92	Lynne Howe	Council Member	elected	false	SF	H2NY14102	0	0	0	0	0	0
+f3c15630-66af-4f65-96e9-74b23fe92134	Mabel Teng	Council Member	elected	false	SF	H6UT03166	0	0	0	0	0	0
+f4c8e58d-a153-4ff6-8f24-ee89165e9392	Marija Jukic 	Council Member	elected	false	AUS	H6OH14248	0	0	0	0	0	0
+113d7403-a392-4f75-b840-194a45dce3dc	Mark Solomon	Council Member	elected	false	SEA	H2CA16159	0	0	0	0	0	0
+b3111f47-533f-498c-b231-907ebc108170	Martha Yanez	Council Member	elected	false	SF	H2MI10168	0	0	0	0	0	0
+7a09f33c-7291-43a1-8e25-15f28b201ead	Mary Hays	Council Member	elected	false	SF	H2AR03283	0	0	0	0	0	0
+7f896047-9f70-44ca-9deb-7cea7efd8f43	Mary Lou Rodriguez	Council Member	elected	false	AUS	H6KY03223	0	0	0	0	0	0
+508172cc-4bed-4712-94a3-4c237e0f84a6	Matt Haney 	Council Member	elected	false	SF	H2CO00035	0	0	0	0	0	0
+7e799bd4-9fde-49c9-bf2d-26e1effcfd0f	Matt Hartman	Council Member	elected	false	AUS	H6PA16296	0	0	0	0	0	0
+6f206e50-752b-444a-a70b-6fbc7d18016e	Megan Rosenfeld	Council Member	elected	false	SEA	S2PA00331	0	0	0	0	0	0
+fc97c68f-fc29-4718-8f5e-9b9355ff8a2b	Natasha Goodwin	Council Member	elected	false	AUS	H2TX30186	0	0	0	0	0	0
+a2893e64-5d84-4305-98ff-9748c90a0957	Nicole Hendrickson	Council Member	elected	false	AUS	H8SD01105	0	0	0	0	0	0
+34a174e9-582b-4bc4-81a2-dcf17991391e	Nicole Huff	Council Member	elected	false	AUS	H2LA05274	0	0	0	0	0	0
+82cfb52e-2aa6-4504-b988-2370e09a7b82	Paula Hoff	Council Member	elected	false	SEA	P40007577	0	0	0	0	0	0
+7fc27801-d676-4fcc-93f9-6a72ab046853	Petra DeJesus	Council Member	elected	false	SF	P40015703	0	0	0	0	0	0
+f4c25d74-1fee-4335-8e70-04a51fd0d9c0	Roberto Trevino	Council Member	elected	false	AUS	H8TX23139	0	0	0	0	0	0
+13a2a60c-b9f5-40c0-8c1f-c8ed00188f6a	Ruth Dalrymple	Council Member	elected	false	AUS	H0NJ05182	0	0	0	0	0	0
+78841483-0820-40ec-905b-4b5043f41b8a	Sarah Ballard	Council Member	elected	false	SF	S0MT00116	0	0	0	0	0	0
+ccd1ba2a-dfaa-4b38-a222-1a1b7adbd806	Selina Chambliss	Council Member	elected	false	SEA	S2GA00118	0	0	0	0	0	0
+e5b84a0b-ce52-46bf-b03b-df0b906de08d	Shiamala Choudhury	Council Member	elected	false	SF	H8NY05123	0	0	0	0	0	0
+6cda3499-89f3-462c-ab02-723e96c27587	Stephanie Duvall	Council Member	elected	false	SEA	H0NJ01207	0	0	0	0	0	0
+d3fa35da-659e-44e6-983a-ee338913bf8f	Steven Smith	Council Member	elected	false	SEA	H0IL13066	0	0	0	0	0	0
+25eb5c3c-a4a0-4f66-bab5-787b5a8a7dec	Taras Madison	Council Member	elected	false	SF	H2CA09147	0	0	0	0	0	0
+a78dddbe-198f-4c17-9c0d-d6cf9be89611	Tim Harris - Law Dept	Council Member	elected	false	SEA	H8OK01165	0	0	0	0	0	0
+0da32baf-54c5-4ec2-b9b8-ea5c5e3fe5ce	Victor Lim	Council Member	elected	false	SF	H0TX07212	0	0	0	0	0	0
+06b24c80-54b0-4beb-930c-de59c55116f9	Victoria Rieger	Council Member	elected	false	AUS	H8PA03126	0	0	0	0	0	0
+1af0bfa9-6265-4439-86b8-27eaf801a807	Wilson Ng	Council Member	elected	false	SF	H2TX28123	0	0	0	0	0	0
+e9aa2207-27b3-4c47-8c2d-9ae5ffa2d935	Yolanda McKnight	Council Member	elected	false	AUS	H2TN05297	0	0	0	0	0	0

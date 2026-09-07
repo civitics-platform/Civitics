@@ -34,7 +34,7 @@ function labelFor(s: string) {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-// FIX-L (decision 3) — pull a message out of a PostgREST/RPC error so the route
+// FIX-854 (decision 3) — pull a message out of a PostgREST/RPC error so the route
 // can return an honest error envelope instead of swallowing it into an empty 200.
 function rpcErrMessage(err: unknown): string {
   if (err && typeof err === "object" && "message" in err) {
@@ -561,7 +561,7 @@ export async function GET(req: NextRequest) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (supabase as any).rpc('chord_industry_flows_for_official', { p_official_id: officialId })
         );
-        // FIX-L (decision 2) — keep the untagged bucket as a neutral arc rather
+        // FIX-854 (decision 2) — keep the untagged bucket as a neutral arc rather
         // than silently dropping it; it is frequently the largest donor slice.
         return (data ?? [])
           .map(r => r.industry === 'untagged'
@@ -664,7 +664,7 @@ export async function GET(req: NextRequest) {
       const officialName = officialData?.full_name ?? entityId;
 
       let groups: { id: string; label: string; icon: string; total_usd: number; pac_count: number; industry?: string }[] = [];
-      // FIX-L (decision 2) — untagged money (donors with no industry tag), carried
+      // FIX-854 (decision 2) — untagged money (donors with no industry tag), carried
       // out of the aggregate branch so the response can render it as a neutral arc
       // or an honest "$X from N donors not yet industry-tagged" empty state.
       let untaggedUsd = 0;
@@ -676,7 +676,7 @@ export async function GET(req: NextRequest) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (supabase as any).rpc('chord_top_pacs_for_official', { p_official_id: entityId, p_limit: topPacsLimit })
         );
-        // FIX-L (decision 3) — surface RPC failure as an error, never a blank chord.
+        // FIX-854 (decision 3) — surface RPC failure as an error, never a blank chord.
         if (error) {
           console.error('[chord/entity/top-pacs] rpc error:', error);
           return NextResponse.json({ error: 'chord_rpc_failed', detail: rpcErrMessage(error) }, { status: 502 });
@@ -695,7 +695,7 @@ export async function GET(req: NextRequest) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (supabase as any).rpc('chord_donor_brackets_for_official', { p_official_id: entityId })
         );
-        // FIX-L (decision 3) — surface RPC failure as an error, never a blank chord.
+        // FIX-854 (decision 3) — surface RPC failure as an error, never a blank chord.
         if (error) {
           console.error('[chord/entity/by-bracket] rpc error:', error);
           return NextResponse.json({ error: 'chord_rpc_failed', detail: rpcErrMessage(error) }, { status: 502 });
@@ -723,7 +723,7 @@ export async function GET(req: NextRequest) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (supabase as any).rpc('chord_industry_flows_for_official', { p_official_id: entityId })
         );
-        // FIX-L (decision 3) — surface RPC failure / timeout as an error the
+        // FIX-854 (decision 3) — surface RPC failure / timeout as an error the
         // client renders as "couldn't load", never a swallowed empty 200 (which
         // was indistinguishable from an all-untagged or no-donor official, and
         // hid the FIX-839 cold-cache timeouts on the best-funded officials —
@@ -733,7 +733,7 @@ export async function GET(req: NextRequest) {
           return NextResponse.json({ error: 'chord_rpc_failed', detail: rpcErrMessage(error) }, { status: 502 });
         }
         const rows = data ?? [];
-        // FIX-L (decision 2) — the untagged bucket is money from donors with no
+        // FIX-854 (decision 2) — the untagged bucket is money from donors with no
         // industry tag; for most officials it is the single largest slice (the
         // whale: $268M / 309k donors untagged vs ~$10M tagged). Carry it so the
         // client renders it instead of silently dropping the biggest arc.
@@ -761,7 +761,7 @@ export async function GET(req: NextRequest) {
       }
 
       if (groups.length === 0) {
-        // FIX-L (decision 2) — no tagged industries. If there is untagged money,
+        // FIX-854 (decision 2) — no tagged industries. If there is untagged money,
         // tell the client exactly how much / how many donors so it renders an
         // honest empty state ("$83M from 755 donors not yet industry-tagged")
         // rather than a "pipeline is processing" platitude.

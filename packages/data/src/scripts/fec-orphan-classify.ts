@@ -124,6 +124,34 @@ LEFT JOIN official_donor_totals twodt ON twodt.official_id = b.twin_id
 ORDER BY COALESCE(f.fec_cents, 0) DESC;
 `;
 
+/**
+ * FIX-1165 — SUSPECT_SQL bounded to a manifest's officials.
+ *
+ * The `suspect` CTE is the chain's single entry point: `pair` joins out of it,
+ * `d` restricts to pair members, `facts` follows `d`. So one predicate in
+ * `suspect` keys the whole derivation, turning a full audit scan of
+ * financial_relationships into an index lookup per manifest id.
+ *
+ * This is NOT a substitute for the derivation — it cannot DISCOVER a suspect,
+ * only re-measure one the clone already found. That asymmetry is the point:
+ * discovery is a clone job, re-measurement is what prod is allowed to do.
+ */
+export function suspectSqlKeyed(): string {
+  // A single-line anchor: the `suspect` CTE is the only place in SUSPECT_SQL
+  // with a two-space `WHERE EXISTS (`, asserted below so a reshaped CTE fails
+  // loudly here rather than silently returning the unbounded scan.
+  const ANCHOR = "  WHERE EXISTS (";
+  const BOUND = "  WHERE o.id = ANY($1::uuid[]) AND EXISTS (";
+  const n = SUSPECT_SQL.split(ANCHOR).length - 1;
+  if (n !== 1) {
+    throw new Error(
+      `suspectSqlKeyed: expected exactly one "${ANCHOR}" in SUSPECT_SQL, found ${n} — ` +
+        `the suspect CTE changed shape, so re-derive the bound rather than trusting this.`,
+    );
+  }
+  return SUSPECT_SQL.replace(ANCHOR, BOUND);
+}
+
 export const PLATFORM_SQL = `
 SELECT
   count(DISTINCT to_id)::bigint AS officials,
@@ -987,6 +1015,11 @@ export const TAIL_OWNERS = {
   heavy: [
     "refresh-derived-mvs-daily    rebuild_entity_search_index()      daily 06:00",
     "treemap-individuals-global-refresh  refresh_treemap_individuals_global()  Tue 14:00",
+    // FIX-1165 — these two shipped OUTSIDE the deferral and had to be added after a
+    // prod run found them. Both are platform-scoped: their cost does not move when
+    // the manifest goes from 28 rows to 2,736.
+    "fec-bulk pipeline            rebuild_financial_entity_ie_totals()  weekly + drop probe",
+    "group-donor-rollup-refresh   refresh_group_donor_rollup()          Wed 03:10 (FIX-1165)",
   ],
   mvs: [
     "refresh-derived-mvs-weekly   chord_industry / donor_type / donor_state / official_sector_dollars   Tue 00:47",
@@ -1001,7 +1034,7 @@ export function printDeferredTail(kind: keyof typeof TAIL_OWNERS): void {
       ? "VACUUM (ANALYZE)"
       : kind === "mvs"
         ? "materialized-view refreshes (phase 3)"
-        : "platform-wide search index + treemap";
+        : "platform-scoped rebuilds (search index, treemap, IE totals, group rollup)";
   console.log(`\n── ${what} — DEFERRED (--defer-tails) ──`);
   console.log("  Skipped here; collected by:");
   for (const line of TAIL_OWNERS[kind]) console.log(`    ${line}`);

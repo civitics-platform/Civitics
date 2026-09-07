@@ -681,6 +681,46 @@ does. FIX-1074 is the broader pre-drain convention this sits under: a landing
 also owns the *derived* work its rewrite creates, not just the watermark
 correctness of it.
 
+### A manifest-scoped remediation must not carry a platform-scoped tail (FIX-1165)
+
+**Third sibling of the two rules above, same category of unpaid bill.**
+
+THE RULE: **every step in a remediation script's tail either SCALES WITH THE
+MANIFEST or HAS A SCHEDULED OWNER.** Anything that is neither is a bug in the
+script, not a cost of the change.
+
+Measured on prod 2026-09-07, the FIX-954 set-2 apply — a **28-row** manifest:
+the delete plus all three manifest-scoped rollups took **78 seconds**
+(`donor_rollup_rebuild_recipients` 28.8s / 2 officials,
+`financial_entity_donation_totals_rebuild` 15.3s / 28 donors,
+`donor_party_rollup_rebuild_donors` 33.8s). The script then entered
+`rebuild_financial_entity_ie_totals()` — platform-scoped, cost independent of
+the manifest — and was cancelled by hand 28 minutes in. Front-door damage over
+that one step, by SQLSTATE from the Logs API: **70 × 57014** plus 13 × `08006`
+and 6 × `08P01`, against a **baseline of 1 × 57014** in the equivalent window
+earlier the same day. The preceding conservation phase cost another 132. Total
+**202 cancellations**, ~70× baseline, with the rate *highest* during the global
+rebuild. Everything stopped ⇒ the next 15-minute window measured **zero**.
+
+Consequences to apply:
+
+- **A step's presence in a tail is not evidence it has an owner.** Check three
+  places by NAME: `cron.job.command`, `pg_proc.prosrc` (a pg_cron job may CALL a
+  procedure that calls it), and the GHA workflows. FIX-688 moved the EC rebuild
+  to pg_cron and left `refresh_group_donor_rollup()` with **no scheduled owner at
+  all** — its only non-script caller sits in a workflow that became
+  `workflow_dispatch`-only. It had been re-derived purely as a side effect of
+  remediation-script tails, which nobody had noticed.
+- **`--defer-tails` is the lever, and it must cover every ownerless or
+  platform-scoped step** — not just the obvious ones. It shipped covering the
+  VACUUM, search index and treemap; the six MV refreshes and then these two
+  global rebuilds each had to be added after a prod run found them.
+- **The dry run must print each tail step's cost class** — manifest-scoped,
+  platform-scoped-with-owner, or platform-scoped-orphan — so the trade is visible
+  before the go-ahead rather than discovered at minute 28.
+- Corollary for reviewers: if a tail step's runtime does not move when the
+  manifest goes from 28 rows to 2,736, it is platform-scoped by definition.
+
 ---
 
 ## Supabase Clients (Summary)

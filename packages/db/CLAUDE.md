@@ -783,8 +783,14 @@ budget is index bytes times index count.
 2. **What does a vacuum pass cost?** Every pass scans **all** indexes. Index
    bytes × index count is the budget, not row count. `entity_connections` has
    3.5 GB across 10 indexes on an I/O-bound Small instance, so it stays at 0.05
-   with a monthly `ec-vacuum-analyze` backstop — making it more aggressive is the
-   single move most likely to hurt the request path.
+   with a **daily** `ec-vacuum-analyze` backstop at 04:30 UTC, placed just ahead
+   of the 06:00 daily that depends on it (FIX-1152; `fe-vacuum-analyze` sits at
+   04:50 on the same reasoning) — making the *autovacuum* threshold more
+   aggressive is the single move most likely to hurt the request path, which is
+   exactly why the scheduled vacuum carries the load instead. Autovacuum keys on
+   dead tuples; what breaks the search-index unit is the visibility map, and a
+   scheduled VACUUM is already decay-keyed — it skips all-visible pages and
+   (PG14+) the index pass when dead items are few, so a quiet day is nearly free.
 3. **Default to 0.05.** It is not a guess: four tables have held it in production
    here and all four sit at 100.0% all-visible. Go to 0.02 only for cheap tables
    (few indexes, small heap) or the very largest request-path tables.

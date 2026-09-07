@@ -123,9 +123,9 @@ describe("FIX-1041 (2) — the missing quantity is visible, not inferred", () =>
     assert.equal(byName.get("Build CPU Minutes")!.metric, "build_minutes");
   });
 
-  it("ISR Writes maps to isr_writes — its own metric, never isr_reads (FIX-A)", () => {
+  it("ISR Writes maps to isr_writes — its own metric, never isr_reads (FIX-1160)", () => {
     // Was pinned as `metric: null` by FIX-1041, which documented the gap and
-    // deliberately left it. FIX-A closes it. The line costs ~$3.29/mo and is
+    // deliberately left it. FIX-1160 closes it. The line costs ~$3.29/mo and is
     // the only ISR service billed on this account, so `isr_writes` is where
     // its quantity belongs; `isr_reads` keeps meaning reads.
     const isr = extractFromCharges(TEN_REAL_SERVICES).cost_breakdown.find(
@@ -136,7 +136,7 @@ describe("FIX-1041 (2) — the missing quantity is visible, not inferred", () =>
     assert.equal(isr.quantity, 1_100_000);
   });
 
-  it("an ISR Reads line would still land in isr_reads, not isr_writes (FIX-A)", () => {
+  it("an ISR Reads line would still land in isr_reads, not isr_writes (FIX-1160)", () => {
     // The write branch is checked first; that must not swallow a read line.
     const ex = extractFromCharges([line("ISR Reads", 1.5, { quantity: 900, unit: "Reads" })]);
     assert.equal(ex.cost_breakdown[0]!.metric, "isr_reads");
@@ -144,7 +144,7 @@ describe("FIX-1041 (2) — the missing quantity is visible, not inferred", () =>
     assert.equal(ex.metrics.isr_writes, 0);
   });
 
-  it("the two ISR series stay separate when both are billed (FIX-A)", () => {
+  it("the two ISR series stay separate when both are billed (FIX-1160)", () => {
     const ex = extractFromCharges([
       line("ISR Writes", 3.2857, { quantity: 1_100_000, unit: "Writes" }),
       line("ISR Reads", 1.5, { quantity: 900, unit: "Reads" }),
@@ -153,7 +153,7 @@ describe("FIX-1041 (2) — the missing quantity is visible, not inferred", () =>
     assert.equal(ex.metrics.isr_reads, 900);
   });
 
-  it("Web Analytics is absent from this account's charge lines, so nothing maps (FIX-A)", () => {
+  it("Web Analytics is absent from this account's charge lines, so nothing maps (FIX-1160)", () => {
     // web_analytics_events is 0 for want of a LINE, not for want of a mapping —
     // Web Analytics is included in Pro. The branch is exercised here so the
     // distinction stays a measured claim rather than an assumption.

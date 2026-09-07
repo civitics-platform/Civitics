@@ -16,7 +16,7 @@
  * for the full derivation rationale.
  */
 
-import { roleMayHoldFecOffice } from "../pipelines/fec-bulk/electable-role";
+import { fecOfficePrefixFor, roleMayHoldFecOffice } from "../pipelines/fec-bulk/electable-role";
 
 // ---------------------------------------------------------------------------
 // The enumeration query
@@ -185,7 +185,24 @@ export interface SuspectRow {
   shared_pairs: string;
 }
 
-export type Branch = "SAME-PERSON DUPLICATE" | "CROSS-PERSON MISATTRIBUTION" | "UNIQUE HOLDER";
+/**
+ * FIX-1154 — every branch, in report order, in ONE place.
+ *
+ * Two consumers had hand-written this list (the audit's summary table and the
+ * cross-person audit's console census), so adding a branch silently dropped its
+ * rows from both. `Branch` is now derived FROM this array rather than declared
+ * beside it: a new member reaches every consumer that iterates it, and the
+ * exhaustive `Record<Branch, …>` in the audit's REMEDY table turns anything it
+ * does not reach into a compile error.
+ */
+export const BRANCHES = [
+  "CROSS-PERSON MISATTRIBUTION",
+  "SAME-PERSON DUPLICATE",
+  "ROLE-INELIGIBLE HOLDER",
+  "UNIQUE HOLDER",
+] as const;
+
+export type Branch = (typeof BRANCHES)[number];
 
 /** SuspectRow plus the derived overlap numbers the classifier needs. */
 export type EnrichedRow = SuspectRow & { rows: number; shared: number; frac: number };
@@ -240,6 +257,13 @@ export const BAND_LO = 0.02;
 export const BAND_HI = 0.6;
 /** Above this many shared pairs, coincidence stops being a plausible story. */
 export const FLOOR_SEARCH_HI = 50;
+
+/**
+ * FIX-1154 — the minimum row count at which COMPLETE containment (every one of
+ * a suspect's rows also held by its twin) is allowed to override `sharedFloor`.
+ * See the `branchOf` comment: below this, total containment is cheap.
+ */
+export const CONTAINMENT_MIN_ROWS = 10;
 
 export interface Boundary {
   fracCut: number;
@@ -388,8 +412,56 @@ export function branchOf(
   e: EnrichedRow,
   boundary: Boundary,
 ): { branch: Branch; decidedBy: string } {
+  // FIX-1154 — ROLE FIRST, OVERLAP SECOND.
+  //
+  // The role predicate is a FACT about the official; the overlap thresholds are
+  // a STATISTIC about its twin. A statistic cannot rescue a binding the fact
+  // already forbids. An Article III judge and a city council member hold no
+  // federal seat, so no H/S/P CAND_ID's money is ever legitimately theirs — and
+  // that is true whether or not a same-surname twin happens to exist, and
+  // whether or not the overlap clears a threshold derived from other rows.
+  //
+  // Evaluated BEFORE `overlapping` because the previous ordering sent these
+  // rows to UNIQUE HOLDER, whose published remedy is "write the missing id — do
+  // NOT remove rows". For this population that remedy is exactly backwards:
+  // FIX-935 spent an audit pass looking for ids to write for 82 officials who
+  // can hold none. The 18 Federal Judges with no stored id and the 21 rows with
+  // no twin at all land here for the same one reason, which is the point.
+  //
+  // `e.rows > 0` keeps the branch to officials who actually hold money. It is
+  // fec_bulk money by construction: SUSPECT_SQL's membership gate is
+  // `fr.metadata->>'source' LIKE 'fec_bulk%'`, so every row in this population
+  // holds at least one fec_bulk-sourced donation. (Note that `donation_rows`
+  // itself counts ALL donation sources — the `facts` CTE carries no source
+  // predicate — so it is the population gate, not this count, that makes the
+  // branch fec_bulk-scoped. FIX-1153's own predicate scopes the count too,
+  // because there it decides what gets deleted.)
+  if (fecOfficePrefixFor(e.role_title) === null && e.rows > 0) {
+    return { branch: "ROLE-INELIGIBLE HOLDER", decidedBy: "role" };
+  }
+
+  // FIX-1154 — COMPLETE CONTAINMENT OVERRIDES THE ABSOLUTE FLOOR.
+  //
+  // `sharedFloor` exists to stop common-surname coincidence on a large
+  // population: a handful of shared donors between two unrelated Smiths is a
+  // story chance can tell. Total containment is not that story. When every one
+  // of a suspect's rows is also held by one twin, the suspect's holding IS a
+  // subset of that twin's, and no coincidence account survives it.
+  //
+  // The surfacing case is Alan Armstrong (Senator, OK) against Kelly Armstrong
+  // H8ND00096: 28 of 28 rows shared, frac 1.0 — filed UNIQUE HOLDER purely
+  // because 28 sits under the derived floor, when the seat test says ND is not
+  // OK and the names disagree. That is a CROSS-PERSON row the floor was hiding.
+  //
+  // The 10-row minimum is the coincidence guard the floor was providing: below
+  // it, complete containment is cheap (two rows shared out of two proves very
+  // little). Above it, containment is the stronger signal of the two.
+  const contained =
+    e.shared === e.rows && e.frac === 1 && e.rows >= CONTAINMENT_MIN_ROWS;
+
   const overlapping =
-    e.twin_id !== null && e.frac >= boundary.fracCut && e.shared >= boundary.sharedFloor;
+    e.twin_id !== null &&
+    ((e.frac >= boundary.fracCut && e.shared >= boundary.sharedFloor) || contained);
   if (!overlapping) return { branch: "UNIQUE HOLDER", decidedBy: "" };
 
   const a = officialFirstKey(e.first_name, e.full_name);
@@ -874,3 +946,58 @@ export function envLabel(): "local" | "prod" {
 /** node-postgres hands bigint columns back as strings, so accept those too. */
 export const usd = (cents: number | bigint | string): string =>
   `$${(Number(cents) / 100).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+
+// ---------------------------------------------------------------------------
+// FIX-1153 — --defer-tails: hand the heavy tails back to their scheduled owners
+// ---------------------------------------------------------------------------
+
+/**
+ * A remediation script's tail has three parts, and only one of them has no
+ * other owner:
+ *
+ *   1. VACUUM of the churned tables.  Owned by the *-vacuum-analyze pg_cron
+ *      jobs. On prod this must NEVER be run by a script: the 2026-09-01 ad-hoc
+ *      VACUUM of financial_relationships was a front-door incident (FIX-1144).
+ *   2. The platform-wide search index and treemap rebuilds. Owned by the 06:00
+ *      UTC daily (refresh_derived_mvs) and by treemap-individuals-global-refresh.
+ *      Re-running them four hours early duplicates ~1.5h of I/O on an
+ *      I/O-bound instance for a result the scheduler will produce anyway.
+ *   3. The OFFICIAL-scoped and DONOR-scoped rollups. These have no scheduled
+ *      owner that knows which officials and donors this run touched — the
+ *      donor set is read off rows the script then DELETES, so it cannot be
+ *      reconstructed afterwards (see FIX-964). These ALWAYS run. They are also
+ *      the ones that make the affected pages correct tonight.
+ *
+ * `--defer-tails` skips 1 and 2 and names their owners; 3 is unaffected. Without
+ * the flag every script behaves exactly as it did before — local runs keep their
+ * vacuum tails, which is FIX-943's standing convention and still right there.
+ */
+export function deferTails(argv: string[]): boolean {
+  return argv.includes("--defer-tails");
+}
+
+/** Who collects a tail this run is skipping. Schedules are prod, UTC. */
+export const TAIL_OWNERS = {
+  vacuum: [
+    "fr-vacuum-analyze            financial_relationships   Mon 01:00",
+    "officials-vacuum-analyze     officials                 Mon 01:30",
+    "ec-vacuum-analyze            entity_connections        daily 04:30 (FIX-1152)",
+    "fe-vacuum-analyze            financial_entities        daily 04:50 (FIX-1152)",
+  ],
+  heavy: [
+    "refresh-derived-mvs-daily    rebuild_entity_search_index()      daily 06:00",
+    "treemap-individuals-global-refresh  refresh_treemap_individuals_global()  Tue 14:00",
+  ],
+} as const;
+
+/** Print what is being skipped and who picks it up. */
+export function printDeferredTail(kind: keyof typeof TAIL_OWNERS): void {
+  const what = kind === "vacuum" ? "VACUUM (ANALYZE)" : "platform-wide search index + treemap";
+  console.log(`\n── ${what} — DEFERRED (--defer-tails) ──`);
+  console.log("  Skipped here; collected by:");
+  for (const line of TAIL_OWNERS[kind]) console.log(`    ${line}`);
+  if (kind === "vacuum") {
+    console.log("  On prod this is not an optimisation — a script-run VACUUM of these tables");
+    console.log("  is a front-door incident (FIX-1144). The scheduled owners are the path.");
+  }
+}

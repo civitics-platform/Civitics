@@ -47,6 +47,7 @@ import * as fs from "fs";
 import * as path from "path";
 import {
   ALL_OWNERS_SQL,
+  BRANCHES,
   type ClassifiedRow,
   classify,
   constructDbUrlFromEnv,
@@ -147,7 +148,7 @@ async function main(): Promise<void> {
   console.log(
     `  suspects: ${classified.length}   boundary: frac >= ${boundary.fracCut.toFixed(4)} AND shared >= ${boundary.sharedFloor}`,
   );
-  for (const b of ["CROSS-PERSON MISATTRIBUTION", "SAME-PERSON DUPLICATE", "UNIQUE HOLDER"]) {
+  for (const b of BRANCHES) {
     console.log(`  ${b.padEnd(28)} ${String(classified.filter((e) => e.branch === b).length).padStart(4)}`);
   }
 

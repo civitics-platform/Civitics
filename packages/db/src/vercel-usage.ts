@@ -21,7 +21,7 @@
  * ("regenerate the token"). Real FOCUS field names confirmed against prod
  * 2026-06-21.
  *
- * FIX-A — "ISR Writes" now maps to its own metric, `isr_writes`. It had been
+ * FIX-1160 — "ISR Writes" now maps to its own metric, `isr_writes`. It had been
  * falling through `mapChargeQuantity` because the only ISR branch matched
  * "isr read", a service Vercel does not bill on this account. THE SERIES FOR
  * `isr_writes` STARTS AT THIS DEPLOY: every earlier `platform_usage` row for it
@@ -64,7 +64,7 @@ export type VercelUsage = {
    *  isr_writes — do not fold one into the other. */
   isr_reads: number;
   /** "ISR Writes" — a live, paid line on this account (~$3.29/mo). Series
-   *  starts at the FIX-A deploy; see the header. */
+   *  starts at the FIX-1160 deploy; see the header. */
   isr_writes: number;
   fluid_memory_gb_hrs: number;
   /** Sum of BilledCost across all charge lines — the dollars Vercel actually
@@ -237,7 +237,7 @@ const BYTES_PER_GB = 1024 ** 3;
 // its August peak), ISR Writes ($3.29), Speed Insights Data Points ($1.34),
 // Speed Insights Plus Events ($0.78).
 //
-// FIX-A — that mapping gap is now closed, and NOT by widening `isr_reads`.
+// FIX-1160 — that mapping gap is now closed, and NOT by widening `isr_reads`.
 // Reads and writes are different services with different prices; folding the
 // paid write line into the read metric would have silently redefined an
 // existing series rather than starting a true one. "ISR Writes" gets its own
@@ -287,7 +287,7 @@ function mapChargeQuantity(
   }
   // "ISR Writes" is the line this account is actually billed for; checked
   // before the read branch so a future "ISR Reads and Writes"-style label
-  // cannot land in the wrong series (FIX-A).
+  // cannot land in the wrong series (FIX-1160).
   if (d.includes("isr write")) {
     return { key: "isr_writes", value: qty };
   }

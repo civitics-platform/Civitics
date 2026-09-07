@@ -75,11 +75,13 @@ import {
   ALL_OWNERS_SQL,
   classify,
   constructDbUrlFromEnv,
+  deferTails,
   envLabel,
   type OwnerBase,
   ownerRelation,
   OWNER_SQL,
   PLATFORM_SQL,
+  printDeferredTail,
   ROWCLASS_SQL,
   ROWHIT_SQL,
   seatMatches,
@@ -170,7 +172,13 @@ async function budgeted(client: Client, label: string, sql: string, budgetS: num
   if (s > budgetS) throw new BudgetExceeded(`${label} took ${s.toFixed(0)}s against a ${budgetS}s budget`);
 }
 
-async function runVacuum(client: Client): Promise<void> {
+async function runVacuum(client: Client, defer = false): Promise<void> {
+  // FIX-1153 — on prod the scheduled *-vacuum-analyze jobs own this entirely;
+  // a script-run VACUUM of these tables is a front-door incident (FIX-1144).
+  if (defer) {
+    printDeferredTail("vacuum");
+    return;
+  }
   console.log("\n── VACUUM (ANALYZE) ─────────────────────────────────────");
   for (const t of CHURNED_TABLES) {
     try {
@@ -182,7 +190,7 @@ async function runVacuum(client: Client): Promise<void> {
   }
 }
 
-async function runMvsAndVacuum(client: Client): Promise<void> {
+async function runMvsAndVacuum(client: Client, defer = false): Promise<void> {
   console.log("\n── Phase 3: materialized views + vacuum ─────────────────");
   for (const fn of MV_REFRESH_FNS) {
     try {
@@ -192,7 +200,7 @@ async function runMvsAndVacuum(client: Client): Promise<void> {
       console.error(`  ! ${fn}() failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  await runVacuum(client);
+  await runVacuum(client, defer);
 }
 
 /**
@@ -200,7 +208,7 @@ async function runMvsAndVacuum(client: Client): Promise<void> {
  * FIX-933's: nothing here is atomic with the delete and nothing needs to be,
  * because every rollup is a pure function of the committed rows.
  */
-async function runRollups(client: Client, prod: boolean): Promise<void> {
+async function runRollups(client: Client, prod: boolean, defer = false): Promise<void> {
   console.log("\n── Phase 2: rollups (post-commit, chunked) ──────────────");
 
   const [offCount] = await q<{ n: string }>(client, `SELECT count(*)::text AS n FROM _affected`);
@@ -269,11 +277,18 @@ async function runRollups(client: Client, prod: boolean): Promise<void> {
       );
     }
 
-    for (const [label, sql] of [
+    // FIX-1153 — the search index is the 06:00 daily's ninth unit and the
+    // treemap is treemap-individuals-global-refresh's whole job. Under
+    // --defer-tails both are left to them; the two entity-total rebuilds stay,
+    // because nothing scheduled knows which rows this run deleted.
+    const heavySteps = [
       ["rebuild_financial_entity_ie_totals()", `SELECT rebuild_financial_entity_ie_totals()`],
       ["refresh_group_donor_rollup()", `SELECT refresh_group_donor_rollup()`],
-      ["rebuild_entity_search_index()", `SELECT rebuild_entity_search_index()`],
-    ] as const) {
+      ...(defer
+        ? []
+        : ([["rebuild_entity_search_index()", `SELECT rebuild_entity_search_index()`]] as const)),
+    ] as ReadonlyArray<readonly [string, string]>;
+    for (const [label, sql] of heavySteps) {
       try {
         await budgeted(client, label, sql, STEP_BUDGET_S["heavy"]!);
       } catch (err) {
@@ -288,7 +303,9 @@ async function runRollups(client: Client, prod: boolean): Promise<void> {
     // for ~7 hours. Hand the step budget to the procedure's session GUC; on
     // budget it exits cleanly as status='partial' and any later CALL (weekly
     // cron or data:treemap:sweep) resumes from the committed chunk cursor.
-    try {
+    if (defer) {
+      printDeferredTail("heavy");
+    } else try {
       await client.query(
         `SET civitics.treemap_global_budget_seconds = '${STEP_BUDGET_S["heavy"]!}'`,
       );
@@ -405,7 +422,7 @@ export function parseOfficialsArg(argv: string[]): string[] {
  * empty), `_donor` always empty. Then runs the same phase 2 → phase 3 sequence
  * the apply path runs, so a resume finishes the run rather than half of it.
  */
-async function runRollupsResume(client: Client, prod: boolean, officialIds: string[]): Promise<void> {
+async function runRollupsResume(client: Client, prod: boolean, officialIds: string[], defer = false): Promise<void> {
   console.log("\n── RESUME (--rollups-only): no derivation, no delete ────");
   console.log(`  officials handed in: ${officialIds.length}`);
   await client.query(`
@@ -417,8 +434,8 @@ async function runRollupsResume(client: Client, prod: boolean, officialIds: stri
   if (officialIds.length > 0) {
     await client.query(`INSERT INTO _affected (id) SELECT unnest($1::uuid[])`, [officialIds]);
   }
-  await runRollups(client, prod);
-  await runMvsAndVacuum(client);
+  await runRollups(client, prod, defer);
+  await runMvsAndVacuum(client, defer);
 }
 
 async function main(): Promise<void> {
@@ -435,6 +452,7 @@ async function main(): Promise<void> {
   const mvsOnly = mode === "mvs-only";
   const vacuumOnly = mode === "vacuum-only";
   const allowProd = argv.includes("--allow-prod");
+  const defer = deferTails(argv);
   const prod = isProd();
   if (officialIds.length > 0 && !rollupsOnly) {
     console.error("✗ --officials is only meaningful with --rollups-only (FIX-964 resume scope).");
@@ -472,19 +490,19 @@ async function main(): Promise<void> {
   if (!prod) await client.query("SET max_parallel_workers_per_gather = 0");
 
   if (vacuumOnly) {
-    await runVacuum(client);
+    await runVacuum(client, defer);
     await client.end();
     return;
   }
   if (mvsOnly) {
-    await runMvsAndVacuum(client);
+    await runMvsAndVacuum(client, defer);
     await client.end();
     return;
   }
   // FIX-964: short-circuit BEFORE the derivation, like the other two resume
   // modes. Deriving here is what made the advertised resume path a no-op.
   if (rollupsOnly) {
-    await runRollupsResume(client, prod, officialIds);
+    await runRollupsResume(client, prod, officialIds, defer);
     await client.end();
     return;
   }
@@ -772,8 +790,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  await runRollups(client, prod);
-  await runMvsAndVacuum(client);
+  await runRollups(client, prod, defer);
+  await runMvsAndVacuum(client, defer);
 
   console.log(
     "\nSTALE UNTIL THEIR OWN SCHEDULE:\n" +

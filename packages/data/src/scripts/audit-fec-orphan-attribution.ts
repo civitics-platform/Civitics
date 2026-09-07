@@ -58,6 +58,7 @@ import {
   BAND_HI,
   BAND_LO,
   type Branch,
+  BRANCHES,
   classify,
   constructDbUrlFromEnv,
   deleteEvidenceCleared,
@@ -245,11 +246,6 @@ async function main(): Promise<void> {
   fs.writeFileSync(tsvPath, tsv([header, ...body]), "utf8");
 
   // ── summary ───────────────────────────────────────────────────────────────
-  const BRANCHES: Branch[] = [
-    "CROSS-PERSON MISATTRIBUTION",
-    "SAME-PERSON DUPLICATE",
-    "UNIQUE HOLDER",
-  ];
   const perBranch = BRANCHES.map((b) => {
     const rows = classified.filter((e) => e.branch === b);
     return { branch: b, n: rows.length, cents: rows.reduce((s, e) => s + Number(e.donation_cents), 0) };
@@ -419,13 +415,24 @@ async function main(): Promise<void> {
   const REMEDY: Record<Branch, string> = {
     "CROSS-PERSON MISATTRIBUTION": "delete the mis-bound rows — another person's donors",
     "SAME-PERSON DUPLICATE": "merge the two official rows, carrying the FK surface",
+    // FIX-1154 / FIX-1153 — the role forbids the binding outright, so there is
+    // no id to write and no twin to merge with. Its own remediation path.
+    "ROLE-INELIGIBLE HOLDER":
+      "delete the rows and retire any stored id — the role can hold no FEC office (FIX-1153)",
     "UNIQUE HOLDER": "**write the missing `source_ids` id** — do NOT remove rows",
   };
   for (const b of perBranch) {
     L.push(`| ${b.branch} | ${b.n} | ${usd(b.cents)} | ${REMEDY[b.branch]} |`);
   }
   L.push("");
-  const overlapping = classified.filter((e) => e.branch !== "UNIQUE HOLDER");
+  // FIX-1154 — ROLE-INELIGIBLE rows are excluded here as well as UNIQUE HOLDER:
+  // this block explains how the name/seat test decided SAME vs CROSS, and those
+  // rows never reached that test (they short-circuit on the role, decidedBy
+  // 'role'). Counting them would inflate the denominator of a table about a
+  // decision they did not participate in.
+  const overlapping = classified.filter(
+    (e) => e.branch !== "UNIQUE HOLDER" && e.branch !== "ROLE-INELIGIBLE HOLDER",
+  );
   const decCount = (k: string) => overlapping.filter((e) => e.decidedBy === k).length;
   L.push("### How SAME vs CROSS is decided");
   L.push("");

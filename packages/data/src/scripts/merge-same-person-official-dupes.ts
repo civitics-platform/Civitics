@@ -77,8 +77,10 @@ import {
   type ClassifiedRow,
   classify,
   constructDbUrlFromEnv,
+  deferTails,
   envLabel,
   PLATFORM_SQL,
+  printDeferredTail,
   SUSPECT_SQL,
   type SuspectRow,
   usd,
@@ -148,7 +150,13 @@ const CHURNED_TABLES = ["financial_relationships", "entity_connections", "offici
  * an otherwise-idle prod and pushed the homepage to 18.5s. The MVs were
  * abandoned to the cron; the vacuums were not, because they have no other owner.
  */
-async function runVacuum(client: Client): Promise<void> {
+async function runVacuum(client: Client, defer = false): Promise<void> {
+  // FIX-1153 — the scheduled *-vacuum-analyze jobs own this on prod;
+  // a script-run VACUUM of these tables is a front-door incident (FIX-1144).
+  if (defer) {
+    printDeferredTail("vacuum");
+    return;
+  }
   console.log("\n── VACUUM (ANALYZE) ─────────────────────────────────────");
   for (const t of CHURNED_TABLES) {
     try {
@@ -161,7 +169,7 @@ async function runVacuum(client: Client): Promise<void> {
 }
 
 /** MV refreshes + VACUUM — the tail of phase 2, separable so it can be resumed alone. */
-async function runMvsAndVacuum(client: Client): Promise<void> {
+async function runMvsAndVacuum(client: Client, defer = false): Promise<void> {
   console.log("\n── Phase 3: materialized views + vacuum ─────────────────");
   for (const fn of MV_REFRESH_FNS) {
     try {
@@ -170,7 +178,7 @@ async function runMvsAndVacuum(client: Client): Promise<void> {
       console.error(`  ! ${fn}() failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  await runVacuum(client);
+  await runVacuum(client, defer);
 }
 
 function isProd(): boolean {
@@ -1203,7 +1211,7 @@ async function budgeted(
  */
 type RollupOutcome = "ok" | "aborted";
 
-async function runRollups(client: Client, prod: boolean): Promise<RollupOutcome> {
+async function runRollups(client: Client, prod: boolean, defer = false): Promise<RollupOutcome> {
   console.log("\n── Phase 2: rollups (post-commit, chunked) ──────────────");
 
   // Affected officials come from _manifest when the merge just ran, and are
@@ -1307,12 +1315,22 @@ async function runRollups(client: Client, prod: boolean): Promise<RollupOutcome>
     // Platform-wide rebuilds. Each carries its own COMMIT, so they were never
     // transaction-safe anyway. Individually caught: a stale one is a stale
     // rollup, not lost data.
-    for (const [label, sql] of [
+    // FIX-1153 — the search index belongs to the 06:00 daily's ninth unit and
+    // the treemap to treemap-individuals-global-refresh (Tue 14:00). Under
+    // --defer-tails both are left to them; the two entity-total rebuilds stay,
+    // because nothing scheduled knows which rows this run moved.
+    if (defer) printDeferredTail("heavy");
+    const heavySteps = [
       ["rebuild_financial_entity_ie_totals()", `SELECT rebuild_financial_entity_ie_totals()`],
       ["refresh_group_donor_rollup()", `SELECT refresh_group_donor_rollup()`],
-      ["rebuild_entity_search_index()", `SELECT rebuild_entity_search_index()`],
-      ["refresh_treemap_individuals_global()", `CALL refresh_treemap_individuals_global()`],
-    ] as const) {
+      ...(defer
+        ? []
+        : ([
+            ["rebuild_entity_search_index()", `SELECT rebuild_entity_search_index()`],
+            ["refresh_treemap_individuals_global()", `CALL refresh_treemap_individuals_global()`],
+          ] as const)),
+    ] as ReadonlyArray<readonly [string, string]>;
+    for (const [label, sql] of heavySteps) {
       try {
         await budgeted(client, label, sql, STEP_BUDGET_S["heavy"]!);
       } catch (err) {
@@ -1389,6 +1407,7 @@ async function main(): Promise<void> {
   }
   const apply = argv.includes("--apply") || rollupsOnly || mvsOnly || vacuumOnly;
   const allowProd = argv.includes("--allow-prod");
+  const defer = deferTails(argv);
   const prod = isProd();
 
   if (prod && !allowProd) {
@@ -1437,13 +1456,13 @@ async function main(): Promise<void> {
   if (!prod) await client.query("SET max_parallel_workers_per_gather = 0");
 
   if (vacuumOnly) {
-    await runVacuum(client);
+    await runVacuum(client, defer);
     await client.end();
     return;
   }
 
   if (mvsOnly) {
-    await runMvsAndVacuum(client);
+    await runMvsAndVacuum(client, defer);
     await client.end();
     return;
   }
@@ -1477,10 +1496,10 @@ async function main(): Promise<void> {
     }
     // Same skip as the full-run path below: a resume that aborts AGAIN must not
     // fall through into phase 3 either.
-    if ((await runRollups(client, prod)) === "aborted") {
+    if ((await runRollups(client, prod, defer)) === "aborted") {
       process.exitCode = ABORTED_EXIT_CODE;
     } else {
-      await runMvsAndVacuum(client);
+      await runMvsAndVacuum(client, defer);
     }
     await client.end();
     return;
@@ -2069,12 +2088,12 @@ async function main(): Promise<void> {
   // phase 3 ran anyway at 25-70x its local timings and took prod fully
   // unresponsive (pooler ECHECKOUTTIMEOUT, Cloudflare 522 for 30+ minutes,
   // manual project reset). A guard that fires has to propagate.
-  if ((await runRollups(client, prod)) === "aborted") {
+  if ((await runRollups(client, prod, defer)) === "aborted") {
     process.exitCode = ABORTED_EXIT_CODE;
     await client.end();
     return;
   }
-  await runMvsAndVacuum(client);
+  await runMvsAndVacuum(client, defer);
 
   console.log(
     "\nSTALE UNTIL THEIR OWN SCHEDULE (not rebuildable here at reasonable cost):\n" +

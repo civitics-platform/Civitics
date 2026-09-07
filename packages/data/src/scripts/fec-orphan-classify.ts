@@ -988,16 +988,31 @@ export const TAIL_OWNERS = {
     "refresh-derived-mvs-daily    rebuild_entity_search_index()      daily 06:00",
     "treemap-individuals-global-refresh  refresh_treemap_individuals_global()  Tue 14:00",
   ],
+  mvs: [
+    "refresh-derived-mvs-weekly   chord_industry / donor_type / donor_state / official_sector_dollars   Tue 00:47",
+    "refresh-derived-mvs-daily    homepage_stats_mv, official_homepage_stats_mv                         daily 06:00",
+  ],
 } as const;
 
 /** Print what is being skipped and who picks it up. */
 export function printDeferredTail(kind: keyof typeof TAIL_OWNERS): void {
-  const what = kind === "vacuum" ? "VACUUM (ANALYZE)" : "platform-wide search index + treemap";
+  const what =
+    kind === "vacuum"
+      ? "VACUUM (ANALYZE)"
+      : kind === "mvs"
+        ? "materialized-view refreshes (phase 3)"
+        : "platform-wide search index + treemap";
   console.log(`\n── ${what} — DEFERRED (--defer-tails) ──`);
   console.log("  Skipped here; collected by:");
   for (const line of TAIL_OWNERS[kind]) console.log(`    ${line}`);
   if (kind === "vacuum") {
     console.log("  On prod this is not an optimisation — a script-run VACUUM of these tables");
     console.log("  is a front-door incident (FIX-1144). The scheduled owners are the path.");
+  }
+  if (kind === "mvs") {
+    console.log("  Not an optimisation either: the FIX-953 apply (2026-08-10/11) ran this phase");
+    console.log("  and took prod fully unresponsive for 30+ minutes. These scripts also refresh");
+    console.log("  the chord MVs WITHOUT the FIX-1129 max_parallel_workers_per_gather=0 guard,");
+    console.log("  which they only set on local — so this is the unguarded configuration.");
   }
 }

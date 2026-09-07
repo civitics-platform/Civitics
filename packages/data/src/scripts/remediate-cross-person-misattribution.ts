@@ -191,6 +191,25 @@ async function runVacuum(client: Client, defer = false): Promise<void> {
 }
 
 async function runMvsAndVacuum(client: Client, defer = false): Promise<void> {
+  // FIX-1153 — the MV loop is deferred too. Every one of these has a
+  // scheduled owner: refresh-derived-mvs-weekly (jobid 10, Tue 00:47 UTC)
+  // rebuilds the three chord MVs and official_sector_dollars_mv, and
+  // refresh-derived-mvs-daily (jobid 9, 06:00 UTC) rebuilds homepage_stats_mv
+  // and official_homepage_stats_mv. Running them from here duplicates that
+  // work hours early, and this specific phase has a prod incident against it:
+  // the FIX-953 apply (2026-08-10/11) ran phase 3 after an aborted phase 2 and
+  // took prod fully unresponsive (pooler ECHECKOUTTIMEOUT, Cloudflare 522 for
+  // 30+ minutes, manual project reset). It is also the ONE place these scripts
+  // refresh the chord MVs WITHOUT the FIX-1129 guard: that fix set
+  // max_parallel_workers_per_gather = 0 for the weekly cadence because the
+  // parallel hash build over financial_entities cannot resize its DSM segment,
+  // and these scripts only set that GUC on LOCAL (see main()).
+  if (defer) {
+    printDeferredTail("mvs");
+    await runVacuum(client, defer);
+    return;
+  }
+
   console.log("\n── Phase 3: materialized views + vacuum ─────────────────");
   for (const fn of MV_REFRESH_FNS) {
     try {

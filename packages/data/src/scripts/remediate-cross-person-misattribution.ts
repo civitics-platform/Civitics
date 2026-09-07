@@ -80,7 +80,6 @@ import {
   type OwnerBase,
   ownerRelation,
   OWNER_SQL,
-  PLATFORM_SQL,
   printDeferredTail,
   ROWCLASS_SQL,
   ROWHIT_SQL,
@@ -661,7 +660,27 @@ async function main(): Promise<void> {
   await client.query("BEGIN");
   try {
     // ── Baselines for the conservation proof ────────────────────────────────
-    const [platformBefore] = await q<{ officials: string; cents: string }>(client, PLATFORM_SQL);
+    // FIX-1165 — conservation, KEYED. This used to be PLATFORM_SQL, which
+    // aggregates every official donation row on the instance. Measured on prod
+    // 2026-09-07 during this script's own --pair dry run: it ran 2m28s for a
+    // TWO-OFFICIAL change and was still going when it was cancelled by hand. Its
+    // cost is a function of financial_relationships, not of the manifest, so it
+    // is the same defect as the platform-scoped tail rebuilds and it hides in
+    // the same place -- a step that looks like a safety check rather than work.
+    // The invariant is unchanged: a merge MOVES money, so the total resident on
+    // the officials in the manifest must not fall except by the collision losers
+    // this run deliberately drops.
+    const [platformBefore] = await q<{ officials: string; cents: string }>(
+      client,
+      `SELECT count(DISTINCT fr.to_id)::text            AS officials,
+              COALESCE(sum(fr.amount_cents), 0)::text   AS cents
+         FROM financial_relationships fr
+        WHERE fr.to_type = 'official'
+          AND fr.relationship_type = 'donation'
+          AND fr.to_id = ANY(ARRAY(
+                SELECT suspect_id FROM _xp
+                UNION SELECT owner_id FROM _ownrel))`,
+    );
     await client.query(`
       CREATE TEMP TABLE _odt_before ON COMMIT DROP AS
         SELECT official_id, total_cents FROM official_donor_totals;
@@ -797,7 +816,18 @@ async function main(): Promise<void> {
     );
 
     // ── Conservation proof ──────────────────────────────────────────────────
-    const [platformAfter] = await q<{ officials: string; cents: string }>(client, PLATFORM_SQL);
+    // FIX-1165 — the same keyed read as the baseline above.
+    const [platformAfter] = await q<{ officials: string; cents: string }>(
+      client,
+      `SELECT count(DISTINCT fr.to_id)::text            AS officials,
+              COALESCE(sum(fr.amount_cents), 0)::text   AS cents
+         FROM financial_relationships fr
+        WHERE fr.to_type = 'official'
+          AND fr.relationship_type = 'donation'
+          AND fr.to_id = ANY(ARRAY(
+                SELECT suspect_id FROM _xp
+                UNION SELECT owner_id FROM _ownrel))`,
+    );
     const beforeCents = BigInt(platformBefore?.cents ?? "0");
     const afterCents = BigInt(platformAfter?.cents ?? "0");
     const observedDrop = beforeCents - afterCents;

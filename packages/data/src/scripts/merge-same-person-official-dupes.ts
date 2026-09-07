@@ -79,7 +79,6 @@ import {
   constructDbUrlFromEnv,
   deferTails,
   envLabel,
-  PLATFORM_SQL,
   printDeferredTail,
   SUSPECT_SQL,
   type SuspectRow,
@@ -1018,11 +1017,21 @@ async function runTrioRevert(client: Client): Promise<bigint> {
       FROM _trio t
      WHERE o.id = t.stub`);
 
-  // Same neutralisation the pair merge applies to its duplicates.
-  await run(client, "officials.total_received_cents = 0 (trio)", `
-    UPDATE officials o SET total_received_cents = 0, updated_at = now()
-      FROM _trio t
-     WHERE o.id = t.stub AND o.total_received_cents <> 0`);
+  // FIX-1165 — the officials.total_received_cents UPDATE that used to sit here
+  // is REMOVED: public.officials HAS NO SUCH COLUMN, on prod or on the clone.
+  // It was dropped after FIX-942 established the column had no reader left,
+  // and this statement was not removed with it, so any run reaching this point
+  // aborted with 42703 and rolled the whole merge back. Found by running the
+  // --pair dry run: "column o.total_received_cents does not exist".
+  //
+  // Its stated rationale was already void independently: the comment justified
+  // it by what rebuild_official_donation_totals() would otherwise leave stale,
+  // and that function does not exist either (same session, same discovery).
+  // The live neutralisation is the official_donor_totals delete below, which
+  // is what every reader — treemap, small-dollar route, search index — reads.
+  // NOTE total_received_cents DOES still exist on financial_entities and is
+  // live there; only the officials column is gone. Do not "restore" this by
+  // grepping the column name.
   await run(client, "official_donor_totals delete (trio)", `
     DELETE FROM official_donor_totals x USING _trio t WHERE x.official_id = t.stub`);
   await run(
@@ -1926,7 +1935,29 @@ async function main(): Promise<void> {
           FROM official_donor_totals;
       CREATE UNIQUE INDEX ON _odt_before(official_id);
     `);
-    const [platformBefore] = await q<{ officials: string; cents: string }>(client, PLATFORM_SQL);
+    // FIX-1165 — conservation, KEYED. This used to be PLATFORM_SQL, which
+    // aggregates every official donation row on the instance. Measured on prod
+    // 2026-09-07 during this script's own --pair dry run: it ran 2m28s for a
+    // TWO-OFFICIAL change and was still going when it was cancelled by hand. Its
+    // cost is a function of financial_relationships, not of the manifest, so it
+    // is the same defect as the platform-scoped tail rebuilds and it hides in
+    // the same place -- a step that looks like a safety check rather than work.
+    // The invariant is unchanged: a merge MOVES money, so the total resident on
+    // the officials in the manifest must not fall except by the collision losers
+    // this run deliberately drops.
+    const [platformBefore] = await q<{ officials: string; cents: string }>(
+      client,
+      `SELECT count(DISTINCT fr.to_id)::text            AS officials,
+              COALESCE(sum(fr.amount_cents), 0)::text   AS cents
+         FROM financial_relationships fr
+        WHERE fr.to_type = 'official'
+          AND fr.relationship_type = 'donation'
+          AND fr.to_id = ANY(ARRAY(
+                SELECT survivor FROM _manifest
+                UNION SELECT dup FROM _manifest
+                UNION SELECT stub FROM _trio
+                UNION SELECT claimant FROM _trio WHERE claimant IS NOT NULL))`,
+    );
 
     await client.query(`
       CREATE TEMP TABLE _pair_before ON COMMIT DROP AS
@@ -1946,6 +1977,16 @@ async function main(): Promise<void> {
     // the index is NULLS DISTINCT, so NULL-keyed rows do not actually collide.
     // (Measured 0 NULL from_id / cycle_year in this population.)
     await client.query(`
+      -- FIX-1165 — ANALYZE first. _manifest and _trio are filled row-by-row by
+      -- INSERT and carry NO STATISTICS, so the planner has no cardinality for
+      -- them and is free to drive the joins below from financial_relationships
+      -- instead of from the manifest. Measured on prod 2026-09-07: this step ran
+      -- 3m24s and was still going for a TWO-OFFICIAL pair that takes under a
+      -- second on the clone -- a ~200x ratio against the 6-9x this instance
+      -- usually shows, which is a plan problem and not a cache one. Same root
+      -- cause as the _pop bound in remediate-role-ineligible-holders.
+      ANALYZE _manifest;
+      ANALYZE _trio;
       CREATE TEMP TABLE _collision ON COMMIT DROP AS
         SELECT s.relationship_type,
                s.id AS surv_row, d.id AS dup_row,
@@ -2046,13 +2087,22 @@ async function main(): Promise<void> {
        WHERE fr.to_type = 'official' AND fr.to_id = m.dup`);
 
     // 3. Neutralise the duplicate. The officials ROW stays; it just holds no
-    //    money. rebuild_official_donation_totals() only UPDATEs officials that
-    //    still have an aggregate row, so a duplicate that just dropped to zero
-    //    would otherwise keep its stale total forever.
-    await run(client, "officials.total_received_cents = 0 (duplicates)", `
-      UPDATE officials o SET total_received_cents = 0, updated_at = now()
-        FROM _manifest m
-       WHERE o.id = m.dup AND o.total_received_cents <> 0`);
+    //    money.
+    // FIX-1165 — the officials.total_received_cents UPDATE that used to sit here
+    // is REMOVED: public.officials HAS NO SUCH COLUMN, on prod or on the clone.
+    // It was dropped after FIX-942 established the column had no reader left,
+    // and this statement was not removed with it, so any run reaching this point
+    // aborted with 42703 and rolled the whole merge back. Found by running the
+    // --pair dry run: "column o.total_received_cents does not exist".
+    //
+    // Its stated rationale was already void independently: the comment justified
+    // it by what rebuild_official_donation_totals() would otherwise leave stale,
+    // and that function does not exist either (same session, same discovery).
+    // The live neutralisation is the official_donor_totals delete below, which
+    // is what every reader — treemap, small-dollar route, search index — reads.
+    // NOTE total_received_cents DOES still exist on financial_entities and is
+    // live there; only the officials column is gone. Do not "restore" this by
+    // grepping the column name.
     await run(client, "official_donor_totals delete (duplicates)", `
       DELETE FROM official_donor_totals t USING _manifest m WHERE t.official_id = m.dup`);
 
@@ -2136,7 +2186,20 @@ async function main(): Promise<void> {
     // right the first time.
 
     // ── Conservation proof, both directions ─────────────────────────────
-    const [platformAfter] = await q<{ officials: string; cents: string }>(client, PLATFORM_SQL);
+    // FIX-1165 — the same keyed read as the baseline above.
+    const [platformAfter] = await q<{ officials: string; cents: string }>(
+      client,
+      `SELECT count(DISTINCT fr.to_id)::text            AS officials,
+              COALESCE(sum(fr.amount_cents), 0)::text   AS cents
+         FROM financial_relationships fr
+        WHERE fr.to_type = 'official'
+          AND fr.relationship_type = 'donation'
+          AND fr.to_id = ANY(ARRAY(
+                SELECT survivor FROM _manifest
+                UNION SELECT dup FROM _manifest
+                UNION SELECT stub FROM _trio
+                UNION SELECT claimant FROM _trio WHERE claimant IS NOT NULL))`,
+    );
     const beforeCents = BigInt(platformBefore?.cents ?? "0");
     const afterCents = BigInt(platformAfter?.cents ?? "0");
     const observedDrop = beforeCents - afterCents;
@@ -2199,7 +2262,7 @@ async function main(): Promise<void> {
     const sumAfter = report.reduce((s, r) => s + BigInt(r.surv_after) + BigInt(r.dup_after), 0n);
 
     console.log("\n── Conservation ─────────────────────────────────────────");
-    console.log(`  platform donation dollars on officials: ${usd(beforeCents.toString())} → ${usd(afterCents.toString())}`);
+    console.log(`  manifest-scoped donation dollars:      ${usd(beforeCents.toString())} → ${usd(afterCents.toString())}`);
     console.log(`  observed drop:                          ${usd(observedDrop.toString())}`);
     console.log(`  deleted colliding losers:               ${usd(deletedDonationCents.toString())}`);
     console.log(`  deleted trio stolen copies:             ${usd(trioDeletedCents.toString())}`);

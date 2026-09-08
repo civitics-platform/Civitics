@@ -1426,3 +1426,6 @@
 2026-09-07 | FIX-937 | 7eb94843 | prod-only | fix(fec): set 1 applied on prod — 2,736 role-ineligible FR rows deleted and 119 illegitimate FEC ids retired, in under four minutes with zero statement cancellations
 2026-09-07 | FIX-1155 | c37aa301 | prod-only | fix(fec): set 3 applied on prod — Al Green merged, and the ungated duplicate MV loop it exposed is deleted
 2026-09-07 | FIX-1165 | c37aa301 | prod-only | fix(fec): set 3 applied on prod — Al Green merged, and the ungated duplicate MV loop it exposed is deleted
+2026-09-07 | FIX-1060 | 3b3300e2 | local-only | fix(nightly): the nightly starts at :17 and records the FEC drop probe from the light phase; fec-phase and fec-backfill heap ceilings sized from measured RSS with the sort buffer explicit
+2026-09-07 | FIX-1163 | 3b3300e2 | local-only | fix(nightly): the nightly starts at :17 and records the FEC drop probe from the light phase; fec-phase and fec-backfill heap ceilings sized from measured RSS with the sort buffer explicit
+2026-09-07 | FIX-992 | aac3858f | closes-as-recognized | chore(fixes): close FIX-992 on a full week of in-cadence donor-rollup completions

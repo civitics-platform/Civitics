@@ -1,0 +1,140 @@
+official_id	full_name	role_title	tier	is_active	jurisdiction	stored_fec_id	fec_rows	fec_cents	cross_rows	only_rows	cross_cents	only_cents
+da5de9b1-2c03-4028-9e79-3cb89081aac8	Scott Wiener	Council Member	elected	false	SF	H8CA11116	1169	269522200	1169	0	269522200	0
+903facbb-ac16-47e4-a7df-60e2445ad9c6	Christine Jones	Council Member	elected	false	AUS	H6AR02286	473	35205100	473	0	35205100	0
+aa966e77-76e5-447a-ba19-2b3d72908ac0	Sarah Duffy	Council Member	elected	false	SF	H0WI07051	134	32459300	134	0	32459300	0
+cf260409-5d3f-48e8-b5da-6f85a40bc882	Connie Chan	Council Member	elected	false	SF	H6CA11268	146	15498800	146	0	15498800	0
+5d6241ea-951a-46ff-bebe-9499245e87e4	John Bush	Federal Judge	elected	true	US		21	11000000	21	0	11000000	0
+7bfb2e70-a017-4996-83fe-e01eede7a78b	Ken Bruce	Council Member	elected	false	SF	S2SC00145	22	7240000	22	0	7240000	0
+9c74136e-221b-4926-90f7-060e8e38d17d	Louis Sarmiento	Council Member	elected	false	SF	H6TX09199	39	7219200	39	0	7219200	0
+5db50d56-7d3d-42bc-a2e0-b89af2866d84	James May	Council Member	elected	false	AUS	H6TX19230	61	7093400	61	0	7093400	0
+1dc4c7c9-3e23-47f5-8805-f6187904c20c	Brad Sinclair	Council Member	elected	false	AUS	H4TX28087	17	5555000	17	0	5555000	0
+55034623-f55d-41e3-bc46-822568bda233	Jacqueline Nguyen	Federal Judge	elected	true	US		11	5500000	11	0	5500000	0
+16e9152a-b560-44f3-a4bc-34eb4c8e98ee	Gabriel Cabrera	Council Member	elected	false	SF	H4MT02056	33	4810000	33	0	4810000	0
+cf1f7fb7-acf4-4351-b34d-5939b09440a2	Cassandra Costello	Council Member	elected	false	SF	S4ME00113	30	4238400	30	0	4238400	0
+1d6d10d5-e312-45fc-a83b-45fd805fe32b	Jana Mims	Council Member	elected	false	AUS	H6TX09165	36	3835000	36	0	3835000	0
+dc74b7bf-1a38-4576-9d1a-5b5161247c8b	Robert Moyer	Council Member	elected	false	SF	H6NE01135	43	3828100	43	0	3828100	0
+fadfdaa1-5de6-469d-b1a1-f8de5b2403fc	Emily Diamond	Council Member	elected	false	AUS	H2FL13220	14	3800000	14	0	3800000	0
+c0b02046-39f3-4e8d-a492-039a73d9ea77	Mona Sanchez	Council Member	elected	false	AUS	H6CA38147	39	3675000	39	0	3675000	0
+f716ce68-832a-4ce6-991f-b516014548a8	Mayor Kirk Watson	Council Member	elected	true	AUS	H6NC08202	12	3381200	12	0	3381200	0
+5d123908-fc62-40fc-9e43-753fbd50b5d3	Michele Thompson	Council Member	elected	false	AUS	H6FL01275	21	3062100	21	0	3062100	0
+3a1a8054-b9e2-473c-a621-52c30e596188	Donna Hall	Council Member	elected	false	SF	H4DE00060	38	3006800	38	0	3006800	0
+04f47f04-edb5-4e0f-8089-c120e044fa4c	Marisela Reyes	Council Member	elected	false	AUS	H0TX23177	10	2675000	10	0	2675000	0
+cf441a28-aaf4-4e22-ac74-1f445e822f78	Kara Stoll	Federal Judge	elected	true	US		15	2615000	15	0	2615000	0
+45bcff8a-7db1-4fcf-8607-f4edfb4bad2e	Britt Grant	Federal Judge	elected	true	US		27	2461900	27	0	2461900	0
+d277388a-1207-49b5-ad69-6afab5957089	Sandra O'Connor	Federal Judge	elected	true	US		3	2275000	3	0	2275000	0
+da3b41c2-5923-49a0-8686-838411fccf80	Carole Reynolds	Council Member	elected	false	AUS	H6TX11112	20	2249400	20	0	2249400	0
+193a4a25-e6a5-4743-a47c-243a42e7a539	Ciara Ortiz	Council Member	elected	false	SEA	H6NY12297	25	2219900	25	0	2219900	0
+412719f4-2ddc-4bd3-bbbb-f0a3caef98b5	Kelsey Crowe	Council Member	elected	false	SF	H0TN01084	11	2150000	11	0	2150000	0
+2e4ee0fd-f4da-41e3-835d-09056a9af6b3	Jeffrey Sutton	Federal Judge	elected	true	US		9	2095600	9	0	2095600	0
+3184bde8-987b-4140-9859-94b57c5da040	Maria Su	Council Member	elected	false	SF	H6IL09210	5	1901500	5	0	1901500	0
+a619c811-2d33-42e8-a91d-af49fc969e36	Ann Williams	Federal Judge	elected	true	US		19	1831100	19	0	1831100	0
+8a4e1b00-fe98-49fc-aecd-327bec820908	Rebecca Duran	Council Member	elected	false	SEA	H0CO01136	2	1657100	2	0	1657100	0
+db4e6705-9909-47a7-addb-465be4bf0448	Nabil Khazei	Council Member	elected	false	AUS	H0MA04176	6	1650000	6	0	1650000	0
+354a140c-950b-4bbe-a6a8-485e26fb98ae	Eric Stockton	Council Member	elected	false	AUS	H4FL06055	23	1585000	23	0	1585000	0
+62831aa5-7d58-45d5-bb1c-b3758ff54523	Karen Bowers	Council Member	elected	false	AUS	H4TX32147	31	1555000	31	0	1555000	0
+c74a2ac0-c1b8-4526-9022-0ce6464c05fc	Jill Goodman	Council Member	elected	false	AUS	S6IL00425	13	1548300	13	0	1548300	0
+43ee1bdc-97e7-4641-a8ff-90b701f0877c	Sue Blackman	Council Member	elected	false	SF	H2AZ01339	4	1500000	4	0	1500000	0
+9e99cae2-0330-4997-9552-254657cfaadd	Monica Miranda	Council Member	elected	false	AUS	H6CA47072	6	1235400	6	0	1235400	0
+a9ec94d8-72ad-4d71-b60f-d29efbcb5d2b	Jay Nath	Council Member	elected	false	SF	H4WI04282	21	1171200	21	0	1171200	0
+346fabb6-fb16-4dca-8203-572333cc44b7	Jordan Feldman	Council Member	elected	false	AUS	H4NC10146	19	1150500	19	0	1150500	0
+e3f8781d-7ab8-4b55-be88-4d8976b2c8dc	Jane Roth	Federal Judge	elected	true	US		3	1130000	0	3	0	1130000
+ee09025f-9725-4e29-9198-7d7eee8cb1c6	Starr Terrell	Council Member	elected	false	SF	H6IA01171	4	1082500	4	0	1082500	0
+575ab5cc-73c5-4353-9dae-44ed83a77e72	James Wilkinson	Federal Judge	elected	true	US		1	1000000	1	0	1000000	0
+f590f383-5e5b-4e36-9299-af40602cf5b4	Janell Wegman	Council Member	elected	false	SF	H6PA16338	2	1000000	2	0	1000000	0
+f9c370ec-f992-45f8-bbc1-b4a0b23e2bb8	Dominica Henderson	Council Member	elected	false	SF	H4OH02263	5	875000	5	0	875000	0
+4a05256c-a1d0-4dad-b0ad-412ca3894235	Julie Christensen	Council Member	elected	true	SF	H0UT04092	3	860000	3	0	860000	0
+f04faa85-2feb-4967-b921-c6b1dd125832	Quynh Pham	Council Member	elected	false	SEA	H4CA45154	6	836100	6	0	836100	0
+d93454b4-36e2-4311-8f8c-3828e9c696cc	Sharon Patterson	Council Member	elected	false	AUS	H6TX17119	6	748000	6	0	748000	0
+0c9201de-4378-4b99-a612-afd602531e7b	Ralph Winter	Federal Judge	elected	true	US		4	725000	4	0	725000	0
+ffd9233e-1d94-44c9-b455-99e241a2e52c	Andres Power	Council Member	elected	false	SF	H6FL02315	3	700000	3	0	700000	0
+65eb956f-b5ee-438f-964c-339301201dd0	Brent Lo	Council Member	elected	false	SEA	H0MN04197	2	700000	2	0	700000	0
+feb35388-9d04-4e75-864f-233735093de1	Leslie Katz	Council Member	elected	false	SF	S6DE00206	3	550000	3	0	550000	0
+4986dce6-cece-4a44-a73c-b42f13f04421	Diane Wood	Federal Judge	elected	true	US		1	500000	1	0	500000	0
+96b19b40-342c-4177-81fe-640ab442423b	Jema Turk	Council Member	elected	false	SF	H6MO05189	1	500000	1	0	500000	0
+4969d074-ab5d-49bf-9261-bb6c1fb129b0	Helene White	Federal Judge	elected	true	US		1	500000	1	0	500000	0
+f8eb4447-778f-44f8-a912-2e88094c005c	Rich Bailey	Council Member	elected	false	AUS	H2CA52154	1	500000	1	0	500000	0
+67360001-e42f-4565-ae13-0a5fe13b0a84	John Nalbandian	Federal Judge	elected	true	US		1	500000	1	0	500000	0
+58ce8329-87e5-40f5-8648-f71ef87185ef	Bobby Shepherd	Federal Judge	elected	true	US		1	500000	1	0	500000	0
+c7975ec7-ff24-49db-a707-d225cb1abc73	Maria Stuart	Council Member	elected	false	AUS	S4OH00226	6	480000	6	0	480000	0
+f4745d1c-c3d4-46c3-a230-e95deb529140	John Carroll	Council Member	elected	false	SF	P00013771	1	396600	1	0	396600	0
+9f0b4952-f622-4720-8e7c-498bba257508	Dori Cho	Council Member	elected	false	SEA	H4NJ05135	2	330000	2	0	330000	0
+3992716c-3e98-4f50-9757-ae76b083d73c	Tom Fulmer	Council Member	elected	false	AUS	H6SC01300	4	295000	4	0	295000	0
+535dd9cb-fef0-4a15-a408-5f96b04c5460	Chelsea Pfeifer	Council Member	elected	false	AUS	H4MO02108	5	275000	5	0	275000	0
+d8fa25bb-8dbe-405e-bcb1-e0755e4c61f3	Elizabeth Branch	Federal Judge	elected	true	US		5	275000	5	0	275000	0
+c57ad7b9-7328-405f-a0d5-7e17d380b2e0	Leslie Tello	Council Member	elected	false	AUS	H6IL07479	2	260000	2	0	260000	0
+1bb47808-7952-4bf6-b45e-74992c889b6f	Michelle Rich	Council Member	elected	false	AUS	S8NM00200	1	250000	1	0	250000	0
+1295f5c5-5c73-4b59-9bd6-8fc37b4d1ba7	Ammie Calderon	Council Member	elected	false	AUS	H0CA53131	1	250000	1	0	250000	0
+22991297-c7ce-4e67-a8d6-163c242173c2	Michael Murphy	Federal Judge	former	true	US		2	250000	2	0	250000	0
+fd98e2eb-019e-4298-a7e7-f046a1edf439	Phimy Truong	Council Member	elected	false	SF	H0VA10194	1	230000	1	0	230000	0
+79103a92-0f8d-4973-b5a2-a5c8ab1a7e2b	AnMarie Rodgers	Council Member	elected	false	SF	H2TX30236	1	200000	1	0	200000	0
+a9983f2f-aa61-4e8c-815d-d5abd5c24176	Alvin Moses	Council Member	elected	false	SF	S4TN00575	4	177500	4	0	177500	0
+6541e5cd-3a36-4031-be26-9c209c46557d	Kimberly Williams	Council Member	elected	false	AUS	H0CA16112	2	175000	2	0	175000	0
+d6b6852c-91ec-4f69-ba87-2dae66ada1ea	Walter Stapleton	Federal Judge	elected	true	US		2	125000	2	0	125000	0
+42305735-9ea0-4c1d-a56d-c7110fc28e7b	Richard Greene	Council Member	elected	false	SEA		3	120000	3	0	120000	0
+15b805f5-f526-42a0-ac4d-0d3c3368c7b8	Joe Silva	Council Member	elected	false	AUS	H4WA01282	3	105000	3	0	105000	0
+ebd49f2e-6ccb-40e5-91d6-ea955392c7d8	Maxwell Burke	Council Member	elected	false	SEA	H6TN01537	4	102800	4	0	102800	0
+c36a5893-c051-43bc-ab96-10b506fb9280	Micah Ellison	Council Member	elected	false	SEA	S2FL00458	1	100000	1	0	100000	0
+541e5b70-4ac7-4a7c-b359-7b2da368b3f4	HB Harper	Council Member	elected	false	SEA		1	100000	1	0	100000	0
+1fb0f2a8-bfce-4592-b784-e45fae070602	David Potter	Council Member	elected	false	AUS	H0OH07153	1	100000	1	0	100000	0
+5a8a21dd-c027-4417-bb00-4d4de6e90c0a	Rey Arellano	Council Member	elected	false	AUS	H6CA49136	1	100000	1	0	100000	0
+fc2bd152-60f1-44a7-9890-b06023a1d949	Theresa Sparks	Council Member	elected	false	SF	H0CA45129	1	100000	1	0	100000	0
+aa76cc1b-ff34-42e8-8cbc-c009d4f7a6ae	Gloria Esparza	Council Member	elected	false	AUS	H6TX28082	2	100000	2	0	100000	0
+7d815d3e-c7da-4ff9-8c19-86f0ac908ede	James Wynn	Federal Judge	elected	true	US		1	74600	1	0	74600	0
+83f08955-3355-4d11-bccd-bdf2edfeb987	Monica Kaspar	Council Member	elected	false	AUS	H2IL06132	1	66900	1	0	66900	0
+70d9bb3e-fe77-4a84-80df-19b8438b3bf9	Esther Montoya	Council Member	elected	false	AUS	H6AZ01413	1	50000	1	0	50000	0
+1ecfb3dc-8518-4312-8b93-d83f09de9d09	Elizabeth Funk	Council Member	elected	false	AUS	H0IL12092	1	25000	1	0	25000	0
+a78dddbe-198f-4c17-9c0d-d6cf9be89611	Tim Harris - Law Dept	Council Member	elected	false	SEA	H8OK01165	0	0				
+a2893e64-5d84-4305-98ff-9748c90a0957	Nicole Hendrickson	Council Member	elected	false	AUS	H8SD01105	0	0				
+42fa3208-4b30-49f9-95c3-6d780e3010f7	Catherine Dodd	Council Member	elected	false	SF	S0CT00037	0	0				
+4645ea8e-ff77-40cc-975e-5ca8fc2efb0e	Chris Daly	Council Member	elected	false	SF	H2MO03183	0	0				
+9c0877b0-c866-4bfb-ac1d-b731b33eb55c	Dan Strauss	Council Member	elected	true	SEA	S2MO00486	0	0				
+aea81d2e-165b-4a06-bb37-cdcd89a4f2fe	Andrea Woods	Council Member	elected	false	SF	S0IA00192	0	0				
+b3111f47-533f-498c-b231-907ebc108170	Martha Yanez	Council Member	elected	false	SF	H2MI10168	0	0				
+b711806e-aef3-41b4-bcdf-f541bff62326	Ben Noble	Council Member	elected	false	SEA	H2OR06058	0	0				
+9a90c180-784c-4c4f-be50-fc1cda3c4db5	Ana Alvarez	Council Member	elected	false	SF	H2TX22134	0	0				
+4a329d76-9eab-476d-a2da-8697cc6fd004	Jennifer Scaife	Council Member	elected	false	SF	H0IN01218	0	0				
+82cfb52e-2aa6-4504-b988-2370e09a7b82	Paula Hoff	Council Member	elected	false	SEA	P40007577	0	0				
+364e158a-26e6-4703-b3d9-59ed6be11c0b	Jessica Frazier	Council Member	elected	false	AUS	H6IN10075	0	0				
+7fc27801-d676-4fcc-93f9-6a72ab046853	Petra DeJesus	Council Member	elected	false	SF	P40015703	0	0				
+caa0450f-a128-4a8a-ab3c-abcfe599c0d6	Jeanette Blankenship	Council Member	elected	false	SEA	S8WV00150	0	0				
+ccd1ba2a-dfaa-4b38-a222-1a1b7adbd806	Selina Chambliss	Council Member	elected	false	SEA	S2GA00118	0	0				
+34a174e9-582b-4bc4-81a2-dcf17991391e	Nicole Huff	Council Member	elected	false	AUS	H2LA05274	0	0				
+26790bac-6339-458d-87c5-5b631ce2e90d	Guianna Henriquez	Council Member	elected	false	SF	H0PR01059	0	0				
+25eb5c3c-a4a0-4f66-bab5-787b5a8a7dec	Taras Madison	Council Member	elected	false	SF	H2CA09147	0	0				
+24bbf791-91d7-493d-bbe2-a85d0779ae17	Cindy Lott	Council Member	elected	false	AUS	H2MI08162	0	0				
+d3fa35da-659e-44e6-983a-ee338913bf8f	Steven Smith	Council Member	elected	false	SEA	H0IL13066	0	0				
+7f896047-9f70-44ca-9deb-7cea7efd8f43	Mary Lou Rodriguez	Council Member	elected	false	AUS	H6KY03223	0	0				
+d76ebf28-d65c-4571-9d03-908887c2c085	Christina Mendez	Council Member	elected	false	AUS	H6CA40366	0	0				
+7ea4aac4-735d-4ad1-aa13-a9db7a6491f8	Lolita Espinosa	Council Member	elected	false	SF	H6CA26308	0	0				
+7e799bd4-9fde-49c9-bf2d-26e1effcfd0f	Matt Hartman	Council Member	elected	false	AUS	H6PA16296	0	0				
+508172cc-4bed-4712-94a3-4c237e0f84a6	Matt Haney 	Council Member	elected	false	SF	H2CO00035	0	0				
+1dd2bbc1-eb34-47f2-8665-d30cde9f9d72	Gary McCoy	Council Member	elected	false	SF	H2GA07162	0	0				
+dba9ecd8-b9f2-4d03-a2cd-fbfc8f239b32	Briana Holt	Council Member	elected	false	AUS	S2OH00451	0	0				
+1be32f77-f96b-4750-a525-32252b6357b4	Bridget Molina	Council Member	elected	false	SEA	H0FL27034	0	0				
+dfffc926-fc42-4b03-a05f-2c32f6756566	Eileen McHugh	Council Member	elected	false	SF	H0PA06175	0	0				
+e2c41141-cc0a-4a7b-bbcc-53c361c71b1d	Carmen Malone	Council Member	elected	false	AUS	H8MA03213	0	0				
+e3d410c8-b3b7-494f-ab93-9187991303b7	Latonia Stokes	Council Member	elected	false	SF	S6CA00873	0	0				
+7a329b3d-a21b-43c4-9fcd-02db159abb34	Karl Stephenson	Council Member	elected	false	AUS	H2WA08216	0	0				
+e5b84a0b-ce52-46bf-b03b-df0b906de08d	Shiamala Choudhury	Council Member	elected	false	SF	H8NY05123	0	0				
+e9aa2207-27b3-4c47-8c2d-9ae5ffa2d935	Yolanda McKnight	Council Member	elected	false	AUS	H2TN05297	0	0				
+7a09f33c-7291-43a1-8e25-15f28b201ead	Mary Hays	Council Member	elected	false	SF	H2AR03283	0	0				
+1af0bfa9-6265-4439-86b8-27eaf801a807	Wilson Ng	Council Member	elected	false	SF	H2TX28123	0	0				
+78841483-0820-40ec-905b-4b5043f41b8a	Sarah Ballard	Council Member	elected	false	SF	S0MT00116	0	0				
+f3c15630-66af-4f65-96e9-74b23fe92134	Mabel Teng	Council Member	elected	false	SF	H6UT03166	0	0				
+7521f7af-2598-416b-a860-38a9b144a05f	Chris Galbraith	Council Member	elected	false	SEA	H8MD01177	0	0				
+f4c25d74-1fee-4335-8e70-04a51fd0d9c0	Roberto Trevino	Council Member	elected	false	AUS	H8TX23139	0	0				
+f4c8e58d-a153-4ff6-8f24-ee89165e9392	Marija Jukic 	Council Member	elected	false	AUS	H6OH14248	0	0				
+13a2a60c-b9f5-40c0-8c1f-c8ed00188f6a	Ruth Dalrymple	Council Member	elected	false	AUS	H0NJ05182	0	0				
+6f206e50-752b-444a-a70b-6fbc7d18016e	Megan Rosenfeld	Council Member	elected	false	SEA	S2PA00331	0	0				
+f74db873-83e5-4ae8-a413-c0fa39d6ec92	Lynne Howe	Council Member	elected	false	SF	H2NY14102	0	0				
+f878d653-341b-48a7-a94b-9ac8e5340071	Council Member Vanessa Fuentes	Council Member	elected	true	AUS	H4TX33038	0	0				
+6cda3499-89f3-462c-ab02-723e96c27587	Stephanie Duvall	Council Member	elected	false	SEA	H0NJ01207	0	0				
+113d7403-a392-4f75-b840-194a45dce3dc	Mark Solomon	Council Member	elected	false	SEA	H2CA16159	0	0				
+fa7f54d2-ac42-4001-a9da-ebf902be665c	Greg Doss (LEG)	Council Member	elected	false	SEA	H2TN03201	0	0				
+0da32baf-54c5-4ec2-b9b8-ea5c5e3fe5ce	Victor Lim	Council Member	elected	false	SF	H0TX07212	0	0				
+06b24c80-54b0-4beb-930c-de59c55116f9	Victoria Rieger	Council Member	elected	false	AUS	H8PA03126	0	0				
+fc97c68f-fc29-4718-8f5e-9b9355ff8a2b	Natasha Goodwin	Council Member	elected	false	AUS	H2TX30186	0	0				
+6149c72f-5afa-435a-8ce0-ae5502b2adef	Andrew Boone	Council Member	elected	false	AUS	H2FL10309	0	0				
+542b95a1-7721-4102-a536-7343e31c601f	Christine Fountain	Council Member	elected	false	SF	H0CA53222	0	0				
+456cca4c-d6d7-47ad-874a-45a192993ef1	Aaron Starr	Council Member	elected	false	SF	H6MD05347	0	0				
+58ea303a-33ad-426a-864e-f6d9a955387e	Daniel Mitchell	Council Member	elected	false	SEA	H8TN03208	0	0				

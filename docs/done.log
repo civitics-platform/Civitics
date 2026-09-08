@@ -1421,3 +1421,6 @@
 2026-09-07 | FIX-1165 | a4c678fb | local-only | fix(fec,db,grants): the remediation scripts apply from a manifest and never derive on prod; every tail step names its owner and --defer-tails defers all platform-scoped work; group_donor_rollup gets a scheduled owner; entity_grants' active-uniqueness sees NULL targets and active grants can be revoked
 2026-09-07 | FIX-1165 | 46e3965f | local-only | fix(fec): key the conservation reads and ANALYZE the manifest temp tables; drop two more dead-column writes the prod dry runs surfaced
 2026-09-07 | FIX-928 | cc20352b | local+prod | chore(grants): set A applied on prod — entity_grants deduped, the index can see NULL targets, revoke_grant is live
+2026-09-07 | FIX-1153 | 7eb94843 | prod-only | fix(fec): set 1 applied on prod — 2,736 role-ineligible FR rows deleted and 119 illegitimate FEC ids retired, in under four minutes with zero statement cancellations
+2026-09-07 | FIX-1164 | 7eb94843 | prod-only | fix(fec): set 1 applied on prod — 2,736 role-ineligible FR rows deleted and 119 illegitimate FEC ids retired, in under four minutes with zero statement cancellations
+2026-09-07 | FIX-937 | 7eb94843 | prod-only | fix(fec): set 1 applied on prod — 2,736 role-ineligible FR rows deleted and 119 illegitimate FEC ids retired, in under four minutes with zero statement cancellations

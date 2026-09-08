@@ -1390,14 +1390,23 @@ async function runRollups(client: Client, prod: boolean, defer = false): Promise
       }
     }
 
-    for (const fn of MV_REFRESH_FNS) {
-      try {
-        await budgeted(client, `${fn}()`, `SELECT ${fn}()`, STEP_BUDGET_S["mv"]!);
-      } catch (err) {
-        if (err instanceof BudgetExceeded) throw err;
-        console.error(`  ! ${fn}() failed: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
+    // FIX-1165 — a SECOND MV_REFRESH_FNS loop used to sit here and it was
+    // REMOVED, not gated. Two defects in one block, found the hard way by
+    // watching refresh_official_sector_dollars_mv() start during the set-3 prod
+    // apply on 2026-09-08 with --defer-tails explicitly passed:
+    //
+    //   1. It had NO `defer` guard, so all six platform-scoped MV refreshes ran
+    //      regardless of the flag -- the exact class of bug FIX-1165 exists to
+    //      remove, surviving in the one place nobody looked because it sits in
+    //      runRollups rather than in the phase-3 function named for it.
+    //   2. It was REDUNDANT even without the flag. main() calls runRollups()
+    //      and then runMvsAndVacuum(), and runMvsAndVacuum owns phase 3 and
+    //      iterates the same MV_REFRESH_FNS behind a correct guard. So an
+    //      undeferred run refreshed all six MVs TWICE.
+    //
+    // Deleting it is therefore strictly correct rather than a trade: the
+    // deferred path now defers as advertised, and the undeferred path does the
+    // work once instead of twice. Phase 3 belongs to runMvsAndVacuum.
     return "ok";
   } catch (err) {
     if (!(err instanceof BudgetExceeded)) throw err;

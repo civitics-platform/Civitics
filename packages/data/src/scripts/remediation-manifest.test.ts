@@ -162,6 +162,71 @@ test("under --defer-tails nothing platform-scoped runs", () => {
   }
 });
 
+/**
+ * The gap this closes, and it is a gap the test above did NOT catch.
+ *
+ * "Every executed step is declared" is necessary and not sufficient: a step can
+ * be correctly declared as platform-owned-and-deferred and still execute,
+ * because declaring is done in one file and gating in another. That is exactly
+ * what happened. merge-same-person-official-dupes carried a SECOND
+ * MV_REFRESH_FNS loop inside runRollups with no `defer` guard at all, so all six
+ * platform-scoped MV refreshes ran even with --defer-tails passed -- and ran
+ * TWICE without it, because main() also calls runMvsAndVacuum, which owns phase
+ * 3 and iterates the same list behind a correct guard. It was found by watching
+ * refresh_official_sector_dollars_mv() start during the set-3 prod apply on
+ * 2026-09-08, not by any test.
+ *
+ * The structural invariant that makes it impossible to reintroduce: the MV loop
+ * belongs to runMvsAndVacuum and to nowhere else. One loop per script, inside
+ * the function named for the phase, which is the function that carries the
+ * guard.
+ */
+test("the MV refresh loop lives only in runMvsAndVacuum, exactly once per script", () => {
+  for (const file of SCRIPTS) {
+    const src = fs.readFileSync(path.join(__dirname, file), "utf8");
+
+    const loops = [...src.matchAll(/for \(const fn of MV_REFRESH_FNS\)/g)];
+    assert.equal(
+      loops.length,
+      1,
+      `${file}: expected exactly ONE MV_REFRESH_FNS loop, found ${loops.length}. ` +
+        `A second one is how six platform-scoped refreshes ran under --defer-tails.`,
+    );
+
+    // The nearest function declaration above the loop must be runMvsAndVacuum.
+    const at = loops[0]!.index!;
+    const before = src.slice(0, at);
+    const fns = [...before.matchAll(/(?:async )?function (\w+)/g)];
+    const enclosing = fns.length ? fns[fns.length - 1]![1] : "(none)";
+    assert.equal(
+      enclosing,
+      "runMvsAndVacuum",
+      `${file}: the MV loop sits in ${enclosing}(), not runMvsAndVacuum(). ` +
+        `Phase 3 is runMvsAndVacuum's job and it is where the defer guard lives; ` +
+        `a loop anywhere else runs unguarded.`,
+    );
+  }
+});
+
+test("runMvsAndVacuum short-circuits before its MV loop when deferring", () => {
+  // The guard itself, asserted rather than assumed: the deferred path must
+  // return before reaching the loop, not merely log something.
+  for (const file of SCRIPTS) {
+    const src = fs.readFileSync(path.join(__dirname, file), "utf8");
+    const start = src.indexOf("async function runMvsAndVacuum");
+    assert.ok(start > -1, `${file}: runMvsAndVacuum not found`);
+    const loopAt = src.indexOf("for (const fn of MV_REFRESH_FNS)", start);
+    assert.ok(loopAt > start, `${file}: MV loop not found after runMvsAndVacuum`);
+
+    const head = src.slice(start, loopAt);
+    assert.match(
+      head,
+      /if \(defer\)[\s\S]*?return;/,
+      `${file}: runMvsAndVacuum must RETURN on defer before reaching the MV loop`,
+    );
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Clone-vs-prod diff
 // ---------------------------------------------------------------------------

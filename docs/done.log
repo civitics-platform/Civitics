@@ -1424,3 +1424,5 @@
 2026-09-07 | FIX-1153 | 7eb94843 | prod-only | fix(fec): set 1 applied on prod — 2,736 role-ineligible FR rows deleted and 119 illegitimate FEC ids retired, in under four minutes with zero statement cancellations
 2026-09-07 | FIX-1164 | 7eb94843 | prod-only | fix(fec): set 1 applied on prod — 2,736 role-ineligible FR rows deleted and 119 illegitimate FEC ids retired, in under four minutes with zero statement cancellations
 2026-09-07 | FIX-937 | 7eb94843 | prod-only | fix(fec): set 1 applied on prod — 2,736 role-ineligible FR rows deleted and 119 illegitimate FEC ids retired, in under four minutes with zero statement cancellations
+2026-09-07 | FIX-1155 | c37aa301 | prod-only | fix(fec): set 3 applied on prod — Al Green merged, and the ungated duplicate MV loop it exposed is deleted
+2026-09-07 | FIX-1165 | c37aa301 | prod-only | fix(fec): set 3 applied on prod — Al Green merged, and the ungated duplicate MV loop it exposed is deleted

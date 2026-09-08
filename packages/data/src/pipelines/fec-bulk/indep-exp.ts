@@ -25,7 +25,7 @@ import * as fs   from "fs";
 import { parse } from "csv-parse";
 
 // ---------------------------------------------------------------------------
-// Upper sanity bound on a single Schedule E transaction (FIX-A)
+// Upper sanity bound on a single Schedule E transaction (FIX-672)
 // ---------------------------------------------------------------------------
 //
 // FEC's public Schedule E corpus carries vexatious / fake filings — e.g. fake
@@ -129,7 +129,7 @@ export interface IndepExpStreamResult {
   /**
    * Per-cand dropped totals (cents). Populated only when
    * `opts.collectDroppedByCand` is set — used by the `data:analyze:ie-drop`
-   * diagnostic (FIX-B) to surface which unmatched target candidates hide the
+   * diagnostic (FIX-673) to surface which unmatched target candidates hide the
    * most IE money. Key = uppercase FEC cand_id.
    */
   droppedByCand?: Map<string, number>;
@@ -137,12 +137,12 @@ export interface IndepExpStreamResult {
     rowsRead:              number;
     passedSupOpp:          number; // sup_opp ∈ {S, O}
     passedCmteCand:        number; // both spe_id + cand_id present
-    rejectedHighAmount:    number; // count of exp_amo > MAX_IE_AMOUNT_DOLLARS — junk (FIX-A)
-    rejectedHighCents:     number; // Σ amount of those junk rows               (FIX-A)
+    rejectedHighAmount:    number; // count of exp_amo > MAX_IE_AMOUNT_DOLLARS — junk (FIX-672)
+    rejectedHighCents:     number; // Σ amount of those junk rows               (FIX-672)
     passedAmount:          number; // exp_amo parses to > 0 AND ≤ bound
     passedCand:            number; // cand_id ∈ candidateSet
-    keptCents:             number; // Σ amount for rows passing candidateSet     (FIX-B)
-    droppedUnmatchedCents: number; // Σ amount for valid rows w/ cand_id ∉ set   (FIX-B)
+    keptCents:             number; // Σ amount for rows passing candidateSet     (FIX-673)
+    droppedUnmatchedCents: number; // Σ amount for valid rows w/ cand_id ∉ set   (FIX-673)
   };
 }
 
@@ -264,7 +264,7 @@ export async function streamIndependentExpenditures(
 
     const amt = parseFloat((row.exp_amo ?? "").trim());
     if (isNaN(amt) || amt <= 0) continue;
-    // Upper sanity bound — reject vexatious / fake billion-dollar filings (FIX-A).
+    // Upper sanity bound — reject vexatious / fake billion-dollar filings (FIX-672).
     if (amt > MAX_IE_AMOUNT_DOLLARS) {
       rejectedHighAmount++;
       rejectedHighCents += Math.round(amt * 100);
@@ -274,7 +274,7 @@ export async function streamIndependentExpenditures(
 
     const amtCents = Math.round(amt * 100);
 
-    // FIX-B instrumentation: quantify how much *valid* IE money the
+    // FIX-673 instrumentation: quantify how much *valid* IE money the
     // matched-official filter hides. droppedUnmatchedCents accumulates rows
     // that are well-formed (valid amount, present cmte + cand) but whose
     // target candidate isn't one of our matched officials.

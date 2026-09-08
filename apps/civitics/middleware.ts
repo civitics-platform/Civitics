@@ -169,7 +169,7 @@ function rateLimitResponse(retryAfterSec: number): NextResponse {
 // ---------------------------------------------------------------------------
 
 // Canonical UUID v-any shape, case-insensitive. Shared by the agency redirect
-// (FIX-418) and the jurisdiction 404 guard (FIX-G).
+// (FIX-418) and the jurisdiction 404 guard (FIX-433).
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -197,7 +197,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(dest, 308);
   }
 
-  // ── FIX-G: /jurisdictions/<malformed> → true 404 ──────────────────────────
+  // ── FIX-433: /jurisdictions/<malformed> → true 404 ──────────────────────────
   // Page-level notFound() degrades to a 200 under loading.tsx Suspense (same
   // root cause as the FIX-418 redirect). Validating UUID format here, before
   // streaming starts, returns a real HTTP 404 for malformed paths. A
@@ -209,7 +209,7 @@ export async function middleware(request: NextRequest) {
     return new NextResponse(null, { status: 404 });
   }
 
-  // ── FIX-H: same malformed-UUID → 404 guard for the other [id] routes that
+  // ── FIX-439: same malformed-UUID → 404 guard for the other [id] routes that
   // pair loading.tsx (Suspense) with a page-level notFound(). Each returns 200
   // on a malformed path without this. /institutions/[id] is deliberately
   // EXCLUDED — its page resolves non-UUID slugs to UUIDs via a DB lookup

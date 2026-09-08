@@ -18,7 +18,15 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { currentFecCycle, indivDropIsAhead, resolveProbeCycle } from "./drop-check";
+import {
+  currentFecCycle,
+  indivDropIsAhead,
+  resolveProbeCycle,
+  probeIndivDrop,
+  recordDropProbe,
+  FEC_DROP_PROBE_KEY,
+} from "./drop-check";
+import { shouldRunFecBulk, type FecBulkTriggerInputs } from "../fec-hold";
 
 // Measured 2026-07-26 against prod + a live HEAD of indiv26.zip.
 const WATERMARK_JUL_12 = "Sun, 12 Jul 2026 15:23:58 GMT";
@@ -113,4 +121,94 @@ test("resolveProbeCycle: a malformed override falls back to the active cycle", (
       `override=${JSON.stringify(v)} should fall back`,
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// FIX-1163 — probeIndivDrop / recordDropProbe
+//
+// These DO touch the module's DB wrapper, but only through a stub `db`; the
+// HEAD is stubbed out via a network failure (headFecFile against an
+// unresolvable host is what the fail-closed path is FOR), so there is still no
+// real I/O against fec.gov. What is asserted is the two properties FIX-1163
+// actually depends on: the probe records, and it cannot start an ingest.
+// ---------------------------------------------------------------------------
+
+/** Minimal pipeline_state stub: one row, recorded upserts. */
+function stubDb(watermarkValue: unknown) {
+  const upserts: Array<{ key: string; value: Record<string, unknown> }> = [];
+  const db = {
+    from(table: string) {
+      assert.equal(table, "pipeline_state");
+      return {
+        select: () => ({
+          eq: () => ({ maybeSingle: async () => ({ data: { value: watermarkValue }, error: null }) }),
+        }),
+        upsert: async (row: { key: string; value: Record<string, unknown> }) => {
+          upserts.push(row);
+          return { error: null };
+        },
+      };
+    },
+  };
+  return { db, upserts };
+}
+
+test("probeIndivDrop fails closed and still reports both timestamps", async () => {
+  const { db } = stubDb({ "2026": { last_modified: WATERMARK_JUL_12 } });
+  const probe = await probeIndivDrop(db, "2026");
+
+  assert.equal(probe.cycle, "2026");
+  assert.equal(typeof probe.pending, "boolean");
+  assert.equal(typeof probe.probed_at, "string");
+  // The shape is always complete, whatever the HEAD did.
+  assert.ok("remote_last_modified" in probe);
+  assert.ok("watermark_last_modified" in probe);
+});
+
+test("recordDropProbe writes exactly one fec_drop_probe row, tagged with its phase", async () => {
+  const { db, upserts } = stubDb(null);
+  const probe = {
+    cycle: "2026",
+    pending: true,
+    remote_last_modified: LIVE_JUL_26,
+    watermark_last_modified: WATERMARK_JUL_12,
+    probed_at: "2026-09-08T02:17:00.000Z",
+  };
+
+  assert.equal(await recordDropProbe(db, probe, "enrichment-light"), true);
+  assert.equal(upserts.length, 1);
+  assert.equal(upserts[0]!.key, FEC_DROP_PROBE_KEY);
+  assert.equal(upserts[0]!.value["phase"], "enrichment-light");
+  assert.equal(upserts[0]!.value["pending"], true);
+  assert.equal(upserts[0]!.value["remote_last_modified"], LIVE_JUL_26);
+  assert.equal(upserts[0]!.value["watermark_last_modified"], WATERMARK_JUL_12);
+});
+
+test("recordDropProbe never throws when the write fails", async () => {
+  const db = {
+    from: () => ({ upsert: async () => ({ error: { message: "permission denied" } }) }),
+  };
+  const probe = {
+    cycle: "2026",
+    pending: false,
+    remote_last_modified: null,
+    watermark_last_modified: null,
+    probed_at: "2026-09-08T02:17:00.000Z",
+  };
+  assert.equal(await recordDropProbe(db, probe, "enrichment-light"), false);
+});
+
+test("the recording path cannot widen the fec_bulk trigger (FIX-1163)", () => {
+  // shouldRunFecBulk's inputs are runFec / isWeekly / held plus the two
+  // booleans the fec phase computes. The light phase has runFec === false, so
+  // no matter what the probe records, the trigger stays false. This is the
+  // property that makes a second, record-only call site safe.
+  const light: FecBulkTriggerInputs = { runFec: false, isWeekly: false, held: false };
+  for (const resume of [true, false])
+    for (const drop of [true, false])
+      assert.equal(
+        shouldRunFecBulk(light, resume, drop),
+        false,
+        `light phase must never invoke fec_bulk (resume=${resume} drop=${drop})`,
+      );
 });

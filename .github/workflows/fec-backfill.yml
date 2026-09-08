@@ -81,36 +81,34 @@ jobs:
     # FIX-1100).
     timeout-minutes: 350
 
-    # DIVERGES FROM nightly.yml's fec-phase — do not assume otherwise.
+    # DIVERGES FROM nightly.yml's fec-phase in ONE key: timeout-minutes.
     #
-    # This block used to claim it "mirrors nightly.yml's fec-phase verbatim".
-    # FIX-961 falsified that in the same commit that raised the heap ceiling,
-    # and the stale claim survived. The two jobs both reach runFecBulkPipeline()
-    # → streamIndiv on the same ubuntu-latest 16 GB runner class, but their
-    # resource envelopes were set at different times for different reasons:
+    # THE HEAP DIVERGENCE IS RETIRED (FIX-1060). It was 12288 here vs 14336
+    # there, waived on the grounds that this job is "sized for the LARGEST
+    # presidential-cycle indiv file: 12 GB fit 2024 but OOM'd at ~77% of
+    # indiv20 (FIX-961)". That reasoning was sound for the code it described
+    # and is now obsolete: the OOM it cites was the in-RAM indiv accumulator,
+    # whose live set grew with the file, and FIX-961 PR 3a (116da841,
+    # 2026-08-18 03:15 UTC) replaced it with an external sort in the very next
+    # commit. Every `peak_rss_mb` above 2 GB in data_sync_log — 7337 (08-04),
+    # 2667 (08-17), 2357 + 2091 (08-09) — was recorded BEFORE that commit; every
+    # reading after it is ≤ 1368 MB, including two 3.6M-row full-cycle runs at
+    # 304 and 367 MB. Both jobs now carry the same two lines below, sized from
+    # those post-sort numbers. See FIX-1060 and nightly.yml's fec-phase for the
+    # full measurement table.
     #
-    #   nightly.yml fec-phase : NODE_OPTIONS 12288 / timeout-minutes 150   (FIX-254, FIX-689)
-    #   this job              : NODE_OPTIONS 14336 / timeout-minutes 350   (FIX-961)
+    # The two jobs both reach runFecBulkPipeline() → streamIndiv on the same
+    # ubuntu-latest 16 GB runner class. What still differs, deliberately:
     #
-    # Everything else in the block IS the same set of keys as fec-phase.
+    #   nightly.yml fec-phase : NODE_OPTIONS 4096 / timeout-minutes 300   (FIX-1060, FIX-1100)
+    #   this job              : NODE_OPTIONS 4096 / timeout-minutes 350   (FIX-1060, FIX-961)
     #
-    # The heap divergence is deliberate and stays: FIX-995 examined the
-    # 2026-08-03..08-08 nightly deaths — two job timeouts, one
-    # runner-communication loss, one unrelated statement timeout, one human
-    # cancel — and found NO V8 heap-limit exit in any log, so copying 14336
-    # across would be tuning against a cause that was not present. 14 GB here is
-    # sized for the LARGEST presidential-cycle indiv file: 12 GB fit 2024 but
-    # OOM'd at ~77% of indiv20 (FIX-961); 14 GB is the most a 16 GB runner can
-    # give after OS + runner agent + ~1 GB off-heap Node overhead.
+    # Everything else in the block IS the same set of keys as fec-phase. The
+    # surviving timeout divergence carries its own waiver above `timeout-minutes`.
     #
     # `pnpm check:workflow-parity` (scripts/check-workflow-parity.mjs, blocking
     # in tests.yml) fails on an UNDECLARED divergence between these two jobs.
-    # The waiver comments are what make this one declared rather than forgotten.
-    #
-    # workflow-parity-waiver: sized for the largest presidential indiv file,
-    # where 12288 OOM'd at ~77% of indiv20 (FIX-961). FIX-995 deliberately did
-    # NOT copy this to nightly — no V8 heap-limit exit appeared in any of the
-    # 2026-08-03..08-08 nightly failure logs.
+    # NODE_OPTIONS no longer needs a waiver because it no longer diverges.
     env:
       NEXT_PUBLIC_SUPABASE_URL: https://xsazcoxinpgttgquwvuf.supabase.co
       SUPABASE_SECRET_KEY:      ${{ secrets.SUPABASE_SECRET_KEY }}
@@ -122,7 +120,16 @@ jobs:
       CIVITICS_ANTHROPIC_API_KEY: ${{ secrets.CIVITICS_ANTHROPIC_API_KEY }}
       AUTONOMOUS:               "true"
       CIVITICS_ENRICHMENT_MODE: queue
-      NODE_OPTIONS: --max-old-space-size=14336
+      # FIX-1060 — same ceiling and same explicit sort buffer as nightly.yml's
+      # fec-phase. 4096 is 2× the largest post-external-sort peak (1368 MB, the
+      # 2026-08-19 cycle-2020 backfill over 2.78M rows) rounded to a power of
+      # two. The buffer is set EXPLICITLY rather than left to
+      # resolveSortBuffer's 400,000 default (packages/data/src/pipelines/
+      # fec-bulk/indiv.ts) — the default is what makes an implicit 4096 unsafe,
+      # and leaving it implicit is the bug FIX-1060 names. Bench: 512/25k →
+      # 424 MB, 1024/100k → 900 MB, 2048/400k → 2256 MB, wall flat 86–93 s.
+      NODE_OPTIONS: --max-old-space-size=4096
+      FEC_INDIV_SORT_BUFFER: "100000"
       CLOUDFLARE_ACCOUNT_ID:           ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_R2_ACCESS_KEY_ID:     ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
       CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}

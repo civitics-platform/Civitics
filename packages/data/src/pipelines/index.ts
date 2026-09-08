@@ -18,7 +18,13 @@ import {
   describeRunState as describeFecRunState,
   type FecBulkRunState,
 } from "./fec-bulk/run-state";
-import { currentFecCycle, resolveProbeCycle, indivDropPending } from "./fec-bulk/drop-check";
+import {
+  currentFecCycle,
+  resolveProbeCycle,
+  indivDropPending,
+  probeIndivDrop,
+  recordDropProbe,
+} from "./fec-bulk/drop-check";
 // FIX-1100 — the compensating vacuum a SIGTERM'd fec_bulk never got to run.
 import { vacuumAfterKilledFecWriter } from "../lib/heavy-rebuild";
 // FIX-904: runIrs990Pipeline is no longer imported here — IRS-990 runs from its
@@ -734,6 +740,39 @@ export async function runNightlySync(opts: RunNightlyOptions = {}): Promise<Nigh
         if (!prevFecIndivCycles) delete process.env["FEC_INDIV_CYCLES"];
       }
     }
+  }
+
+  // FIX-1163 — RECORD the FEC drop probe from a phase that always runs.
+  //
+  // The FIX-903 trigger probe above is gated on `shouldProbeDrop`, which is
+  // `shouldLoadResumeState && !resumeStatePresent` — and `shouldLoadResumeState`
+  // is `runFec && !isWeekly && !held`. So on the split-phase path the probe is
+  // skipped BY CONSTRUCTION in every phase except fec, and inside fec it is
+  // skipped on Sundays and whenever the hold is on. That puts the probe strictly
+  // downstream of the failure it exists to detect: a fec-phase that is killed by
+  // its timeout, loses its runner, or never starts loses the day's ingest AND
+  // every trace that a drop was waiting to be collected.
+  //
+  // This block records; it never launches. `shouldRunFecBulk`, its three trigger
+  // conditions, `fecBulkHeldThisPhase` and the hold are all untouched above —
+  // the probe is a fail-closed HEAD, and a second call site of a read cannot
+  // start an ingest. What it buys is that "a drop is pending and nobody
+  // collected it" becomes a `pipeline_state` row instead of a GHA log crawl.
+  //
+  // enrichment-light is the host because its GHA job always runs and runs
+  // earliest after fec-phase. Note it sits OUTSIDE the `if (isWeekly)` block
+  // below on purpose: `runEnrichmentLight`'s in-process stages are all weekly,
+  // so a probe placed inside that block would record on Sundays only — the one
+  // day the drop is guaranteed to be stale.
+  if (runEnrichmentLight) {
+    const probeCycle = resolveProbeCycle(new Date(), process.env["FEC_INDIV_CYCLES"]);
+    const probe = await probeIndivDrop(db, probeCycle);
+    await recordDropProbe(db, probe, "enrichment-light");
+    console.log(
+      `[nightly] FEC drop probe (phase=enrichment-light): pending=${probe.pending} ` +
+        `cycle=${probe.cycle} remote=${probe.remote_last_modified ?? "(none)"} ` +
+        `watermark=${probe.watermark_last_modified ?? "(none)"} (FIX-1163)`,
+    );
   }
 
   // 2. Weekly pipelines (Sunday only) — IRS 990, USASpending, CourtListener, OpenStates

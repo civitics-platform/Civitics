@@ -2,8 +2,23 @@ name: nightly-sync
 
 on:
   schedule:
-    # 02:00 UTC daily — matches the Vercel cron canary in apps/civitics/vercel.json
-    - cron: "0 2 * * *"
+    # 02:17 UTC daily (FIX-1163). The hour is unchanged and still matches the
+    # Vercel cron canary in apps/civitics/vercel.json; only the MINUTE moved.
+    #
+    # WHY :17 — GitHub queues scheduled workflows hardest on the top of the
+    # hour, and this one has never started near its slot. The ten scheduled
+    # starts to 2026-09-07 ran 06:43–08:41 UTC, i.e. 4h44–6h41 late, every
+    # single day (cc-113 measured a wider 06:43–13:51 window earlier). Moving
+    # off :00 is the standard mitigation; the FIX-903 header in
+    # packages/data/src/pipelines/fec-bulk/drop-check.ts documents the same
+    # queueing from the other side.
+    #
+    # WHY THE HOUR STAYS 02 — 02:00–05:00 UTC is the quiet neighbourhood in the
+    # pg_cron startup-timeout histogram, and an on-time fec-phase lands ahead of
+    # the hour-04 vacuums (ec 04:30 / fe 04:50) and the 06:00 derived-MV daily
+    # rather than inside the 05:45–09:00 prod blackout the current drift puts it
+    # in. Receipt for this change is the NEXT SCHEDULED RUN's start time.
+    - cron: "17 2 * * *"
   workflow_dispatch:
     inputs:
       # FIX-743: force the Sunday-only heavy ingest block (FEC bulk, IRS-990,
@@ -100,11 +115,34 @@ jobs:
       # FIX-743: forwarded to runNightlySync's computeRunWeekly gate. On a
       # scheduled run `inputs.force_weekly` is empty → falsey → today's behavior.
       NIGHTLY_FORCE_WEEKLY:     ${{ inputs.force_weekly }}
-      # FEC indiv stage (FIX-236) doubles peak heap vs. FIX-181 alone. 8 GB
-      # OOMs mid-stream on presidential cycles (2024/2028) — observed in the
-      # 2026-05-12 run. 12 GB matches packages/data/CLAUDE.md's
-      # presidential-cycle guidance; ubuntu-latest runners ship 16 GB. (FIX-254)
-      NODE_OPTIONS: --max-old-space-size=12288
+      # FIX-1060 — heap ceiling SIZED FROM MEASURED RSS, not from the OOM that
+      # predates the external sort.
+      #
+      # History: FIX-236/FIX-254 set 12288 because the in-RAM indiv accumulator's
+      # live set grew with the cycle, so every presidential cycle OOMed a smaller
+      # ceiling and the answer was always a bigger one. FIX-961 PR 3a
+      # (116da841, 2026-08-18 03:15 UTC) replaced that accumulator with an
+      # external sort, which made the live set a function of the SORT BUFFER
+      # instead of the file. The ceiling has been tuning a number that no longer
+      # grows since that commit.
+      #
+      # Measured `peak_rss_mb` from data_sync_log, pipeline='fec_bulk':
+      #   PRE-sort  (all of them):  2667 (08-17), 2357 + 2091 (08-09), 7337 (08-04)
+      #   POST-sort (all of them):  1368 (08-19 backfill, 2.78M rows, 400k buffer)
+      #                              891 (08-19 nightly)
+      #                              304 (09-01, 3.65M rows) · 367 (09-07, 3.67M rows)
+      #                              227–308 on the weekday no-op runs
+      # The largest row count in the whole series (3.67M, 09-07) is also one of
+      # the SMALLEST peaks — that is the external sort doing its job. Post-sort
+      # max is 1368 MB; 4096 is 3× it, and 2× the max rounded to a power of two.
+      #
+      # The 100k sort buffer is what keeps 4096 honest and is therefore set
+      # EXPLICITLY below rather than left to resolveSortBuffer's 400,000 default
+      # (indiv.ts) — leaving it implicit is exactly the bug FIX-1060 names. The
+      # three bench points: 512 heap / 25k buffer → 424 MB; 1024 / 100k → 900 MB;
+      # 2048 / 400k → 2256 MB, wall-clock flat at 86–93 s across all three.
+      NODE_OPTIONS: --max-old-space-size=4096
+      FEC_INDIV_SORT_BUFFER: "100000"
       # ── HOLD LIFTED 2026-08-09 (was FIX-995, filed as FIX-998) ───────────
       # fec_bulk was skipped on the NIGHTLY path from 2026-08-08 because it had
       # produced zero forward progress for several nights running while

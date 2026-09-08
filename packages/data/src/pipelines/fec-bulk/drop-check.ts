@@ -123,14 +123,38 @@ function q(s: string | null | undefined): string {
 }
 
 /**
+ * The full result of one drop probe — both timestamps, not just the verdict.
+ *
+ * FIX-1163: the boolean was all `indivDropPending` ever returned, so the two
+ * Last-Modified values it compared existed only in a GHA log line. That is the
+ * whole reason "did anything notice Sunday's drop?" has been a log-crawl every
+ * time it is asked. The record-only caller in ../index.ts persists this shape.
+ */
+export interface IndivDropProbe {
+  cycle: string;
+  pending: boolean;
+  /** FEC's Last-Modified for indiv{yy}.zip, or null when the HEAD failed. */
+  remote_last_modified: string | null;
+  /** Our FIX-193 stored watermark for the cycle, or null when unset. */
+  watermark_last_modified: string | null;
+  probed_at: string;
+}
+
+/**
  * Read the stored watermark for `cycle`, HEAD FEC's indiv file for the same
- * cycle, and report whether FEC is ahead.
+ * cycle, and report whether FEC is ahead — with both timestamps.
  *
  * Costs one small SELECT plus one HEAD (which 302s to S3) — cheap enough to run
  * on every weekday nightly. Logs both timestamps on every outcome so a nightly
  * transcript always shows why fec_bulk did or did not fire.
+ *
+ * FAIL CLOSED, as `indivDropPending` always has: any throw yields
+ * `pending: false` with null timestamps. A caller cannot distinguish "FEC is
+ * level with us" from "we could not read FEC" by the boolean alone — that is
+ * what the null `remote_last_modified` is for.
  */
-export async function indivDropPending(db: Db, cycle: string): Promise<boolean> {
+export async function probeIndivDrop(db: Db, cycle: string): Promise<IndivDropProbe> {
+  const probed_at = new Date().toISOString();
   try {
     const { data, error } = await db
       .from("pipeline_state")
@@ -158,10 +182,71 @@ export async function indivDropPending(db: Db, cycle: string): Promise<boolean> 
       `  [fec-drop-check] cycle=${cycle} FEC indiv Last-Modified ${q(probe)} ` +
         `vs watermark ${q(stored)} → ${verdict} (FIX-903)`,
     );
-    return ahead;
+    return {
+      cycle,
+      pending: ahead,
+      remote_last_modified: probe,
+      watermark_last_modified: stored,
+      probed_at,
+    };
   } catch (err) {
     console.warn(
       `  [fec-drop-check] probe failed for cycle ${cycle} (treating as no drop): ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return {
+      cycle,
+      pending: false,
+      remote_last_modified: null,
+      watermark_last_modified: null,
+      probed_at,
+    };
+  }
+}
+
+/**
+ * The FIX-903 verdict alone. Unchanged contract, unchanged call site: the
+ * nightly's fec-phase trigger still takes a boolean and still fails closed.
+ */
+export async function indivDropPending(db: Db, cycle: string): Promise<boolean> {
+  return (await probeIndivDrop(db, cycle)).pending;
+}
+
+/** pipeline_state row holding the most recent drop probe (FIX-1163). */
+export const FEC_DROP_PROBE_KEY = "fec_drop_probe";
+
+/**
+ * Persist a probe result to `pipeline_state.fec_drop_probe` (FIX-1163).
+ *
+ * WHY THIS EXISTS SEPARATELY FROM THE TRIGGER: the FIX-903 probe is evaluated
+ * *inside* the fec phase, downstream of the exact failure it is there to
+ * detect. A fec-phase that is killed, held, or never starts loses the day's
+ * ingest AND the only evidence that a drop was waiting. Recording the probe
+ * from a phase that always runs makes "a drop is pending and nobody collected
+ * it" answerable from a row instead of a GHA log crawl.
+ *
+ * Never throws, never widens the trigger: this writes one row and returns.
+ */
+export async function recordDropProbe(
+  db: Db,
+  probe: IndivDropProbe,
+  phase: string,
+): Promise<boolean> {
+  try {
+    const { error } = await db.from("pipeline_state").upsert(
+      {
+        key: FEC_DROP_PROBE_KEY,
+        value: { ...probe, phase },
+        updated_at: probe.probed_at,
+      },
+      { onConflict: "key" },
+    );
+    if (error) throw new Error(error.message);
+    return true;
+  } catch (err) {
+    console.warn(
+      `  [fec-drop-check] failed to persist ${FEC_DROP_PROBE_KEY} (continuing): ${
         err instanceof Error ? err.message : String(err)
       }`,
     );

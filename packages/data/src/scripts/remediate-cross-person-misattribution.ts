@@ -98,10 +98,11 @@ import {
   printTailTable,
   requireManifestOnProd,
 } from "./remediation-manifest";
+import { drainFrRewrite } from "../lib/fr-rewrite-drain";
 
 /** Sanity bound — phase 1 measured 59 after exclusions. */
 const MAX_SUSPECTS = 200;
-const DONOR_CHUNK = 5000;
+// FIX-1074: the chunk width moved into fr-rewrite-drain.ts with the drain itself.
 
 /** Mike Collins' S6GA00390 is genuinely his (2026 GA Senate bid). Never touch. */
 const EXCLUDED_FEC_IDS = new Set(["S6GA00390"]);
@@ -255,59 +256,21 @@ async function runRollups(client: Client, prod: boolean, defer = false): Promise
   console.log(`  affected donors:    ${donors.toLocaleString()}`);
 
   try {
-    // FIX-964: in a resume the manifest may be empty (post-commit the affected
-    // set is unrecoverable unless handed in via --officials). Say what is being
-    // skipped rather than calling an RPC with an empty array and reading the
-    // no-op as success.
-    if (officials > 0) {
-      await budgeted(
-        client,
-        "donor_rollup_rebuild_recipients(affected)",
-        `SELECT donor_rollup_rebuild_recipients(ARRAY(SELECT id FROM _affected))`,
-        STEP_BUDGET_S["donor_rollup"]!,
-      );
-    } else {
-      console.log(
-        `  SKIPPED donor_rollup_rebuild_recipients — no affected officials in scope ` +
-          `(pass --officials <uuid,…> to run it)`,
-      );
-    }
-  // FIX-942 — rebuild_official_donation_totals() call removed. It writes
-  // officials.total_received_cents, a column that no longer has a reader: the
-  // treemap, the small-dollar route and the search index all read
-  // official_donor_totals.total_cents now, which the donor rollup below
-  // maintains. Recomputing the dead column here was a full-table UPDATE for
-  // nothing. The function itself survives (deprecated) as break-glass.
-
-    const chunks = Math.ceil(donors / DONOR_CHUNK);
-    if (chunks === 0) {
-      console.log(
-        `  SKIPPED financial_entity_donation_totals_rebuild + donor_party_rollup_rebuild_donors —\n` +
-          `    no donor manifest. The donor set is read off the DELETED rows and a DELETE leaves\n` +
-          `    no trace, so it cannot be reconstructed after the commit (FIX-964). Their totals\n` +
-          `    stay stale until a manifest exists or a full rebuild runs.`,
-      );
-    }
-    for (let i = 0; i < chunks; i++) {
-      await budgeted(
-        client,
-        `financial_entity_donation_totals_rebuild ${i + 1}/${chunks}`,
-        `SELECT financial_entity_donation_totals_rebuild(
-                  ARRAY(SELECT id FROM _donor ORDER BY id OFFSET $1 LIMIT $2))`,
-        STEP_BUDGET_S["fe_totals_chunk"]!,
-        [i * DONOR_CHUNK, DONOR_CHUNK],
-      );
-    }
-    for (let i = 0; i < chunks; i++) {
-      await budgeted(
-        client,
-        `donor_party_rollup_rebuild_donors ${i + 1}/${chunks}`,
-        `SELECT donor_party_rollup_rebuild_donors(
-                  ARRAY(SELECT id FROM _donor ORDER BY id OFFSET $1 LIMIT $2))`,
-        STEP_BUDGET_S["donor_party_chunk"]!,
-        [i * DONOR_CHUNK, DONOR_CHUNK],
-      );
-    }
+    // FIX-1074 — the manifest-scoped drain is now ONE shared helper
+    // (packages/data/src/lib/fr-rewrite-drain.ts). Three remediation scripts
+    // carried a byte-for-byte identical copy of these steps and FIX-1106's
+    // residue sweep is a fourth caller, which answers FIX-1074's open question
+    // ("each landing script or one shared helper") from the tree rather than
+    // from taste. The FIX-964 empty-set guards moved into the helper with it.
+    //
+    // This script's _affected keys on `id`; role-ineligible's on `official_id`
+    // and the merge script's table is _affected_officials — which is why the
+    // helper takes the names as parameters rather than assuming them.
+    await drainFrRewrite(
+      client,
+      { affectedTable: "_affected", affectedIdColumn: "id", donorTable: "_donor" },
+      { prod, defer, printTable: false },
+    );
 
     // FIX-1165 — ALL of these defer, the two entity-total rebuilds included.
     // The comment this replaces said they stay "because nothing scheduled knows

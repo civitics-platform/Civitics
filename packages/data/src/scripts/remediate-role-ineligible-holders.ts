@@ -100,10 +100,11 @@ import {
   requireManifestOnProd,
   type DiffInput,
 } from "./remediation-manifest";
+import { drainFrRewrite } from "../lib/fr-rewrite-drain";
 
 /** Sanity bound. The clone measured 84; the reconciliation ceiling is ~200. */
 const MAX_OFFICIALS = 400;
-const DONOR_CHUNK = 5000;
+// FIX-1074: the chunk width moved into fr-rewrite-drain.ts with the drain itself.
 
 const MONEY_EDGE_TYPES = ["donation", "opposition"];
 
@@ -442,47 +443,24 @@ async function runRollups(client: Client, prod: boolean, defer = false): Promise
     const donors = Number(donorCount?.n ?? 0);
     console.log(`  affected officials: ${officials.toLocaleString()}   donors: ${donors.toLocaleString()}`);
 
-    await budgeted(
+    // FIX-1074 — the manifest-scoped drain is now ONE shared helper. The three
+    // remediation scripts carried a byte-for-byte identical copy of these steps
+    // and FIX-1106's residue sweep is a fourth caller, which is the answer to
+    // FIX-1074's open question ("each landing script or one shared helper").
+    //
+    // Note this script's _affected keys on official_id, cross-person's on id and
+    // the merge script's table is called _affected_officials — the divergence is
+    // exactly why the helper takes the names as parameters instead of assuming.
+    //
+    // FIX-1165's rebuild_official_donation_totals() removal stands and is not
+    // reintroduced here: the function does not exist in pg_proc on either prod or
+    // the clone, and it wrote officials.total_received_cents, a column with no
+    // reader left.
+    await drainFrRewrite(
       client,
-      "donor_rollup_rebuild_recipients(affected)",
-      `SELECT donor_rollup_rebuild_recipients(ARRAY(SELECT official_id FROM _affected))`,
-      STEP_BUDGET_S["donor_rollup"]!,
+      { affectedTable: "_affected", affectedIdColumn: "official_id", donorTable: "_donor" },
+      { prod, defer, printTable: false },
     );
-
-    // FIX-1165 — rebuild_official_donation_totals() call REMOVED. Two reasons,
-    // either sufficient. (1) The function does not exist: it is absent from
-    // pg_proc on both prod and the local clone, so this step could only ever
-    // have thrown 42883, and because the surrounding catch rethrows anything
-    // that is not BudgetExceeded it would have aborted the whole rollup phase.
-    // This path had never been run. (2) FIX-942 had already removed the same
-    // call from remediate-cross-person-misattribution.ts and
-    // merge-same-person-official-dupes.ts on its own merits — it writes
-    // officials.total_received_cents, a column with no reader left, since the
-    // treemap, the small-dollar route and the search index all read
-    // official_donor_totals.total_cents, which donor_rollup_rebuild_recipients
-    // above maintains. This script was written later and reintroduced it.
-
-    const chunks = Math.max(1, Math.ceil(donors / DONOR_CHUNK));
-    for (let i = 0; i < chunks; i++) {
-      await budgeted(
-        client,
-        `financial_entity_donation_totals_rebuild ${i + 1}/${chunks}`,
-        `SELECT financial_entity_donation_totals_rebuild(
-                  ARRAY(SELECT id FROM _donor ORDER BY id OFFSET $1 LIMIT $2))`,
-        STEP_BUDGET_S["fe_totals_chunk"]!,
-        [i * DONOR_CHUNK, DONOR_CHUNK],
-      );
-    }
-    for (let i = 0; i < chunks; i++) {
-      await budgeted(
-        client,
-        `donor_party_rollup_rebuild_donors ${i + 1}/${chunks}`,
-        `SELECT donor_party_rollup_rebuild_donors(
-                  ARRAY(SELECT id FROM _donor ORDER BY id OFFSET $1 LIMIT $2))`,
-        STEP_BUDGET_S["donor_party_chunk"]!,
-        [i * DONOR_CHUNK, DONOR_CHUNK],
-      );
-    }
 
     // FIX-1153 — the search index is the 06:00 daily's ninth unit and the
     // treemap is treemap-individuals-global-refresh's whole job.

@@ -85,12 +85,13 @@ import {
   usd,
 } from "./fec-orphan-classify";
 import { declareRemediationTail, printTailTable } from "./remediation-manifest";
+import { drainFrRewrite } from "../lib/fr-rewrite-drain";
 import { roleMayHoldFecOffice } from "../pipelines/fec-bulk/electable-role";
 
 /** Sanity bound — the FIX-930 clone measured 47 eligible pairs. */
 const MAX_PAIRS = 200;
 /** donor_party_rollup_rebuild_donors chunk size (mirrors the pg_cron proc). */
-const DONOR_CHUNK = 5000;
+// FIX-1074: the chunk width moved into fr-rewrite-drain.ts with the drain itself.
 
 /**
  * entity_connections `connection_type`s derived from financial_relationships
@@ -1303,49 +1304,15 @@ async function runRollups(client: Client, prod: boolean, defer = false): Promise
   console.log(`  affected donors:    ${donors.toLocaleString()}`);
 
   try {
-    await budgeted(
+    // FIX-1074 — the manifest-scoped drain is now ONE shared helper
+    // (packages/data/src/lib/fr-rewrite-drain.ts). This script's officials table
+    // is _affected_officials, not _affected — the divergence across the three
+    // callers is why the helper takes the names as parameters.
+    await drainFrRewrite(
       client,
-      "donor_rollup_rebuild_recipients(affected)",
-      `SELECT donor_rollup_rebuild_recipients(ARRAY(SELECT id FROM _affected_officials))`,
-      STEP_BUDGET_S["donor_rollup"]!,
+      { affectedTable: "_affected_officials", affectedIdColumn: "id", donorTable: "_donor" },
+      { prod, defer, printTable: false },
     );
-    console.log("    ↳ official_donor_totals, official_donor_rollup_mv,");
-    console.log("      official_small_dollar_rollup, official_sector_affinity_rollup,");
-    console.log("      treemap_individuals_rollup, official_donor_bracket_totals");
-
-    // FIX-942 — rebuild_official_donation_totals() call removed. It writes
-    // officials.total_received_cents, a column that no longer has a reader: the
-    // treemap, the small-dollar route and the search index all read
-    // official_donor_totals.total_cents now, which the rollup step above
-    // maintains. Recomputing the dead column here was a full-table UPDATE for
-    // nothing. The function itself survives (deprecated) as break-glass.
-
-    // CHUNKED. Unchunked over 105,778 donors this was the step that ran 66+
-    // minutes on prod and forced the first attempt to be cancelled. Per-chunk
-    // calls commit independently, so an abort here costs one chunk, not the run.
-    const feChunks = Math.ceil(donors / DONOR_CHUNK);
-    for (let i = 0; i < feChunks; i++) {
-      await budgeted(
-        client,
-        `financial_entity_donation_totals_rebuild ${i + 1}/${feChunks}`,
-        `SELECT financial_entity_donation_totals_rebuild(
-                  ARRAY(SELECT id FROM _donor ORDER BY id OFFSET $1 LIMIT $2))`,
-        STEP_BUDGET_S["fe_totals_chunk"]!,
-        [i * DONOR_CHUNK, DONOR_CHUNK],
-      );
-    }
-
-    const dpChunks = Math.ceil(donors / DONOR_CHUNK);
-    for (let i = 0; i < dpChunks; i++) {
-      await budgeted(
-        client,
-        `donor_party_rollup_rebuild_donors ${i + 1}/${dpChunks}`,
-        `SELECT donor_party_rollup_rebuild_donors(
-                  ARRAY(SELECT id FROM _donor ORDER BY id OFFSET $1 LIMIT $2))`,
-        STEP_BUDGET_S["donor_party_chunk"]!,
-        [i * DONOR_CHUNK, DONOR_CHUNK],
-      );
-    }
 
     // Platform-wide rebuilds. Each carries its own COMMIT, so they were never
     // transaction-safe anyway. Individually caught: a stale one is a stale

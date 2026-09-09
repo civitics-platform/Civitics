@@ -165,6 +165,13 @@ import {
 } from "./scope";
 import { isFecElectableRole, roleMayHoldFecOffice } from "./electable-role";
 import { acquireFecPipelineLock } from "./pipeline-lock";
+import {
+  createEmitSink,
+  emitRunId,
+  stampEmitRunsComplete,
+  type EmitSink,
+  type EmitSource,
+} from "./emit-set";
 import { streamIndependentExpenditures, isMintableSpenderName } from "./indep-exp";
 import { resolveOrMintIeTargets, type IeTargetIdentity } from "./mint-ie-targets";
 import {
@@ -1283,6 +1290,28 @@ async function runFecBulkPipelineLocked(): Promise<PipelineResult> {
     // state clear (after the watermark persist, per the FIX-754 ordering).
     let runStateCompletedCycle: string | null = null;
 
+    // FIX-1106 — every emit set this run opened, keyed `${cycle}:${source}`.
+    // Stamped complete only where FIX-754 clears the run state, and only for the
+    // cycle that clear names.
+    const emitSinks = new Map<string, EmitSink>();
+    const openEmitSink = (cycle: string, source: EmitSource, identity: string | null): EmitSink => {
+      const k = `${cycle}:${source}`;
+      const existing = emitSinks.get(k);
+      if (existing) return existing;
+      const sink = createEmitSink({
+        runId:     emitRunId(parseInt(cycle, 10), identity),
+        cycleYear: parseInt(cycle, 10),
+        source,
+      });
+      emitSinks.set(k, sink);
+      return sink;
+    };
+    // The pas2 arm has no Last-Modified probe on this path and — unlike the two
+    // indiv stages — is a SINGLE un-cursored batch with no resume, so "a resumed
+    // run continues the same set" is vacuous for it. A per-process identity is
+    // therefore sound where the indiv arms need the file's.
+    const pacRunIdentity = new Date().toISOString();
+
     // FIX-246: seed jurisdictions + governing bodies for the cn{yy} stage's
     //          candidate-row inserts. Idempotent — re-seed defensively when
     //          fec-bulk runs standalone (orchestrator path already seeds).
@@ -1536,7 +1565,10 @@ async function runFecBulkPipelineLocked(): Promise<PipelineResult> {
         });
       }
 
-      const relResult = await upsertDonationRelationshipsBatch(relInputs);
+      const relResult = await upsertDonationRelationshipsBatch(
+        relInputs,
+        openEmitSink(CYCLE, "fec_bulk_pac", pacRunIdentity),   // FIX-1106
+      );
       pacRelsUpserted += relResult.upserted;
       pacRelsFailed   += relResult.failed;
       console.log(`    Relationships — upserted: ${relResult.upserted}  failed: ${relResult.failed}`);
@@ -1887,6 +1919,10 @@ async function runFecBulkPipelineLocked(): Promise<PipelineResult> {
                     officialIdByCandId: index.byFecId,
                     parseDate:          parseFecDate,
                     resume:             stageResume("indiv-to-candidate"),
+                    // FIX-1106 — run identity is (cycle, FEC indiv Last-Modified),
+                    // the same pair run-state.ts already resumes on, so a resumed
+                    // run continues this set and a new drop starts a fresh one.
+                    emitSink:           openEmitSink(CYCLE, "fec_bulk_indiv", indivFecHead?.lastModified ?? null),
                   });
                   indivRelsUpserted += indivRelResult.upserted;
                   indivRelsFailed   += indivRelResult.failed;
@@ -1993,6 +2029,7 @@ async function runFecBulkPipelineLocked(): Promise<PipelineResult> {
                     parseDate:        parseFecDate,
                     resume:           stageResume("indiv-to-committee"),
                     onUnresolved:     () => { indivCmteSkippedUnresolved++; },   // FIX-686
+                    emitSink:         openEmitSink(CYCLE, "fec_bulk_indiv_to_committee", indivFecHead?.lastModified ?? null),  // FIX-1106
                   });
                   indivCmteRelsUpserted += indivCmteRelResult.upserted;
                   indivCmteRelsFailed   += indivCmteRelResult.failed;
@@ -2461,6 +2498,32 @@ async function runFecBulkPipelineLocked(): Promise<PipelineResult> {
     // the (cheap) completion path instead of stranding an unpersisted advance.
     if (runStateCompletedCycle) {
       if (watermarkPersisted) {
+        // FIX-1106 — THE ONLY PLACE THE EMIT SETS ARE STAMPED COMPLETE.
+        //
+        // It sits inside the `watermarkPersisted` branch on purpose: this is
+        // already the point that means "cycle complete", and reusing it means
+        // the stamp cannot drift from what completion has always meant here. A
+        // killed run never reaches it; a run whose watermark persist failed
+        // never reaches it; a resumed run reaches it once, at the end, with the
+        // prior process's keys still in the table.
+        //
+        // Advisory — a failure here must not strand a cycle that really did
+        // complete. An unstamped set makes the audit REFUSE, which is the safe
+        // direction.
+        const cycleSinks = [...emitSinks.values()].filter(
+          (sk) => sk.cycleYear === parseInt(runStateCompletedCycle!, 10),
+        );
+        if (cycleSinks.length > 0) {
+          try {
+            const stamped = await withDirectClient((client) => stampEmitRunsComplete(client, cycleSinks));
+            for (const { source, keys } of stamped) {
+              console.log(`  ⟳ emit set complete — cycle ${runStateCompletedCycle} ${source}: ${keys.toLocaleString()} keys (FIX-1106)`);
+            }
+          } catch (emitErr) {
+            console.warn(`  ! failed to stamp emit sets complete: ${errMsg(emitErr)} (FIX-1106; the audit will refuse this slice)`);
+          }
+        }
+
         await clearRunState(db);
         console.log(`  ⟳ Cleared fec_bulk_run_state — cycle ${runStateCompletedCycle} complete (FIX-754)`);
       } else {

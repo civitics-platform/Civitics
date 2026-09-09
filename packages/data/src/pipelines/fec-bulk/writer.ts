@@ -20,6 +20,7 @@ import type { Client } from "pg";
 import { canonicalDonorName } from "./indiv";
 import { withDirectClient, bulkUpsert } from "../../lib/direct-pg-upsert";
 import { resolveResumeCursor, type StageProgress } from "./run-state";
+import type { EmitKey, EmitSink } from "./emit-set";
 
 // ---------------------------------------------------------------------------
 // FIX-754 — resume plumbing for the three cursored indiv writers
@@ -167,6 +168,17 @@ export interface StreamedUpsertSpec<T> {
   mergeRows?: (a: unknown[], b: unknown[]) => void;
   resume?: WriterResume;
   batchItems?: number;
+  /**
+   * FIX-1106 — record this stage's emitted arbiter keys.
+   *
+   * Opt-in per spec rather than automatic, because upsertStreamed also drives
+   * the donor-ENTITIES stage (writer.ts:763), whose rows are financial_entities
+   * and carry no relationship arbiter at all. An automatic sink there would
+   * record entity ids into a donation emit set.
+   */
+  emitSink?: EmitSink;
+  /** Build an emit key from a BUILT row. Required with `emitSink`. */
+  emitKeyOf?: (row: unknown[]) => EmitKey;
 }
 
 export interface StreamedUpsertResult extends RelationshipBatchResult {
@@ -192,6 +204,13 @@ export async function upsertStreamed<T>(spec: StreamedUpsertSpec<T>): Promise<St
   let consumed = 0, upserted = 0, failed = 0, changed = 0, skipped = 0;
 
   await withDirectClient(async (client) => {
+    // FIX-1106: TRUNCATE-and-open this slice before the first batch. A resumed
+    // run re-emits its whole cycle into a clean set rather than appending to the
+    // prefix a killed run left — correct because the upserts are idempotent and
+    // re-streaming is deterministic, the same property FIX-754's cursor reset
+    // already leans on.
+    if (spec.emitSink) await spec.emitSink.begin(client);
+
     for await (const batch of batchByGroup(spec.source, batchSize, spec.groupKeyOf)) {
       // Rows before the cursor were committed by a prior run. Skip WITHOUT
       // building rows or resolving ids — the whole point of resuming.
@@ -230,6 +249,14 @@ export async function upsertStreamed<T>(spec: StreamedUpsertSpec<T>): Promise<St
         upserted += res.upserted;
         failed   += res.failed;
         changed  += res.changed;
+
+        // FIX-1106: same batch, same connection, one extra statement. Recorded
+        // for every row SENT, not for `changed` — a FIX-1008 skipped re-upsert
+        // is still an emit, and treating it as one is the difference between an
+        // instrument and the proxy this replaces.
+        if (spec.emitSink && spec.emitKeyOf) {
+          await spec.emitSink.record(client, rows.map(spec.emitKeyOf));
+        }
       }
 
       // FIX-996: the cursor rides the live connection, and is advanced only
@@ -885,6 +912,24 @@ const REL_COLUMNS: string[] = [
 
 const REL_CONFLICT: string[] = ["relationship_type", "from_id", "to_id", "cycle_year"];
 
+// FIX-1106 — the emit set reads its key straight out of the BUILT row, so it
+// records what was actually sent to the arbiter rather than re-deriving it from
+// the inputs. Indices resolve once; the hot path is four array reads.
+const REL_TYPE_IDX_    = REL_COLUMNS.indexOf("relationship_type");
+const REL_FROM_IDX_    = REL_COLUMNS.indexOf("from_id");
+const REL_TO_TYPE_IDX_ = REL_COLUMNS.indexOf("to_type");
+const REL_TO_IDX_      = REL_COLUMNS.indexOf("to_id");
+
+/** Arbiter key of a built relationship row, in the emit set's shape. */
+function relEmitKey(row: unknown[]): EmitKey {
+  return {
+    relationshipType: String(row[REL_TYPE_IDX_]),
+    toType:           String(row[REL_TO_TYPE_IDX_]),
+    toId:             String(row[REL_TO_IDX_]),
+    fromId:           String(row[REL_FROM_IDX_]),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Batched relationship upsert
 // ---------------------------------------------------------------------------
@@ -915,6 +960,9 @@ export interface RelationshipBatchResult {
 // storm, retries exhausted.
 export async function upsertDonationRelationshipsBatch(
   inputs: DonationRelationshipInput[],
+  // FIX-1106: when present, this batch's arbiter keys are appended to the emit
+  // set on the same connection, inside the same withDirectClient scope.
+  emitSink?: EmitSink,
 ): Promise<RelationshipBatchResult> {
   if (inputs.length === 0) return { upserted: 0, failed: 0 };
 
@@ -966,8 +1014,12 @@ export async function upsertDonationRelationshipsBatch(
     ];
   });
 
-  const { upserted, failed } = await withDirectClient((client) =>
-    bulkUpsert(client, {
+  const { upserted, failed } = await withDirectClient(async (client) => {
+    // FIX-1106: the pas2 stage is one batch, so begin() and record() bracket the
+    // single statement. begin() TRUNCATEs this slice, which is why it must sit
+    // inside the same scope rather than at the pipeline's top.
+    if (emitSink) await emitSink.begin(client);
+    const res = await bulkUpsert(client, {
       table:           "financial_relationships",
       label:           "pac-donation",
       columns:         REL_COLUMNS,
@@ -978,8 +1030,14 @@ export async function upsertDonationRelationshipsBatch(
       // RETURNING here, so nothing downstream changes.
       skipUnchangedRows: true,
       rows,
-    }),
-  );
+    });
+    // Recorded AFTER the upsert commits, and recorded for every row SENT — a
+    // FIX-1008 skip is still an emit, because the writer resolved the recipient
+    // and asserted the row. Keying the emit set off `changed` would mark every
+    // unchanged recipient as residue, which is the exact inversion of the bug.
+    if (emitSink) await emitSink.record(client, rows.map(relEmitKey));
+    return res;
+  });
 
   // FIX-686 loud-abort contract (same silent-partial bug class as
   // upsertPacEntitiesBatch): a dropped chunk silently loses donation rows
@@ -1187,6 +1245,8 @@ export async function streamIndividualDonations(opts: {
   /** MMDDYYYY → ISO date, or null. */
   parseDate:   (raw: string) => string | null;
   resume?:     WriterResume;
+  /** FIX-1106 — the cycle's fec_bulk_indiv emit set. */
+  emitSink?:   EmitSink;
 }): Promise<StreamedUpsertResult> {
   const donorIds = new Map<string, string>();
   return upsertStreamed<StreamedIndivCandidateItem>({
@@ -1237,6 +1297,8 @@ export async function streamIndividualDonations(opts: {
     rowMergeKeyOf: relMergeKey,
     mergeRows:     mergeRelRows,
     resume:        opts.resume,
+    emitSink:      opts.emitSink,
+    emitKeyOf:     relEmitKey,
   });
 }
 
@@ -1254,6 +1316,8 @@ export async function streamIndividualToCommitteeDonations(opts: {
   resume?:     WriterResume;
   /** FIX-686: called for each aggregate dropped for an unresolved id. */
   onUnresolved?: () => void;
+  /** FIX-1106 — the cycle's fec_bulk_indiv_to_committee emit set. */
+  emitSink?:   EmitSink;
 }): Promise<StreamedUpsertResult> {
   const donorIds = new Map<string, string>();
   return upsertStreamed<StreamedIndivCommitteeItem>({
@@ -1304,6 +1368,8 @@ export async function streamIndividualToCommitteeDonations(opts: {
     rowMergeKeyOf: relMergeKey,
     mergeRows:     mergeRelRows,
     resume:        opts.resume,
+    emitSink:      opts.emitSink,
+    emitKeyOf:     relEmitKey,
   });
 }
 

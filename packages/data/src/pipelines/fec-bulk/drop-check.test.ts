@@ -182,6 +182,89 @@ test("recordDropProbe writes exactly one fec_drop_probe row, tagged with its pha
   assert.equal(upserts[0]!.value["pending"], true);
   assert.equal(upserts[0]!.value["remote_last_modified"], LIVE_JUL_26);
   assert.equal(upserts[0]!.value["watermark_last_modified"], WATERMARK_JUL_12);
+  // FIX-1166 — the ring starts at one entry when there is no prior row.
+  assert.deepEqual(upserts[0]!.value["recent"], [
+    { probed_at: "2026-09-08T02:17:00.000Z", remote_last_modified: LIVE_JUL_26 },
+  ]);
+});
+
+test("FIX-1166 recordDropProbe prepends to the ring and trims it to three", async () => {
+  // A prior row two entries deep, newest first.
+  const prior = {
+    recent: [
+      { probed_at: "2026-09-07T02:17:00.000Z", remote_last_modified: null },
+      { probed_at: "2026-09-06T02:17:00.000Z", remote_last_modified: LIVE_JUL_26 },
+    ],
+  };
+  const { db, upserts } = stubDb(prior);
+  await recordDropProbe(
+    db,
+    {
+      cycle: "2026",
+      pending: false,
+      remote_last_modified: null,
+      watermark_last_modified: WATERMARK_JUL_12,
+      probed_at: "2026-09-08T02:17:00.000Z",
+    },
+    "enrichment-light",
+  );
+  assert.deepEqual(upserts[0]!.value["recent"], [
+    { probed_at: "2026-09-08T02:17:00.000Z", remote_last_modified: null },
+    { probed_at: "2026-09-07T02:17:00.000Z", remote_last_modified: null },
+    { probed_at: "2026-09-06T02:17:00.000Z", remote_last_modified: LIVE_JUL_26 },
+  ]);
+
+  // A fourth probe drops the oldest rather than growing the row.
+  const { db: db2, upserts: u2 } = stubDb({ recent: upserts[0]!.value["recent"] });
+  await recordDropProbe(
+    db2,
+    {
+      cycle: "2026",
+      pending: false,
+      remote_last_modified: null,
+      watermark_last_modified: WATERMARK_JUL_12,
+      probed_at: "2026-09-09T02:17:00.000Z",
+    },
+    "enrichment-light",
+  );
+  const ring = u2[0]!.value["recent"] as Array<{ probed_at: string }>;
+  assert.equal(ring.length, 3);
+  assert.equal(ring[0]!.probed_at, "2026-09-09T02:17:00.000Z");
+  assert.equal(ring[2]!.probed_at, "2026-09-07T02:17:00.000Z");
+});
+
+test("FIX-1166 a failed ring read still writes the probe, with a fresh ring", async () => {
+  // select() throws — the probe row is the thing that must survive.
+  const upserts: Array<{ key: string; value: Record<string, unknown> }> = [];
+  const db = {
+    from: () => ({
+      select: () => {
+        throw new Error("connection reset");
+      },
+      upsert: async (row: { key: string; value: Record<string, unknown> }) => {
+        upserts.push(row);
+        return { error: null };
+      },
+    }),
+  };
+  assert.equal(
+    await recordDropProbe(
+      db,
+      {
+        cycle: "2026",
+        pending: true,
+        remote_last_modified: LIVE_JUL_26,
+        watermark_last_modified: WATERMARK_JUL_12,
+        probed_at: "2026-09-08T02:17:00.000Z",
+      },
+      "enrichment-light",
+    ),
+    true,
+  );
+  assert.equal(upserts.length, 1);
+  assert.deepEqual(upserts[0]!.value["recent"], [
+    { probed_at: "2026-09-08T02:17:00.000Z", remote_last_modified: LIVE_JUL_26 },
+  ]);
 });
 
 test("recordDropProbe never throws when the write fails", async () => {

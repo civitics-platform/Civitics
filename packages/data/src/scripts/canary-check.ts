@@ -30,6 +30,16 @@ import {
   describeTransitions,
   withUnchangedRuns,
 } from "./canary-transitions";
+import {
+  KEY_BLIND,
+  KEY_MISSING,
+  KEY_UNCOLLECTED,
+  PROBE_STALE_HOURS,
+  UNCOLLECTED_DAYS,
+  type FecDropStatus,
+  type StoredDropProbe,
+  classifyFecDrop,
+} from "./canary-fec-drop";
 
 const PIPELINE_NAME      = "nightly_cron";
 const KILLED_PIPELINE    = "nightly_killed";
@@ -618,6 +628,62 @@ async function fetchSectorAffinityStaleness(): Promise<SectorAffinityStaleness |
   };
 }
 
+// FIX-1166 — "a FEC drop is pending and nobody collected it".
+//
+// fec_bulk is ALREADY in the FIX-1011 freshness registry above, and this is not
+// a second copy of that. The registry derives fec_bulk's cadence from fec_bulk's
+// own history (prod 2026-09-10: 96.04h observed median → reports past 144.1h,
+// escalates past 240.1h) and asks whether the pipeline ran lately. It knows
+// nothing about FEC, so it cannot fire until day ten, and on a quiet stretch it
+// will eventually report a pipeline that is behaving correctly. The condition
+// that costs money is narrower and faster: FEC published, and we did not
+// collect it.
+//
+// Two reads, no new instrumentation. FIX-1163 half (b) already writes
+// pipeline_state.fec_drop_probe from the nightly's enrichment-light phase — a
+// phase that always runs, upstream of the fec phase that is the thing failing —
+// and data_sync_log already carries fec_bulk's closures. The state machine
+// itself lives in ./canary-fec-drop.ts so it is unit-testable without Postgres.
+async function fetchFecDropStatus(now: Date): Promise<FecDropStatus | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = createAdminClient() as any;
+
+  const { data: probeRow, error: probeErr } = await db
+    .from("pipeline_state")
+    .select("value")
+    .eq("key", "fec_drop_probe")
+    .maybeSingle();
+  if (probeErr) {
+    // Non-fatal, same contract as every other detector here: a read failure
+    // must never fail the canary's primary nightly_cron job. Returning null
+    // means "unknown", which is reported as nothing rather than as health.
+    console.warn(`[canary-check] fec drop probe read failed (non-fatal): ${probeErr.message}`);
+    return null;
+  }
+
+  const { data: collectRows, error: collectErr } = await db
+    .from("data_sync_log")
+    .select("completed_at, started_at")
+    .eq("pipeline", "fec_bulk")
+    .eq("status", "complete")
+    .order("started_at", { ascending: false })
+    .limit(1);
+  if (collectErr) {
+    console.warn(`[canary-check] fec_bulk closure read failed (non-fatal): ${collectErr.message}`);
+    return null;
+  }
+
+  const newest = (collectRows ?? [])[0] as
+    | { completed_at?: string | null; started_at?: string | null }
+    | undefined;
+  // completed_at is when the collection actually landed. A 'complete' row with
+  // no completed_at should not exist; falling back to started_at is strictly
+  // better than treating it as "never collected" and escalating on a shape bug.
+  const lastCollectAt = newest?.completed_at ?? newest?.started_at ?? null;
+
+  return classifyFecDrop((probeRow?.value ?? null) as StoredDropProbe | null, lastCollectAt, now);
+}
+
 // FIX-968 — pg_cron FIRING health. Every other detector here watches a
 // CONSEQUENCE (a rollup is stale, a visibility map collapsed). This is the only
 // one that watches whether the scheduled work started at all.
@@ -851,6 +917,7 @@ function buildMetadata(
   conditions: Condition[],
   failures: string[],
   reportOnly: string[],
+  fecDrop: FecDropStatus | null,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Record<string, any> {
   return {
@@ -918,6 +985,12 @@ function buildMetadata(
           burst:            cronHealth.startupTimeoutTiers.burst,
         }
       : null,
+    // FIX-1166 — recorded on EVERY run, findings or not, for the same reason as
+    // vm[] and bloat[] above. `collected` and `pending-within-window` carry no
+    // tier by design (FEC publishes weekly, so tiering `pending` would page
+    // weekly), which means this row is the ONLY place the healthy trail exists
+    // and the only way an onset is findable after the fact.
+    fec_drop_status:  fecDrop,
     peak_rss_mb:      captureRssMb(),
   };
 }
@@ -1031,6 +1104,7 @@ async function sendAlert(
   rateRegressions: RateFinding[],
   sectorAffinity: SectorAffinityStaleness | null,
   cronHealth: CronJobHealth | null,
+  fecDrop: FecDropStatus | null,
   to: string,
   apiKey: string,
 ): Promise<string | null> {
@@ -1080,6 +1154,14 @@ async function sendAlert(
   }
   if (rateRegressions.length > 0) {
     parts.push(`throughput regressed: ${rateRegressions.map((r) => r.pipeline).join(", ")}`);
+  }
+  // FIX-1166 — the subject distinguishes the two failures, because the remedies
+  // are opposite: uncollected means run the ingest, blind/missing means the
+  // probe or the nightly is broken and we know nothing about FEC either way.
+  if (fecDrop?.state === "pending-uncollected") {
+    parts.push(`FEC drop uncollected for ${fecDrop.daysSinceCollect ?? "?"}d`);
+  } else if (fecDrop?.tier) {
+    parts.push(`FEC drop probe ${fecDrop.state === "probe-blind" ? "blind" : "missing"}`);
   }
   if (cronHealth?.canaryLiveness?.silent) parts.push("canary itself went silent");
   const recoveredCount = transitions.filter((t) => t.kind === "recovered").length;
@@ -1187,6 +1269,55 @@ async function sendAlert(
         `\nTriage: check data_sync_log pipeline='sector_affinity_tag_refresh' ` +
         `for the failing/missing run, then re-run the nightly tagger or CALL ` +
         `public.refresh_sector_affinity_from_tag_changes() directly (off-peak).`,
+    );
+  }
+  // FIX-1166 — the two FEC-side failures, with opposite remedies.
+  if (fecDrop?.state === "pending-uncollected") {
+    sections.push(
+      `FEC drop pending and UNCOLLECTED (FIX-1166) — FEC has published an ` +
+        `indiv file for cycle ${fecDrop.cycle ?? "?"} that nothing has ingested, ` +
+        `and the newest fec_bulk completion is ` +
+        `${fecDrop.daysSinceCollect === null ? "NONE on record" : `${fecDrop.daysSinceCollect}d before the probe`} ` +
+        `(threshold ${UNCOLLECTED_DAYS}d). Donor pages are serving money that is ` +
+        `at least a drop behind. Note the fec_bulk entry in the freshness ` +
+        `registry CANNOT catch this — its escalation is ~10 days out and derived ` +
+        `from fec_bulk's own cadence, not from FEC's:
+` +
+        `  - ${fecDrop.detail}
+` +
+        `
+Triage: check whether the fec phase ran at all (GHA nightly-sync, ` +
+        `fec-phase job), then whether it was HELD (fec_bulk_run_state) or ` +
+        `short-circuited by the FIX-193 watermark gate. A supervised catch-up is ` +
+        `a workflow_dispatch of nightly.yml with force_weekly=true, off-peak.`,
+    );
+  } else if (fecDrop?.tier && fecDrop.state === "probe-blind") {
+    sections.push(
+      `FEC drop probe BLIND (FIX-1166, REPORT-ONLY) — the last ` +
+        `${fecDrop.blindStreak} probes got no Last-Modified back from FEC. The ` +
+        `probe FAILS CLOSED, so it has been reporting pending=false the whole ` +
+        `time and that is an artefact, not a reading: we currently know nothing ` +
+        `about whether FEC has published:
+` +
+        `  - ${fecDrop.detail}
+` +
+        `
+Triage: HEAD the indiv file by hand and check for an FEC-side URL or ` +
+        `redirect change; the probe 302s to S3.`,
+    );
+  } else if (fecDrop?.tier && fecDrop.state === "probe-missing") {
+    sections.push(
+      `FEC drop probe MISSING (FIX-1166, REPORT-ONLY) — pipeline_state.` +
+        `fec_drop_probe has not been written inside ${PROBE_STALE_HOURS}h. This ` +
+        `says the nightly's enrichment-light phase did not run; it says nothing ` +
+        `about FEC either way:
+` +
+        `  - ${fecDrop.detail}
+` +
+        `
+Triage: the missing/killed sections above usually explain it. If the ` +
+        `nightly ran and this is still stale, the probe write itself is failing ` +
+        `— recordDropProbe swallows its own errors by design.`,
     );
   }
   // FIX-1073 — the ESCALATING half of the firing signal.
@@ -1357,6 +1488,13 @@ async function main(): Promise<number> {
   // FIX-959 — point-in-time: is a donor industry-tag change stranded
   // un-incorporated in official_sector_affinity_rollup past one nightly cycle?
   const sectorAffinity = await fetchSectorAffinityStaleness();
+  // FIX-1166 — point-in-time: has FEC published money that nothing collected?
+  // Complementary to the fec_bulk entry in the registry above, not a copy of it
+  // — see fetchFecDropStatus for why the registry cannot answer this.
+  const fecDrop = await fetchFecDropStatus(now);
+  console.log(
+    `[canary-check] fec drop: ${fecDrop ? `${fecDrop.state} — ${fecDrop.detail}` : "unknown (read failed)"}`,
+  );
   // FIX-968 — did every scheduled pg_cron job actually START? The only detector
   // here that watches the cause rather than a consequence.
   const cronHealth = await fetchCronJobHealth();
@@ -1472,6 +1610,19 @@ async function main(): Promise<number> {
         `live=${sectorAffinity.liveSig ?? "-"} stored=${sectorAffinity.storedSig ?? "-"})`,
     );
   }
+  if (fecDrop && fecDrop.tier) {
+    // One key per state rather than one shared key: `uncollected` (money at FEC)
+    // and `probe blind/missing` (we cannot see FEC) are different problems with
+    // different fixes, and collapsing them would make a probe outage read as a
+    // recovery from an uncollected drop.
+    const key =
+      fecDrop.state === "pending-uncollected"
+        ? KEY_UNCOLLECTED
+        : fecDrop.state === "probe-blind"
+          ? KEY_BLIND
+          : KEY_MISSING;
+    push(key, fecDrop.tier, fecDrop.severity, fecDrop.detail);
+  }
   // FIX-943 — bloat_degraded is deliberately absent: a table under its own
   // autovacuum trigger is the CAUSE, vm_degraded is the consequence that
   // actually breaks query plans, and only the consequence escalates. The cause
@@ -1487,7 +1638,7 @@ async function main(): Promise<number> {
   // detector ran; writeMetaRow stamps completed_at itself.
   const metadata = buildMetadata(
     missing, killed, autovacuum, rollups, orphans, sectorAffinity, cronHealth,
-    nightlyCheckUnavailable, conditions, failures, reportOnly,
+    nightlyCheckUnavailable, conditions, failures, reportOnly, fecDrop,
   );
   const meta = await writeMetaRow(metadata, now);
   if (!meta.ok) {
@@ -1525,7 +1676,7 @@ async function main(): Promise<number> {
       alertError = await sendAlert(
         decision.tier!, transitions, firstRun, missing, killed, autovacuum,
         staleRollups, orphans, rateRegressions, sectorAffinity, cronHealth,
-        adminEmail, resendKey,
+        fecDrop, adminEmail, resendKey,
       );
       alertSent = alertError === null;
       if (alertError) {

@@ -43,6 +43,7 @@
  */
 
 import { headFecFile, parseLastModified } from "./util";
+import { pushRing, type DropProbeRingEntry, type StoredDropProbe } from "../../scripts/canary-fec-drop";
 
 /** pipeline_state row holding the FIX-193 per-cycle indiv watermark. */
 export const FEC_INDIV_WATERMARK_KEY = "fec_indiv_watermark";
@@ -235,6 +236,16 @@ export const FEC_DROP_PROBE_KEY = "fec_drop_probe";
  * from a phase that always runs makes "a drop is pending and nobody collected
  * it" answerable from a row instead of a GHA log crawl.
  *
+ * FIX-1166 — the row also carries a three-deep `recent` ring of
+ * {probed_at, remote_last_modified}, newest first. The watcher needs it because
+ * probeIndivDrop FAILS CLOSED: an unreadable HEAD returns pending=false with a
+ * null remote_last_modified, so a permanently broken probe is indistinguishable
+ * from a permanently level watermark on the current row alone. Three
+ * consecutive nulls is what makes that reportable; one is just FEC being FEC.
+ * Writing it here rather than reconstructing it from the canary's own history
+ * costs one small read and keeps working across a stretch where the canary did
+ * not run — which is exactly when a blind probe goes unnoticed.
+ *
  * Never throws, never widens the trigger: this writes one row and returns.
  */
 export async function recordDropProbe(
@@ -243,10 +254,29 @@ export async function recordDropProbe(
   phase: string,
 ): Promise<boolean> {
   try {
+    // Best-effort read of the existing ring. A failure here must not cost us
+    // the probe row itself, so it degrades to a fresh one-entry ring.
+    let priorRing: DropProbeRingEntry[] | undefined;
+    try {
+      const { data } = await db
+        .from("pipeline_state")
+        .select("value")
+        .eq("key", FEC_DROP_PROBE_KEY)
+        .maybeSingle();
+      const prior = (data?.value ?? null) as StoredDropProbe | null;
+      if (prior && Array.isArray(prior.recent)) priorRing = prior.recent;
+    } catch {
+      priorRing = undefined;
+    }
+    const recent = pushRing(priorRing, {
+      probed_at: probe.probed_at,
+      remote_last_modified: probe.remote_last_modified,
+    });
+
     const { error } = await db.from("pipeline_state").upsert(
       {
         key: FEC_DROP_PROBE_KEY,
-        value: { ...probe, phase },
+        value: { ...probe, phase, recent },
         updated_at: probe.probed_at,
       },
       { onConflict: "key" },

@@ -2,23 +2,64 @@ name: nightly-sync
 
 on:
   schedule:
-    # 02:17 UTC daily (FIX-1163). The hour is unchanged and still matches the
-    # Vercel cron canary in apps/civitics/vercel.json; only the MINUTE moved.
+    # 21:00 UTC on the PREVIOUS day (FIX-1163). This slot names the following
+    # UTC day's run: the cron fires Sat 21:00 for "Sunday's" nightly. See
+    # NIGHTLY_SLOT_OFFSET_HOURS in each phase job's env block below — that is
+    # the other half of this change and the two must move together.
     #
-    # WHY :17 — GitHub queues scheduled workflows hardest on the top of the
-    # hour, and this one has never started near its slot. The ten scheduled
-    # starts to 2026-09-07 ran 06:43–08:41 UTC, i.e. 4h44–6h41 late, every
-    # single day (cc-113 measured a wider 06:43–13:51 window earlier). Moving
-    # off :00 is the standard mitigation; the FIX-903 header in
-    # packages/data/src/pipelines/fec-bulk/drop-check.ts documents the same
-    # queueing from the other side.
+    # WHY 21:00 — GitHub applies a large, roughly CONSTANT OFFSET to this
+    # workflow's scheduled start, not top-of-the-hour jitter. Measured from
+    # `gh run list --event schedule` on 2026-09-09, the eleven consecutive
+    # scheduled starts 2026-08-29 → 2026-09-09 ran 4h43–6h41 after their slot:
     #
-    # WHY THE HOUR STAYS 02 — 02:00–05:00 UTC is the quiet neighbourhood in the
-    # pg_cron startup-timeout histogram, and an on-time fec-phase lands ahead of
-    # the hour-04 vacuums (ec 04:30 / fe 04:50) and the 06:00 derived-MV daily
-    # rather than inside the 05:45–09:00 prod blackout the current drift puts it
-    # in. Receipt for this change is the NEXT SCHEDULED RUN's start time.
-    - cron: "17 2 * * *"
+    #   09-09 07:24:55 (slot 02:17) = 5h08     09-02 06:51:44 = 4h52
+    #   09-07 07:03:38 (slot 02:00) = 5h04     09-01 07:21:57 = 5h22
+    #   09-06 06:54:07              = 4h54     08-31 08:10:49 = 6h11
+    #   09-05 06:43:37              = 4h44     08-30 07:57:42 = 5h58
+    #   09-04 06:59:22              = 4h59     08-29 08:40:38 = 6h41
+    #   09-03 06:55:25              = 4h55
+    #
+    # WHY :17 DID NOT WORK, AND WHY THIS IS NOT THE SAME BET — the FIX-1163
+    # minute move assumed queueing at the top of the hour. Its receipt refuted
+    # that: 09-09 started 5h08 after :17, squarely inside the :00 band. A
+    # near-constant offset cannot be dodged with a minute; only an HOUR-level
+    # move shifts the whole distribution, which is what this is. It buys 5h17.
+    #
+    # THE OFFSET IS CONSTANT ON A SCALE OF DAYS, NOT WEEKS. The fortnight before
+    # the band above was much wider — 08-28 13:51 (11h52), 08-27 12:24 (10h24),
+    # 08-26 03:04 (1h04) — and the FIX-903 header in
+    # packages/data/src/pipelines/fec-bulk/drop-check.ts recorded ~3.5h earlier
+    # still. So this is a shift of the distribution, not a guarantee about any
+    # one run, and every observed offset lands strictly earlier here than it did
+    # under 02:17. RE-MEASURE the offset on each receipt; do not treat 5h as a
+    # constant of nature.
+    #
+    # WHERE IT PUTS THE FEC PHASE — at the measured band the run starts
+    # 01:43–03:41 UTC. That is ahead of the hour-04 vacuums (ec-vacuum-analyze
+    # 04:30, fe-vacuum-analyze 04:50), ahead of the 06:00 derived-MV daily, and
+    # clear of the 05:45–09:00 prod blackout the old slot drifted into. It also
+    # sits in the 03–05 UTC dead zone of the pg_cron startup-timeout histogram.
+    #
+    # CO-TENANCY, read from prod cron.job_run_details 2026-09-10:
+    #   * jobid 10 refresh-derived-mvs-weekly `47 0 * * 2` — its one run at the
+    #     new slot (09-08) took 1622.6s and ended 01:14 UTC, ~29 min before the
+    #     band opens. At its worst historical non-failure duration (2781s) it
+    #     would end 01:33, leaving ~10 min. Thin, and worth re-reading whenever
+    #     that job's cost moves; the 08-11 six-hour failure would have overlapped
+    #     the whole band.
+    #   * jobid 49 group-donor-rollup-refresh `10 3 * * 3` — one run so far,
+    #     55.7s at 03:10 UTC, i.e. inside the top of the Wednesday band. A
+    #     56-second job is not a co-tenancy problem, but it is now adjacent.
+    #
+    # NOTE the Vercel cron canary in apps/civitics/vercel.json still fires
+    # `0 2 * * *` and is deliberately NOT moved here: it only records that
+    # Vercel's scheduler is alive (cron_last_started), and nothing compares it
+    # against cron_last_run within a window. The two are no longer the same
+    # hour, and that is fine.
+    #
+    # Receipt for this change is the NEXT SCHEDULED RUN's createdAt minus 21:00.
+    # A run already queued under `17 2` is not it.
+    - cron: "0 21 * * *"
   workflow_dispatch:
     inputs:
       # FIX-743: force the Sunday-only heavy ingest block (FEC bulk, IRS-990,
@@ -115,6 +156,13 @@ jobs:
       # FIX-743: forwarded to runNightlySync's computeRunWeekly gate. On a
       # scheduled run `inputs.force_weekly` is empty → falsey → today's behavior.
       NIGHTLY_FORCE_WEEKLY:     ${{ inputs.force_weekly }}
+      # FIX-1163: the cron above fires 21:00 UTC on the day BEFORE the run it
+      # names, so the weekly gate reads the day off `now + 3h` instead of off
+      # the wall clock — otherwise an ON-TIME Saturday-evening start would skip
+      # Sunday's heavy FEC ingest and only a late GitHub would run it. Keep this
+      # equal to (24 - cron hour); the two are one change. Scheduled runs only:
+      # a workflow_dispatch passes 0 and keeps wall-clock semantics.
+      NIGHTLY_SLOT_OFFSET_HOURS: ${{ github.event_name == 'schedule' && '3' || '0' }}
       # FIX-1060 — heap ceiling SIZED FROM MEASURED RSS, not from the OOM that
       # predates the external sort.
       #
@@ -249,6 +297,13 @@ jobs:
       # FIX-743: forwarded to runNightlySync's computeRunWeekly gate. On a
       # scheduled run `inputs.force_weekly` is empty → falsey → today's behavior.
       NIGHTLY_FORCE_WEEKLY:     ${{ inputs.force_weekly }}
+      # FIX-1163: the cron above fires 21:00 UTC on the day BEFORE the run it
+      # names, so the weekly gate reads the day off `now + 3h` instead of off
+      # the wall clock — otherwise an ON-TIME Saturday-evening start would skip
+      # Sunday's heavy FEC ingest and only a late GitHub would run it. Keep this
+      # equal to (24 - cron hour); the two are one change. Scheduled runs only:
+      # a workflow_dispatch passes 0 and keeps wall-clock semantics.
+      NIGHTLY_SLOT_OFFSET_HOURS: ${{ github.event_name == 'schedule' && '3' || '0' }}
       # LittleSis bulk + matcher index build is RAM-heavy; keep the 12 GB ceiling.
       NODE_OPTIONS: --max-old-space-size=12288
       CLOUDFLARE_ACCOUNT_ID:           ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -314,6 +369,13 @@ jobs:
       # FIX-743: forwarded to runNightlySync's computeRunWeekly gate. On a
       # scheduled run `inputs.force_weekly` is empty → falsey → today's behavior.
       NIGHTLY_FORCE_WEEKLY:     ${{ inputs.force_weekly }}
+      # FIX-1163: the cron above fires 21:00 UTC on the day BEFORE the run it
+      # names, so the weekly gate reads the day off `now + 3h` instead of off
+      # the wall clock — otherwise an ON-TIME Saturday-evening start would skip
+      # Sunday's heavy FEC ingest and only a late GitHub would run it. Keep this
+      # equal to (24 - cron hour); the two are one change. Scheduled runs only:
+      # a workflow_dispatch passes 0 and keeps wall-clock semantics.
+      NIGHTLY_SLOT_OFFSET_HOURS: ${{ github.event_name == 'schedule' && '3' || '0' }}
       NODE_OPTIONS: --max-old-space-size=12288
       CLOUDFLARE_ACCOUNT_ID:           ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_R2_ACCESS_KEY_ID:     ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
@@ -383,6 +445,13 @@ jobs:
       # FIX-743: forwarded to runNightlySync's computeRunWeekly gate. On a
       # scheduled run `inputs.force_weekly` is empty → falsey → today's behavior.
       NIGHTLY_FORCE_WEEKLY:     ${{ inputs.force_weekly }}
+      # FIX-1163: the cron above fires 21:00 UTC on the day BEFORE the run it
+      # names, so the weekly gate reads the day off `now + 3h` instead of off
+      # the wall clock — otherwise an ON-TIME Saturday-evening start would skip
+      # Sunday's heavy FEC ingest and only a late GitHub would run it. Keep this
+      # equal to (24 - cron hour); the two are one change. Scheduled runs only:
+      # a workflow_dispatch passes 0 and keeps wall-clock semantics.
+      NIGHTLY_SLOT_OFFSET_HOURS: ${{ github.event_name == 'schedule' && '3' || '0' }}
       NODE_OPTIONS: --max-old-space-size=12288
       CLOUDFLARE_ACCOUNT_ID:           ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_R2_ACCESS_KEY_ID:     ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}

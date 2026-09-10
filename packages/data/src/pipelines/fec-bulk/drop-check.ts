@@ -1,11 +1,20 @@
 /**
  * FIX-903 — weekday "new FEC drop" trigger for the nightly fec_bulk stage.
  *
- * WHY: nightly-sync is scheduled 02:00 UTC, but GHA queues it ~3.5h late, so
- * the fec phase actually starts ~05:30 UTC. FEC publishes indiv{yy}.zip on
- * SUNDAYS around 15:20 UTC — nine hours AFTER Sunday's heavy run already came
- * and went. The Sunday run therefore always probes last week's file, and two
- * failures compound:
+ * WHY: the nightly's fec phase runs many hours before FEC publishes, so it
+ * always probes last week's file. FEC publishes indiv{yy}.zip on SUNDAYS around
+ * 15:20–15:50 UTC; Sunday's heavy run has long since come and gone by then.
+ *
+ * The exact gap has moved twice and the numbers in this header are dated, so
+ * treat nightly.yml's cron comment as the current one. When FIX-903 was written
+ * the cron was 02:00 UTC and GHA queued it ~3.5h late (fec phase ~05:30 UTC). By
+ * 2026-09-09 the queueing offset had grown to a near-constant 4h43–6h41, putting
+ * the fec phase at 06:43–08:41 UTC. FIX-1163 then moved the cron to 21:00 UTC on
+ * the previous day, which at that offset starts the fec phase 01:43–03:41 UTC.
+ * Every one of those is hours BEFORE the same day's publish, so the premise
+ * below is unchanged by any of it — only the size of the gap moved.
+ *
+ * Two failures compound:
  *
  *   1. If last week's file was already ingested, the FIX-193 watermark gate in
  *      ./index.ts short-circuits the whole indiv stage for the cycle.

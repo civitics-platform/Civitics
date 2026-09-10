@@ -50,7 +50,7 @@ import { runPlumBookPipeline } from "./plum-book";
 import { runElectionsPipeline } from "./elections";
 import { runAiClassifier } from "./tags/ai-classifier";
 import { seedJurisdictions, seedGoverningBodies } from "../jurisdictions/us-states";
-import { computeRunWeekly } from "./weekly-gate";
+import { computeRunWeekly, nominalSlotInstant, readSlotOffsetHours, SLOT_OFFSET_ENV } from "./weekly-gate";
 import { FLAGS } from "../feature-flags";
 import {
   shouldLoadResumeState,
@@ -431,9 +431,19 @@ export async function runNightlySync(opts: RunNightlyOptions = {}): Promise<Nigh
   // FIX-743: `runWeekly = isSunday || NIGHTLY_FORCE_WEEKLY==="true"`. Named
   // isWeekly downstream (results.is_weekly, the `if (isWeekly)` heavy block, the
   // merge logic) so a forced run correctly reports/executes the weekly stages.
+  //
+  // FIX-1163: "isSunday" is the day of the run's SLOT, not of the moment the
+  // process started. nightly.yml's cron fires 21:00 UTC on the previous day and
+  // GitHub starts it hours late, so a wall-clock read would make Sunday's heavy
+  // ingest depend on how late GitHub happens to be. NIGHTLY_SLOT_OFFSET_HOURS is
+  // set beside that cron; absent (every non-scheduled caller) it is 0 and this
+  // is the pre-FIX-1163 gate exactly.
+  const now = new Date();
+  const slotOffsetHours = readSlotOffsetHours(process.env[SLOT_OFFSET_ENV]);
   const { runWeekly: isWeekly, mode: weeklyMode } = computeRunWeekly(
-    new Date(),
+    now,
     process.env["NIGHTLY_FORCE_WEEKLY"],
+    slotOffsetHours,
   );
   console.log(
     `  [nightly] weekly stages: ${
@@ -444,6 +454,14 @@ export async function runNightlySync(opts: RunNightlyOptions = {}): Promise<Nigh
           : "skipped (weekday)"
     }`,
   );
+  if (slotOffsetHours > 0) {
+    // Log the nominal day explicitly: with the slot on the previous UTC day,
+    // "Sunday" next to a Saturday timestamp is otherwise unreadable.
+    console.log(
+      `  [nightly] nominal slot day: ${nominalSlotInstant(now, slotOffsetHours).toISOString()} ` +
+        `(${SLOT_OFFSET_ENV}=${slotOffsetHours}, started ${now.toISOString()})`,
+    );
+  }
 
   const results: NightlySyncResults = {
     started_at: startedAt,

@@ -15,7 +15,11 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeRunWeekly } from "./weekly-gate";
+import {
+  computeRunWeekly,
+  nominalSlotInstant,
+  readSlotOffsetHours,
+} from "./weekly-gate";
 
 // 2026-07-05 is a Sunday; 2026-07-06 is a Monday. Built via the local-component
 // constructor (not an ISO/UTC string) because computeRunWeekly reads local
@@ -52,4 +56,119 @@ test('only the literal "true" forces — other values are today\'s behavior', ()
       `sunday + force=${JSON.stringify(v)} should run as sunday`,
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// FIX-1163 — the nominal day comes from the SLOT, not from the wall clock.
+//
+// nightly.yml's cron moved to `0 21 * * *`, one UTC day before the run it names,
+// because GitHub starts this workflow hours after its slot. A wall-clock gate
+// would make Sunday's heavy ingest depend on GitHub being late: the slot fires
+// Sat 21:00, so an ON-TIME start is still Saturday and would skip the weekly
+// block outright. NIGHTLY_SLOT_OFFSET_HOURS=3 shifts the day read forward so the
+// window naming a given day is exactly [slot, slot + 24h).
+//
+// Dates are built with the local-component constructor for the same reason the
+// FIX-743 cases above are, and inside July so no DST transition can move a local
+// day under the offset arithmetic. 2026-07-03 Fri / 07-04 Sat / 07-05 Sun /
+// 07-06 Mon.
+// ---------------------------------------------------------------------------
+
+const SLOT_OFFSET = 3;
+/** local-component Date, so getDay() is stable in any runner TZ. */
+const at = (day: number, h: number, m = 0, s = 0) => new Date(2026, 6, day, h, m, s);
+
+test("FIX-1163 slot offset: every start in [Sat 21:00, Sun 21:00) is the Sunday run", () => {
+  const sundayStarts: Array<[string, Date]> = [
+    ["on time — Sat 21:00, the slot itself", at(4, 21, 0)],
+    ["Sat 23:59, barely late", at(4, 23, 59)],
+    ["Sun 01:43, the fast end of the measured band", at(5, 1, 43)],
+    ["Sun 03:41, the slow end of the measured band", at(5, 3, 41)],
+    ["Sun 06:41, the worst offset of the recent regime", at(5, 6, 41)],
+    ["Sun 08:51, the 11h51 fortnight-old outlier", at(5, 8, 51)],
+    ["Sun 20:59:59, a full day late — still the Sunday run", at(5, 20, 59, 59)],
+  ];
+  for (const [where, now] of sundayStarts) {
+    assert.deepEqual(
+      computeRunWeekly(now, undefined, SLOT_OFFSET),
+      { runWeekly: true, mode: "sunday" },
+      `${where} (${now.toISOString()}) must name Sunday`,
+    );
+  }
+});
+
+test("FIX-1163 slot offset: Friday's slot names Saturday, and both edges hold", () => {
+  const skipped: Array<[string, Date]> = [
+    ["Fri 21:00 — Saturday's slot, on time", at(3, 21, 0)],
+    ["Fri 23:59 — Saturday's slot, barely late", at(3, 23, 59)],
+    ["Sat 01:43 — Saturday's slot, mid-band", at(4, 1, 43)],
+    ["Sat 06:41 — Saturday's slot, worst-case late", at(4, 6, 41)],
+    // The two instants either side of the Sunday window.
+    ["Sat 20:59:59 — the last instant BEFORE Sunday's slot opens", at(4, 20, 59, 59)],
+    ["Sun 21:00:00 — Monday's slot, so no longer Sunday", at(5, 21, 0)],
+  ];
+  for (const [where, now] of skipped) {
+    assert.deepEqual(
+      computeRunWeekly(now, undefined, SLOT_OFFSET),
+      { runWeekly: false, mode: "skipped" },
+      `${where} (${now.toISOString()}) must NOT name Sunday`,
+    );
+  }
+});
+
+test("FIX-1163 slot offset 0 is byte-identical to the pre-FIX-1163 wall-clock gate", () => {
+  // Same instants, offset 0: the day is whatever the wall clock says, which is
+  // exactly the behaviour every non-scheduled caller keeps.
+  for (const [now, expected] of [
+    [at(4, 21, 0), false], // Saturday evening is Saturday
+    [at(5, 1, 43), true], // Sunday small hours is Sunday
+    [at(5, 21, 0), true], // Sunday evening is still Sunday
+    [at(6, 1, 43), false], // Monday is Monday
+  ] as Array<[Date, boolean]>) {
+    assert.deepEqual(computeRunWeekly(now, undefined, 0), {
+      runWeekly: expected,
+      mode: expected ? "sunday" : "skipped",
+    });
+    // Omitting the parameter entirely must match passing 0.
+    assert.deepEqual(computeRunWeekly(now, undefined), computeRunWeekly(now, undefined, 0));
+  }
+});
+
+test("FIX-1163 force_weekly still supersedes the slot gate", () => {
+  // A supervised dispatch runs the heavy block whatever day the slot names.
+  assert.deepEqual(computeRunWeekly(at(4, 21, 0), "true", SLOT_OFFSET), {
+    runWeekly: true,
+    mode: "forced",
+  });
+  assert.deepEqual(computeRunWeekly(at(6, 12, 0), "true", SLOT_OFFSET), {
+    runWeekly: true,
+    mode: "forced",
+  });
+});
+
+test("FIX-1163 readSlotOffsetHours refuses anything but an integer in [0,23]", () => {
+  assert.equal(readSlotOffsetHours("3"), 3);
+  assert.equal(readSlotOffsetHours(" 3 "), 3);
+  assert.equal(readSlotOffsetHours("0"), 0);
+  assert.equal(readSlotOffsetHours("23"), 23);
+  // Absent/empty — every caller that does not set the var.
+  assert.equal(readSlotOffsetHours(undefined), 0);
+  assert.equal(readSlotOffsetHours(""), 0);
+  assert.equal(readSlotOffsetHours("   "), 0);
+  // Refused: a bad value must degrade to the old gate, never rotate the day by
+  // more than a day.
+  for (const bad of ["24", "30", "-1", "3.5", "three", "1e1", "0x3", "NaN", "Infinity"]) {
+    assert.equal(readSlotOffsetHours(bad), 0, `${JSON.stringify(bad)} must be refused`);
+  }
+});
+
+test("FIX-1163 nominalSlotInstant shifts by exactly the offset, and 0 is identity", () => {
+  const now = at(4, 21, 0);
+  assert.equal(nominalSlotInstant(now, 0), now, "offset 0 must return the same object");
+  assert.equal(
+    nominalSlotInstant(now, SLOT_OFFSET).getTime() - now.getTime(),
+    SLOT_OFFSET * 3_600_000,
+  );
+  // The shifted instant is the one whose calendar day is read.
+  assert.equal(nominalSlotInstant(now, SLOT_OFFSET).getDay(), 0, "Sat 21:00 + 3h is a Sunday");
 });

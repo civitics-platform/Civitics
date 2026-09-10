@@ -1431,3 +1431,4 @@
 2026-09-07 | FIX-992 | aac3858f | closes-as-recognized | chore(fixes): close FIX-992 on a full week of in-cadence donor-rollup completions
 2026-09-09 | FIX-1163 | reopen | reopen | half (a) refuted by its own receipt: the first ':17' scheduled nightly (09-09) started 07:24:55 UTC, 5h08m after its 02:17 slot, inside the 4h44-6h41 ':00' band it was meant to beat. Half (b), the enrichment-light drop probe, IS verified on prod and needs no further work.
 2026-09-09 | FIX-1060 | f6aa53eb | prod-only | chore(nightly): record prod verification of FIX-1060 — the first :17 nightly's fec-phase peaked at 172 MB under the new 4096 ceiling
+2026-09-09 | FIX-1166 | d610bf51 | local+prod | feat(canary): escalate when a FEC drop is pending and uncollected for more than two days; warn when the probe is blind or missing

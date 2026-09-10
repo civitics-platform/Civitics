@@ -12,7 +12,7 @@ export type WatchingItem = {
 /**
  * Watching — the user's `user_follows`, resolved to label + href via the shared
  * entity-label resolver (FIX-597), rendered as an embedded terminal instrument
- * (FIX-A): the data-theme="terminal" wrapper re-binds the semantic tokens so
+ * (FIX-709): the data-theme="terminal" wrapper re-binds the semantic tokens so
  * the panel reads dark inside the paper desk, mirroring the ClosingSoonPanel
  * chrome. Unfollow reuses the existing FollowButton / follows API — FollowButton
  * is fully token-native, so it re-binds to dark under the wrapper with no change.

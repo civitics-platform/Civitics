@@ -1,5 +1,5 @@
 /**
- * packages/graph/src/nodeSize.ts — FIX-D (Graph Polish P5)
+ * packages/graph/src/nodeSize.ts — FIX-865 (Graph Polish P5)
  *
  * Pure node-size-scale helpers, extracted from ForceGraph so the domain-aware
  * linear scale is unit-testable (the force component itself pulls in d3 + React
@@ -43,7 +43,7 @@ export function sizeDomainMax(nodes: ReadonlyArray<GraphNode>, sizeBy: string | 
 
 /**
  * Map a normalized magnitude `v` to a radius under the chosen scale, then clamp
- * to MAX_NODE_RADIUS. FIX-D — linear is DOMAIN-AWARE: it spreads [0,domainMax]
+ * to MAX_NODE_RADIUS. FIX-865 — linear is DOMAIN-AWARE: it spreads [0,domainMax]
  * across [base, MAX_NODE_RADIUS] so sizes are DIFFERENTIATED instead of every
  * node past ~$56k pinning at the cap (the old `base + v` put a $100k donor at
  * base+100 → clamped, so a whale and a mid donor looked identical). domainMax=0

@@ -196,7 +196,7 @@ function getSizeValue(
   return Math.log10(raw + 1) + 1;
 }
 
-// ── Group scope resolution (FIX-K) ──────────────────────────────────────────────
+// ── Group scope resolution (FIX-853) ──────────────────────────────────────────────
 // Map an official group's filter to treemap aggregate scope params, or declare it
 // unsupported. Federal gb slugs (senate/house) map to the chamber param — the
 // server aliases chamber → governing_body_id resolution — and other gb slugs pass
@@ -245,7 +245,7 @@ function officialToNode(o: TreemapOfficial): NewGraphNode {
   };
 }
 
-// FIX-E — donor cell → NodePopup / Tooltip identity. Maps entity_type to a real
+// FIX-866 — donor cell → NodePopup / Tooltip identity. Maps entity_type to a real
 // NodeType (individual / pac / corporation) instead of the blanket 'financial'
 // so NodePopup resolves the correct /donors/{uuid} profile link. Synthetic
 // aggregates (bracket / tail / IE-tail / residual) get a pseudo id + the
@@ -328,7 +328,7 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
   const [compareEntries, setCompareEntries] = useState<CompareEntry[]>([]);
   const [loading, setLoading]             = useState(true);
   const [error, setError]                 = useState<string | null>(null);
-  // FIX-K — set when the focused group can't be scoped as a treemap (committee,
+  // FIX-853 — set when the focused group can't be scoped as a treemap (committee,
   // official_role cohort, or empty filter). Renders an explicit empty state and
   // skips the fetch entirely — never the silent global top-500.
   const [groupUnsupported, setGroupUnsupported] = useState<string | null>(null);
@@ -470,7 +470,7 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
     let url: string;
 
     if (primaryGroup && primaryGroup.filter.entity_type === 'official') {
-      // FIX-K — Group of officials: resolve the group's filter to treemap scope
+      // FIX-853 — Group of officials: resolve the group's filter to treemap scope
       // params (gb → chamber/governingBody, party/state compose). A group the
       // treemap can't scope shows an explicit empty state and skips the fetch
       // rather than falling through to the unscoped global cohort.
@@ -604,7 +604,7 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
             name:  leaf.name,
             value: leaf.value,
             industryIndex: idx,
-            // Reuse donor slot to carry PAC data for tooltip/popup. FIX-E —
+            // Reuse donor slot to carry PAC data for tooltip/popup. FIX-866 —
             // when a PAC leaf has no real entity id, use a pseudo id (never a
             // display name) so NodePopup suppresses the /donors/{id} profile
             // button instead of 404ing on /donors/{name}.
@@ -726,7 +726,7 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
       .text((d) => isCompareMode
         ? d.data.name
         : isEntityMode
-          // FIX-A — badge the independent-expenditure group so it reads as
+          // FIX-862 — badge the independent-expenditure group so it reads as
           // distinct from ordinary donations (super-PAC IE money, not gifts).
           ? (d.data.name === "Independent support"
               ? "Independent Support"
@@ -973,7 +973,7 @@ export function TreemapGraph({ className = "", svgRef: externalSvgRef, vizOption
     );
   }
 
-  // FIX-K — group not scopable as a treemap: honest, specific empty state.
+  // FIX-853 — group not scopable as a treemap: honest, specific empty state.
   if (groupUnsupported) {
     return (
       <div className={`flex items-center justify-center ${className}`}>

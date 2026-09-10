@@ -1,5 +1,5 @@
 /**
- * Census TIGER 2024 jurisdiction-boundary backfill (FIX-D).
+ * Census TIGER 2024 jurisdiction-boundary backfill (FIX-421).
  *
  * Populates public.jurisdictions.boundary_geometry (+ centroid) for state,
  * county, and city/place rows that currently have a NULL boundary. District
@@ -24,7 +24,7 @@
  * State / place levels only ever backfill EXISTING rows; they never create
  * jurisdictions.
  *
- * COUNTY level is different (FIX-E): there are 0 county rows, so --levels county
+ * COUNTY level is different (FIX-422): there are 0 county rows, so --levels county
  * both CREATES county rows and populates their boundary in one pass, via the
  * upsert_county_jurisdiction RPC (insert-or-update; never overwrites an existing
  * boundary). Parent state/state-equivalent is resolved by STATEFP. DC
@@ -246,8 +246,8 @@ async function loadSnapshot(db: Db): Promise<Snapshot> {
   for (const r of states) addUnique(snap.statesByFips, r.fips_code, tgt(r));
 
   // State-equivalents: DC (federal_district) + 5 territories
-  // (unincorporated_territory). Pre-FIX-E these lived as type='district' with a
-  // bare 2-letter short_name and NULL census_geoid; FIX-E re-typed them off the
+  // (unincorporated_territory). Pre-FIX-422 these lived as type='district' with a
+  // bare 2-letter short_name and NULL census_geoid; FIX-422 re-typed them off the
   // catch-all. Query BOTH shapes so the snapshot resolves them whether or not
   // the re-type migration has run yet — the migration always precedes the
   // pipeline in the loop, but the dual query keeps the snapshot robust either

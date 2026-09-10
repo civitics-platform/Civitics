@@ -1,6 +1,6 @@
 "use client";
 
-// FIX-A (A2): client island that lets the server-rendered /franklin hero (and an
+// FIX-623 (A2): client island that lets the server-rendered /franklin hero (and an
 // optional secondary affordance) open the GuidedTour. Click-launched only — never
 // auto-opens (decision 4): a demo page that hijacks the viewport on load is
 // intrusive. Holds the open-state and mounts <GuidedTour> only while open, so the

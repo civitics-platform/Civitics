@@ -153,7 +153,7 @@ export const VIZ_REGISTRY: VizRegistryEntry[] = [
     // requires either donation data or an official in focus (officials still
     // populate the treemap by connection-count when no donation data exists).
     isApplicable: (focus, _connections, graphMeta) => {
-      // FIX-F — empty focus → the global officials-by-party treemap (matches the
+      // FIX-867 — empty focus → the global officials-by-party treemap (matches the
       // empty-state preset card's global mode). Keeps the grey-out for non-donor
       // focuses (proposal-only, etc.).
       if (focus.entities.length === 0) return APPLICABLE

@@ -192,7 +192,7 @@ function edgeVisible(d: SimLink, ctx: OpacityCtx): boolean {
   } else if (Object.keys(ctx.connections).length > 0) {
     const conn = ctx.connections[d.connectionType];
     if (conn && conn.enabled === false) return false; // unknown type: show
-    // FIX-B — donation/opposition/contract floor: hide a NAMED money edge whose
+    // FIX-863 — donation/opposition/contract floor: hide a NAMED money edge whose
     // amount is under the per-type minAmount. EXEMPT bracket/tail aggregate
     // edges — their amountUsd sums many small donors, so a $200 floor that hides
     // one small donor must NOT hide the "12,000 smaller donors" rollup edge.
@@ -459,7 +459,7 @@ function alignmentEdgeColor(ratio: number | null | undefined): string {
   return "rgb(var(--c-accent))";                       // misaligned
 }
 
-// FIX-D — MAX_NODE_RADIUS, SizeScale, nodeSizeMagnitude, sizeDomainMax, and
+// FIX-865 — MAX_NODE_RADIUS, SizeScale, nodeSizeMagnitude, sizeDomainMax, and
 // scaledRadius now live in ../nodeSize (pure + unit-tested). getNodeRadius stays
 // here because it composes them with getBaseRadius (node-shape base sizes).
 function getNodeRadius(
@@ -1025,7 +1025,7 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
       const nodeGroup = g.append("g").attr("class", "nodes");
       const sizeBy = vizOptions?.nodeSizeEncoding ?? "connection_count";
       const sizeScale = vizOptions?.sizeScale ?? "sqrt"; // FIX-847
-      const sizeDomain = sizeDomainMax(simNodes, sizeBy); // FIX-D — linear/legend
+      const sizeDomain = sizeDomainMax(simNodes, sizeBy); // FIX-865 — linear/legend
 
       const nodeGrp = nodeGroup
         .selectAll<SVGGElement, SimNode>("g")
@@ -1806,7 +1806,7 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
 
       const sizeBy = vizOptions?.nodeSizeEncoding ?? "connection_count";
       const sizeScale = vizOptions?.sizeScale ?? "sqrt"; // FIX-847
-      const sizeDomain = sizeDomainMax(nodes, sizeBy); // FIX-D
+      const sizeDomain = sizeDomainMax(nodes, sizeBy); // FIX-865
 
       nodeGrp
         .selectAll<SVGGElement, SimNode>(".node-circle")
@@ -1847,7 +1847,7 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [vizOptions?.strengthFilter]);
 
-    // ── Category A — Donation/contract floor (FIX-B) ──────────────────────────
+    // ── Category A — Donation/contract floor (FIX-863) ──────────────────────────
     // minAmount lives inside `connections`, so the connection-style effect above
     // already re-applies on object-identity change; keying directly on the floor
     // VALUES keeps the floor honest even against an in-place mutation and makes
@@ -2055,7 +2055,7 @@ export const ForceGraph = React.forwardRef<SVGSVGElement, ForceGraphProps>(
           );
         })()}
 
-        {/* Node-size legend (FIX-847/FIX-D) — money encodings only. Reference
+        {/* Node-size legend (FIX-847/FIX-865) — money encodings only. Reference
             values are computed from the LIVE node distribution (nice-rounded
             min>0 / geometric mid / max) and sized via the SAME scaledRadius fn
             (+ active sizeScale + domainMax) as the nodes, so it can't lie under

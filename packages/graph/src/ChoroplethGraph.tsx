@@ -113,7 +113,7 @@ export function ChoroplethGraph({
       .filter((v): v is number => typeof v === "number");
     const ext = (measureValues.length ? d3.extent(measureValues) : [-1, 1]) as [number, number];
     const isDiverging = colorScale === "diverging";
-    // FIX-M — the server returns party CONTROL, not cohesion: −1 = Democrat,
+    // FIX-855 — the server returns party CONTROL, not cohesion: −1 = Democrat,
     // +1 = Republican, 0 = mixed / independent. Democrat → blue, Republican →
     // red (the interpolator was reversed, painting Democrats red). Fixed
     // [−1,0,1] domain so a solid-party district always renders full colour and a
@@ -208,7 +208,7 @@ export function ChoroplethGraph({
     );
   }
 
-  // FIX-M — rows exist but nothing colours the map: no linked representatives
+  // FIX-855 — rows exist but nothing colours the map: no linked representatives
   // (every measure null → the FIX-217 uniform-flat symptom) or no geometry for
   // this band, or a degenerate sequential domain (min === max). Show an explicit
   // "no data" overlay rather than a misleading uniform fill.
@@ -249,7 +249,7 @@ export function ChoroplethGraph({
 
 function labelFor(measure: string): string {
   switch (measure) {
-    // FIX-M — the voting-divergence route returns party lean (party CONTROL),
+    // FIX-855 — the voting-divergence route returns party lean (party CONTROL),
     // not a cohesion rate; label it for what it actually is.
     case "party_cohesion":     return "Party control";
     case "divergence":         return "Vote divergence";
@@ -258,7 +258,7 @@ function labelFor(measure: string): string {
   }
 }
 
-// FIX-M — human label for a district band, used in the "no data" overlay.
+// FIX-855 — human label for a district band, used in the "no data" overlay.
 function bandLabel(band: string): string {
   switch (band) {
     case "congressional": return "U.S. House districts";
@@ -269,7 +269,7 @@ function bandLabel(band: string): string {
   }
 }
 
-// FIX-M — format a district's measure value. Party control (diverging) reads as
+// FIX-855 — format a district's measure value. Party control (diverging) reads as
 // a party label, not a nonsensical percentage of a −1..1 scalar.
 function fmtMeasure(v: number | null, isDiverging: boolean): string {
   if (v == null) return "no linked representative";

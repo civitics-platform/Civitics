@@ -23,7 +23,7 @@
  * Detection key: (normalized_full_name, state, role_title_family) where
  *   role_title_family ∈ {senator, representative}
  * Presidential candidates are out of scope here — the seeded POTUS/VPOTUS
- * rows live under official_seed_id, not bioguide_id, and FIX-A handles
+ * rows live under official_seed_id, not bioguide_id, and FIX-375 handles
  * common-name dedup separately.
  */
 

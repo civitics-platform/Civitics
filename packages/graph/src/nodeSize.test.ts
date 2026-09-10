@@ -1,5 +1,5 @@
 /**
- * packages/graph/src/nodeSize.test.ts — FIX-D (Graph Polish P5)
+ * packages/graph/src/nodeSize.test.ts — FIX-865 (Graph Polish P5)
  *
  * Guards the domain-aware linear node-size scale (decision 7). The graph package
  * has no CI test runner (CI runs only @civitics/data), so — like nodeId.test.ts —

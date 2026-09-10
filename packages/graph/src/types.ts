@@ -55,7 +55,7 @@ export interface GraphNode {
   connectionCount?: number
   donationTotal?: number
   /**
-   * FIX-C — client-computed sum of contract_award edge amounts (USD) incident
+   * FIX-864 — client-computed sum of contract_award edge amounts (USD) incident
    * to this node, stamped in useGraphData's merge pass. Drives the
    * 'contract_total' node-size encoding. LOWER BOUND: reflects only the loaded
    * top-500-by-amount contract edges, not the entity's full contract history.
@@ -192,8 +192,8 @@ export interface ForceOptions {
   nodeSizeEncoding:
     | 'connection_count'
     | 'donation_total'
-    | 'contract_total'   // FIX-C — size by summed contract_award edge $
-    // FIX-D (decision 5) — votes_cast / bills_sponsored / years_in_office were
+    | 'contract_total'   // FIX-864 — size by summed contract_award edge $
+    // FIX-865 (decision 5) — votes_cast / bills_sponsored / years_in_office were
     // placebos (they silently fell through to connection_count). Removed from the
     // Node-size dropdown; the enum values stay for saved-view back-compat and are
     // coerced to 'connection_count' on read via coerceNodeSizeEncoding().
@@ -243,7 +243,7 @@ export interface ForceOptions {
 }
 
 /**
- * FIX-D (decision 5) — coerce a persisted node-size encoding on load. The three
+ * FIX-865 (decision 5) — coerce a persisted node-size encoding on load. The three
  * placebo encodings (votes_cast / bills_sponsored / years_in_office) were never
  * implemented — they fell through to connection_count — and are gone from the
  * Node-size dropdown. Saved views / presets may still carry them; map them to

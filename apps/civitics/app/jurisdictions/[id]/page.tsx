@@ -1,4 +1,4 @@
-// FIX-F: /jurisdictions/[id] hub. UUID-canonical, type-conditional sections,
+// FIX-424: /jurisdictions/[id] hub. UUID-canonical, type-conditional sections,
 // server-rendered static SVG map (no Mapbox JS). ISR (revalidate 300) — the
 // per-user constituent surface is a client island (VerifyConstituentSection)
 // so the page itself stays statically renderable. Data is read with the anon

@@ -1,4 +1,4 @@
-// FIX-I: /meetings/[id] detail page. Fills the FIX-424-documented dead link from
+// FIX-441: /meetings/[id] detail page. Fills the FIX-424-documented dead link from
 // MeetingCard (rendered on /jurisdictions/[id] and /institutions/[id]). UUID-
 // canonical (middleware guards malformed paths to a true 404; the page also
 // notFound()s a non-UUID as belt-and-braces). ISR (revalidate 300) — meetings

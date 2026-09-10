@@ -875,7 +875,7 @@ async function AgencyView({
 }
 
 // ─── Governing-body view ──────────────────────────────────────────────────────
-// FIX-H: full legislature treatment — header + breadcrumbs, party-balance bar,
+// FIX-439: full legislature treatment — header + breadcrumbs, party-balance bar,
 // members roster (shared OfficialRosterCard), sub-bodies/committees tree,
 // recent votes (party-line + unanimous indicators via get_institution_recent_votes
 // RPC), recent proposals, recent meetings. Non-legislative governing bodies

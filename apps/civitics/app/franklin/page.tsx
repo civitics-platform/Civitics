@@ -756,7 +756,7 @@ export default async function FranklinHubPage() {
             reply in place, but nothing here counts toward real standing.
           </p>
 
-          {/* A2 guided tour (FIX-A): click-launched walkthrough of the HB-14 spine. */}
+          {/* A2 guided tour (FIX-623): click-launched walkthrough of the HB-14 spine. */}
           {resolvedStops.length > 0 && hb14 && (
             <div className="mt-6">
               <TourLauncher

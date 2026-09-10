@@ -1,5 +1,5 @@
 /**
- * FIX-B — Quantify the unmatched-target drop in FEC Schedule E (IE) ingest.
+ * FIX-673 — Quantify the unmatched-target drop in FEC Schedule E (IE) ingest.
  *
  * Read-only diagnostic. Writes NOTHING. It answers: of the *valid* independent-
  * expenditure money in FEC's Schedule E files, how much do we keep (target
@@ -11,7 +11,7 @@
  * officials (`loadOfficials`) and key by FEC id via `buildMatchIndex` — then
  * runs the same `streamIndependentExpenditures` streamer over the cached
  * Schedule E CSV per cycle. (Junk billion-dollar filings are excluded from the
- * kept/dropped figures by the FIX-A upper-amount bound, so the drop reflects
+ * kept/dropped figures by the FIX-672 upper-amount bound, so the drop reflects
  * *real* hidden money, not vexatious noise.)
  *
  * Reads NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SECRET_KEY from the active env. It

@@ -158,7 +158,7 @@ function colorForArc(
     return "rgb(var(--c-ink-soft))";
   }
   // Donor-side palettes
-  // FIX-L — the untagged bucket is money from donors with no industry tag;
+  // FIX-854 — the untagged bucket is money from donors with no industry tag;
   // render it neutral so it never masquerades as a categorized sector.
   if (group.id === 'untagged') return "rgb(var(--c-ink-soft))";
   if (granularity === 'by-bracket' && group.id) {
@@ -364,7 +364,7 @@ export function ChordGraph({ className = "", svgRef: externalSvgRef, vizOptions,
   const [rawData,   setRawData]   = useState<{ groups: RawGroup[]; recipients: RawRecipient[]; matrix: number[][] } | null>(null);
   const [chartData, setChartData] = useState<ChartData | null>(null);
   const [entityName, setEntityName] = useState<string | null>(null);
-  // FIX-L — untagged donor money reported by the entity-aggregate route, so the
+  // FIX-854 — untagged donor money reported by the entity-aggregate route, so the
   // empty state can say what is actually missing instead of a pipeline platitude.
   const [untagged,  setUntagged]  = useState<{ usd: number; donors: number } | null>(null);
 
@@ -491,7 +491,7 @@ export function ChordGraph({ className = "", svgRef: externalSvgRef, vizOptions,
 
         if (cancelled) return;
 
-        // FIX-L — capture the untagged figure (entity-aggregate mode) so the
+        // FIX-854 — capture the untagged figure (entity-aggregate mode) so the
         // empty state can be honest about money that exists but isn't tagged.
         if (typeof json.untagged_usd === 'number' && json.untagged_usd > 0) {
           setUntagged({ usd: json.untagged_usd, donors: json.untagged_donors ?? 0 });

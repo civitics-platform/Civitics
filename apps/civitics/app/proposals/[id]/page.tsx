@@ -250,7 +250,7 @@ export default async function ProposalDetailPage({
     "proposals:detail-initiatives",
   );
 
-  // FIX-I: jurisdiction → institution breadcrumb so users can navigate upward
+  // FIX-441: jurisdiction → institution breadcrumb so users can navigate upward
   // from a proposal to its hubs. proposals carries jurisdiction_id +
   // governing_body_id; resolve both names in the same round-trip batch.
   const breadcrumbPromise = withDbTimeout(

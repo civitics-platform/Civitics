@@ -15,7 +15,7 @@ export const proposalsChecks: Check = async ({ query }) => {
     actual: proceduralRows.length,
     sample: proceduralRows.slice(0, 10),
     detail:
-      "Proposals whose title starts with 'On ' (e.g. 'On Passage', 'On the Cloture Motion') — FIX-A regression test. The ' v.' arm was removed by FIX-319 after producing 100% false positives (courtlistener opinions + legistar lawsuit-settlement ordinances).",
+      "Proposals whose title starts with 'On ' (e.g. 'On Passage', 'On the Cloture Motion') — FIX-072 regression test. The ' v.' arm was removed by FIX-319 after producing 100% false positives (courtlistener opinions + legistar lawsuit-settlement ordinances).",
   });
 
   const orphanAgency = await query<{

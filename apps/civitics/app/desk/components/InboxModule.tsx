@@ -18,7 +18,7 @@ function relDate(iso: string): string {
 
 /**
  * Inbox — the Desk notifications module, rendered as an embedded terminal
- * instrument (FIX-A). The data-theme="terminal" wrapper re-binds the semantic
+ * instrument (FIX-709). The data-theme="terminal" wrapper re-binds the semantic
  * tokens so this panel reads dark inside the paper desk, mirroring the
  * homepage ClosingSoonPanel chrome (amber-dot header, term-line hairlines).
  * Newest-first; unread rows are accented. "Mark all read" calls the existing

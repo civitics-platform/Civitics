@@ -1,6 +1,6 @@
 "use client";
 
-// FIX-A (A2): the "take the tour" guided overlay for /franklin. It is a stepped,
+// FIX-623 (A2): the "take the tour" guided overlay for /franklin. It is a stepped,
 // narrated walkthrough that drives off the SAME resolved spine stops the page
 // already builds for <StorySpine> — it re-authors and re-queries NOTHING. Adding
 // or reordering a stop in spine.ts flows into the tour automatically (decision 8).

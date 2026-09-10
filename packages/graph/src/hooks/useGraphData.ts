@@ -602,7 +602,7 @@ export function useGraphData(
     };
   }, [edges, nodes, focus.entities]);
 
-  // FIX-C — stamp client-computed contract totals (USD) onto nodes so
+  // FIX-864 — stamp client-computed contract totals (USD) onto nodes so
   // ForceGraph's 'contract_total' node-size encoding stays a plain field read in
   // getNodeRadius. Sums amountUsd over contract_award edges incident to each
   // node (agency award-side AND vendor receive-side). LOWER BOUND: reflects only

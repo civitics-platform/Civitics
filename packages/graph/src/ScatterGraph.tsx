@@ -107,7 +107,7 @@ export function ScatterGraph({
       .finally(() => setLoading(false));
   }, []);
 
-  // FIX-857 / FIX-P — draw is a useCallback so BOTH the data effect and the
+  // FIX-857 / FIX-858 — draw is a useCallback so BOTH the data effect and the
   // ResizeObserver below can invoke it. Scatter was the one viz in the FIX-733
   // trio (with choropleth/gantt) that lacked a ResizeObserver, so it drew exactly
   // once at mount-time container size and never redrew — the "blank canvas on
@@ -247,7 +247,7 @@ export function ScatterGraph({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, xAxis, yAxis, sizeBy, showLabels, logXAxis, logYAxis, primaryEntityId, focusedAgencyIds, svgRef]);
 
-  // FIX-P — draw on data/option change AND on container resize. The initial
+  // FIX-858 — draw on data/option change AND on container resize. The initial
   // ro.observe() fires synchronously with the current size, so the first real
   // draw happens as soon as the container has dimensions — fixing the
   // draw-once-at-zero-size blank canvas.

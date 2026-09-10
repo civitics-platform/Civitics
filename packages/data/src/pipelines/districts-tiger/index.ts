@@ -342,6 +342,36 @@ export async function runTigerDistrictsPipeline(
       }
     }
 
+    // FIX-914 — re-derive New Hampshire's 39 floterial districts.
+    //
+    // A floterial is the union of the base districts it spans, so its geometry
+    // is only as current as theirs: the moment the SLD pass above rewrites New
+    // Hampshire's lower chamber for a new TIGER_YEAR, the derived polygons
+    // describe last year's boundaries until something re-unions them. Nothing
+    // else would — this pipeline is annual and manual, and the derivation is not
+    // in the nightly.
+    //
+    // HERE, specifically. After the whole SLD pass, not inside the per-state
+    // loop: the base rows it reads must all be written (they are, New Hampshire
+    // included), and it must come BEFORE link_officials_to_districts() below or
+    // the 58 floterial representatives go unlinked for a whole year. The
+    // congressional pass in between is irrelevant to it either way, so this sits
+    // at the earliest point where both hold.
+    //
+    // Warn-and-continue rather than throw, matching the two RPC calls below: the
+    // function refuses to build a partial union and raises if a base row is
+    // missing, which is the right behaviour for it and the wrong reason to lose
+    // an otherwise-complete national district refresh. An upsert-only pipeline
+    // with no delete path leaves the previous derived rows in place meanwhile.
+    const floterialRes = await db.rpc("derive_nh_floterials" as never).single();
+    if (floterialRes.error) {
+      console.warn(`  derive_nh_floterials error: ${floterialRes.error.message}`);
+      totalFailed++;
+    } else {
+      const n = (floterialRes.data as unknown as number | null) ?? 0;
+      console.log(`  NH floterials: ${n} derived district${n === 1 ? "" : "s"} written`);
+    }
+
     // FIX-217: Pass 2 — Congressional districts (per-state, 119th Congress).
     // TIGER ships these as one shapefile per state at
     // tl_{year}_{state_fips}_cd119.zip — same shape as SLD files. DC, PR,

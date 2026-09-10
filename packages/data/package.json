@@ -41,6 +41,7 @@
     "data:states-api": "tsx --env-file=../../.env.local src/pipelines/openstates/index.ts",
     "data:districts": "tsx --env-file=../../.env.local src/pipelines/districts-tiger/index.ts",
     "data:nh:parse": "tsx src/scripts/parse-rsa-662-5.ts",
+    "data:nh:migration": "tsx src/scripts/gen-fix914-migration.ts",
     "data:boundaries": "tsx --env-file=../../.env.local src/pipelines/jurisdictions-boundary-backfill/index.ts",
     "data:pilot-metros": "tsx --env-file=../../.env.local src/jurisdictions/pilot-metros.ts",
     "data:legistar": "tsx --env-file=../../.env.local src/pipelines/legistar/index.ts",

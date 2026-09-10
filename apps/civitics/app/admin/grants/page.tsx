@@ -11,6 +11,13 @@ import { withDbTimeout } from "@/lib/supabase-check";
 import { PageHeader, SectionCard, SectionHeader } from "@civitics/ui";
 import { requireGrantsAdmin } from "../../api/admin/grants/_lib";
 import { GrantActions } from "./GrantActions";
+import { RevokeGrantAction } from "./RevokeGrantAction";
+import {
+  type ActiveGrantRow,
+  type ResolvedGrant,
+  buildActiveGrants,
+  identityLabel,
+} from "@/lib/active-grants";
 
 export const metadata = { title: "Grant Review | Admin" };
 
@@ -113,6 +120,25 @@ export default async function AdminGrantsPage() {
   };
   const eventRows: RawEvent[] = eventsRaw ?? [];
 
+  // FIX-1167 — ACTIVE grants, the section revoke_grant() had nothing to attach
+  // to. No target-table join here on purpose: entity_grants_target_shape forces
+  // target_id IS NULL for target_type='global', so a join would drop exactly
+  // the platform_admin and staff grants most worth revoking. Targets are
+  // resolved per-type from the bulk maps below, and `global` resolves to a
+  // label rather than to a missing row (see src/lib/active-grants.ts).
+  const { data: activeRaw } = await withDbTimeout<DbRes>(
+    admin
+      // db-timeout-exempt: wrapped — generic-typed withDbTimeout<…>( the lexical guard's regex misses
+      .from("entity_grants")
+      .select("id, user_id, role, target_type, target_id, granted_at, expires_at, created_at")
+      .eq("status", "active")
+      .order("granted_at", { ascending: false, nullsFirst: false })
+      .limit(100),
+    3000,
+    "admin-grants:active",
+  );
+  const activeRows: ActiveGrantRow[] = activeRaw ?? [];
+
   // Bulk-hydrate users / officials / evidence for both lists.
   // .in() bounded (this and the three id lists below): the two source reads are
   // pending grants `.limit(100)` and events `.limit(25)`, so every derived list
@@ -139,6 +165,7 @@ export default async function AdminGrantsPage() {
       ...pendingRows.map((g) => g.user_id),
       ...eventRows.map((e) => e.actor_id).filter(Boolean),
       ...[...grantById.values()].map((g) => g.user_id),
+      ...activeRows.map((g) => g.user_id),
     ]),
   ] as string[];
   const officialIds = [
@@ -148,13 +175,26 @@ export default async function AdminGrantsPage() {
         .filter((g) => g.target_type === "official")
         .map((g) => g.target_id)
         .filter(Boolean),
+      ...activeRows.filter((g) => g.target_type === "official").map((g) => g.target_id).filter(Boolean),
     ]),
+  ] as string[];
+  // FIX-1167 — the other two scoped target types. `global` is deliberately
+  // absent: it has no target row to look up, by constraint.
+  const jurisdictionIds = [
+    ...new Set(
+      activeRows.filter((g) => g.target_type === "jurisdiction").map((g) => g.target_id).filter(Boolean),
+    ),
+  ] as string[];
+  const institutionIds = [
+    ...new Set(
+      activeRows.filter((g) => g.target_type === "institution").map((g) => g.target_id).filter(Boolean),
+    ),
   ] as string[];
   const evidenceIds = [
     ...new Set(pendingRows.map((g) => g.evidence_id).filter(Boolean)),
   ] as string[];
 
-  const [usersRes, officialsRes, evidenceRes] = await Promise.all([
+  const [usersRes, officialsRes, evidenceRes, jurisdictionsRes, institutionsRes] = await Promise.all([
     userIds.length
       ? withDbTimeout<DbRes>(
           // db-timeout-exempt: wrapped — generic-typed withDbTimeout<…>( the lexical guard's regex misses
@@ -182,6 +222,23 @@ export default async function AdminGrantsPage() {
           "admin-grants:evidence",
         )
       : Promise.resolve({ data: [] }),
+    // .in() bounded: active grants are `.limit(100)`, so each list is ≤100 — FIX-902
+    jurisdictionIds.length
+      ? withDbTimeout<DbRes>(
+          // db-timeout-exempt: wrapped — generic-typed withDbTimeout<…>( the lexical guard's regex misses
+          admin.from("jurisdictions").select("id, name").in("id", jurisdictionIds),
+          3000,
+          "admin-grants:jurisdictions",
+        )
+      : Promise.resolve({ data: [] }),
+    institutionIds.length
+      ? withDbTimeout<DbRes>(
+          // db-timeout-exempt: wrapped — generic-typed withDbTimeout<…>( the lexical guard's regex misses
+          admin.from("institutions").select("id, name").in("id", institutionIds),
+          3000,
+          "admin-grants:institutions",
+        )
+      : Promise.resolve({ data: [] }),
   ]);
 
   const userById = new Map<string, { email: string | null; display_name: string | null }>(
@@ -195,6 +252,13 @@ export default async function AdminGrantsPage() {
       o.full_name,
     ]),
   );
+  const jurisdictionById = new Map<string, string>(
+    ((jurisdictionsRes.data ?? []) as Array<{ id: string; name: string }>).map((j) => [j.id, j.name]),
+  );
+  const institutionById = new Map<string, string>(
+    ((institutionsRes.data ?? []) as Array<{ id: string; name: string }>).map((i) => [i.id, i.name]),
+  );
+
   const evidenceById = new Map<
     string,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -222,6 +286,12 @@ export default async function AdminGrantsPage() {
       domain_match: evidence?.metadata?.domain_match === true,
       justification: evidence?.notes ?? null,
     };
+  });
+
+  const activeGrants: ResolvedGrant[] = buildActiveGrants(activeRows, userById, {
+    officialById,
+    jurisdictionById,
+    institutionById,
   });
 
   const events: EventRow[] = eventRows.map((e) => {
@@ -322,6 +392,83 @@ export default async function AdminGrantsPage() {
               </div>
             )}
           </SectionCard>
+
+          <div className="mt-6">
+            <SectionCard noPadding>
+              <div className="p-6 border-b-2 border-ink">
+                <SectionHeader
+                  title={`Active grants (${activeGrants.length})`}
+                  description="Live access, broadest scope first. Revoke is set-based on the (user, role, scope) key and NULL-safe, so one revoke retires every active row on that key — the count is shown before you confirm."
+                />
+              </div>
+
+              {activeGrants.length === 0 ? (
+                <div className="p-8 text-center text-sm text-ink-soft">
+                  No active grants.
+                </div>
+              ) : (
+                <div className="divide-y divide-rule">
+                  {activeGrants.map((g) => (
+                    <div
+                      key={g.id}
+                      className="flex flex-col gap-3 p-5 sm:flex-row sm:items-start sm:justify-between"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-ink">{identityLabel(g)}</span>
+                          <span className="border border-rule px-1.5 py-0.5 font-mono text-[10px] text-ink-soft">
+                            {g.role}
+                          </span>
+                          <span
+                            className={`px-1.5 py-0.5 font-mono text-[10px] ${
+                              g.targetType === "global"
+                                ? "bg-accent/10 text-accent"
+                                : "bg-ink/5 text-ink-soft"
+                            }`}
+                          >
+                            {g.targetType}
+                          </span>
+                          {g.activeOnKey > 1 && (
+                            <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
+                              {g.activeOnKey} active on this key
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs text-ink-soft">
+                          Scope{" "}
+                          {g.targetHref ? (
+                            <a
+                              href={g.targetHref}
+                              className="font-medium text-accent hover:underline"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {g.targetLabel}
+                            </a>
+                          ) : (
+                            <span className="font-medium text-ink">{g.targetLabel}</span>
+                          )}{" "}
+                          · granted {g.grantedAt ? formatWhen(g.grantedAt) : "—"} · expires{" "}
+                          {g.expiresAt ? formatWhen(g.expiresAt) : "never"}
+                        </p>
+                      </div>
+                      <RevokeGrantAction
+                        grantId={g.id}
+                        initialCount={g.activeOnKey}
+                        identity={{
+                          userEmail: g.userEmail,
+                          userName: g.userName,
+                          userId: g.userId,
+                          role: g.role,
+                          targetLabel: g.targetLabel,
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </SectionCard>
+          </div>
 
           <div className="mt-6">
             <SectionCard noPadding>

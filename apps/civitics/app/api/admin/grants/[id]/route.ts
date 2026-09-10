@@ -33,6 +33,71 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // would stay unrevocable — the exact bug FIX-928 is about; and revocation's
 // failure mode is silent over-retention of access, so it revokes every active row
 // on the key and reports the count rather than assuming the index left one.
+// GET /api/admin/grants/[id]  →  { ok, key, activeOnKey }
+//
+// FIX-1167 — the confirmation step's pre-read. revoke_grant() is SET-BASED on
+// the (user_id, role, target_type, target_id) key, so ONE click can retire
+// several rows; the operator has to see that number before confirming rather
+// than discover it in the response. Same predicate the RPC uses, evaluated a
+// moment before the write, so a difference against the returned count is a real
+// signal (the index was dropped or bypassed) rather than page staleness.
+//
+// PostgREST cannot express IS NOT DISTINCT FROM, so the NULL branch uses
+// `.is()` and the non-NULL branch `.eq()`. Under entity_grants_target_shape
+// exactly one applies per row — target_id IS NULL iff target_type='global' —
+// so the pair is equivalent to the RPC's predicate, not an approximation of it.
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  const adminId = await requireGrantsAdmin();
+  if (!adminId) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 403 });
+  }
+
+  const grantId = params.id;
+  if (!grantId || !UUID_RE.test(grantId)) {
+    return NextResponse.json({ error: "valid_grant_id_required" }, { status: 400 });
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const admin = createAdminClient() as any;
+
+  const { data: grant } = await admin
+    .from("entity_grants")
+    .select("user_id, role, target_type, target_id")
+    .eq("id", grantId)
+    .maybeSingle();
+  if (!grant) {
+    return NextResponse.json({ error: "grant_not_found" }, { status: 404 });
+  }
+
+  let q = admin
+    .from("entity_grants")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "active")
+    .eq("user_id", grant.user_id)
+    .eq("role", grant.role)
+    .eq("target_type", grant.target_type);
+  q = grant.target_id === null ? q.is("target_id", null) : q.eq("target_id", grant.target_id);
+
+  const { count, error } = await q;
+  if (error) {
+    return NextResponse.json({ error: "grant_count_failed" }, { status: 500 });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    key: {
+      user_id: grant.user_id,
+      role: grant.role,
+      target_type: grant.target_type,
+      target_id: grant.target_id,
+    },
+    activeOnKey: count ?? 0,
+  });
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } },

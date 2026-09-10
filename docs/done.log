@@ -1434,3 +1434,4 @@
 2026-09-09 | FIX-1166 | d610bf51 | local+prod | feat(canary): escalate when a FEC drop is pending and uncollected for more than two days; warn when the probe is blind or missing
 2026-09-09 | FIX-1167 | 0e2c93f9 | local-only | feat(admin): active-grants section with a counted, confirmed revoke on /admin/grants
 2026-09-09 | FIX-1168 | 340757f3 | local-only | chore: substitute the remaining FIX-<letter> placeholders with their allocated ids (comments only)
+2026-09-09 | FIX-914 | 42b36de3 | prod-only | chore(sld): record prod verification of FIX-914 — 39 NH floterial districts derived, 58 representatives linked

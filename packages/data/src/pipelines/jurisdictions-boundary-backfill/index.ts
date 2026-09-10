@@ -253,12 +253,26 @@ async function loadSnapshot(db: Db): Promise<Snapshot> {
   // pipeline in the loop, but the dual query keeps the snapshot robust either
   // way. The NULL-geoid filter on the legacy shape excludes the ~6,775 real
   // legislative/congressional districts (which all carry a census_geoid).
+  //
+  // FIX-914 — that last sentence stopped being true. The 39 New Hampshire
+  // floterial districts are type='district' with census_geoid NULL BY DESIGN (a
+  // floterial is not a Census geography, so it has no GEOID to carry), which
+  // made them the first rows this legacy query has returned since FIX-422
+  // drained it. They would land in stateEquivByAbbr under 'HD 008' (harmless —
+  // no STATEFP abbreviation looks like that) but ALSO in stateEquivByFips under
+  // '33', 39 of them, marking that key AMBIGUOUS. parentStateId() happens to
+  // consult statesByFips first, where New Hampshire's own '33' shadows it, so
+  // nothing breaks today — but "nothing breaks today" resting on the order of
+  // two map lookups is exactly the assumption worth removing. Scope the query
+  // to what it is actually for. NULL-safe: a row without the key reads NULL and
+  // is kept, so only the overlay rows are excluded.
   const equivByType = rowsOrThrow(await db.from("jurisdictions")
     .select("id, short_name, fips_code, boundary_geometry")
     .in("type", ["federal_district", "unincorporated_territory"]), "state-equiv (by type)");
   const equivLegacy = rowsOrThrow(await db.from("jurisdictions")
     .select("id, short_name, fips_code, boundary_geometry")
-    .eq("type", "district").is("census_geoid", null), "state-equiv (legacy)");
+    .eq("type", "district").is("census_geoid", null)
+    .is("metadata->>floterial", null), "state-equiv (legacy)");
   for (const r of [...equivByType, ...equivLegacy]) {
     addUnique(snap.stateEquivByAbbr, r.short_name, tgt(r));
     addUnique(snap.stateEquivByFips, r.fips_code, tgt(r));

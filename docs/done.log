@@ -1433,3 +1433,4 @@
 2026-09-09 | FIX-1060 | f6aa53eb | prod-only | chore(nightly): record prod verification of FIX-1060 — the first :17 nightly's fec-phase peaked at 172 MB under the new 4096 ceiling
 2026-09-09 | FIX-1166 | d610bf51 | local+prod | feat(canary): escalate when a FEC drop is pending and uncollected for more than two days; warn when the probe is blind or missing
 2026-09-09 | FIX-1167 | 0e2c93f9 | local-only | feat(admin): active-grants section with a counted, confirmed revoke on /admin/grants
+2026-09-09 | FIX-1168 | 340757f3 | local-only | chore: substitute the remaining FIX-<letter> placeholders with their allocated ids (comments only)
